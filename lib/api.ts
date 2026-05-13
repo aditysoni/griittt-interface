@@ -1,0 +1,465 @@
+const BASE_URL = `${process.env.EXPO_PUBLIC_API_BASE ?? 'http://192.168.1.9:3001'}/api`;
+
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  avatar_url: string | null;
+  created_at: string;
+};
+
+export type Task = {
+  id: string;
+  name: string;
+  normalized_name: string;
+  score: number;
+  days: number[] | null;
+  archived_at: string | null;
+  start_date: string | null;
+  category: string | null;
+  tiny_version: string | null;
+  why_started: string | null;
+  track_count: boolean;
+  count_unit: string | null;
+  created_at: string;
+};
+
+export type HabitScore = {
+  name: string;
+  normalized: string;
+  score: number;
+  done: boolean;
+  streak: number;
+};
+
+// Preset control habits (shown as chips when creating a CONTROL habit)
+export const CONTROL_PRESETS: { name: string; icon: string; unit: string }[] = [
+  { name: 'Cigarettes',         icon: '🚬', unit: 'cigs'    },
+  { name: 'Alcohol',            icon: '🍺', unit: 'drinks'  },
+  { name: 'Masturbation',       icon: '🔞', unit: 'times'   },
+  { name: 'Instagram / Reels',  icon: '📱', unit: 'minutes' },
+  { name: 'Gambling',           icon: '🎰', unit: 'sessions'},
+  { name: 'Junk Food',          icon: '🍔', unit: 'times'   },
+  { name: 'Social Media',       icon: '💬', unit: 'minutes' },
+  { name: 'Caffeine',           icon: '☕', unit: 'cups'    },
+];
+
+export type StrengthIdentity = {
+  totalXP: number;
+  levelIndex: number;
+  levelName: string;
+  nextLevel?: string;
+  xpToNext?: number;
+  updatedAt: string;
+};
+
+export type FuelIdentity = {
+  totalXP: number;
+  levelIndex: number;
+  levelName: string;
+  nextLevel?: string;
+  xpToNext?: number;
+};
+
+export type LeaderboardEntry = {
+  userId: string;
+  userName: string;
+  avatar: string | null;
+  score: number;
+};
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  token?: string | null
+): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers as Record<string, string> || {}),
+  };
+
+  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+
+  if (res.status === 204) return null as T;
+
+  const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+
+  if (!res.ok) {
+    throw new Error(data.error || data.message || `HTTP ${res.status}`);
+  }
+
+  return data;
+}
+
+// Auth
+export const auth = {
+  login: (email: string, password: string) =>
+    request<{ user: User; token: string }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+
+  signup: (name: string, email: string, password: string) =>
+    request<{ user: User; token: string }>('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
+    }),
+
+  me: (token: string) =>
+    request<User>('/auth/me', {}, token),
+};
+
+// Tasks / Habits
+export const tasks = {
+  list: (token: string) =>
+    request<Task[]>('/tasks', {}, token),
+
+  create: (token: string, data: { name: string; category?: string; days?: number[]; score?: number; tinyVersion?: string; whyStarted?: string; trackCount?: boolean; countUnit?: string | null }) =>
+    request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }, token),
+
+  update: (token: string, id: string, data: Partial<Task>) =>
+    request<Task>('/tasks/' + id, { method: 'PUT', body: JSON.stringify(data) }, token),
+
+  delete: (token: string, id: string) =>
+    request<null>('/tasks/' + id, { method: 'DELETE' }, token),
+};
+
+// Habit completions & scores
+export const habits = {
+  score: (token: string, name: string, date: string) =>
+    request<HabitScore>(`/habits/${encodeURIComponent(name)}/score?date=${date}`, {}, token),
+
+  dailyScore: (token: string, date: string) =>
+    request<{ date: string; score: number }>(`/habits/score/day?date=${date}`, {}, token),
+
+  complete: (token: string, name: string, taskId?: string, count?: number | null) =>
+    request<{ ok: boolean; count: number | null }>(`/habits/${encodeURIComponent(name)}/completions`, {
+      method: 'POST',
+      body: JSON.stringify({ taskId, count }),
+    }, token),
+
+  uncomplete: (token: string, name: string) =>
+    request<null>(`/habits/${encodeURIComponent(name)}/completions`, { method: 'DELETE' }, token),
+
+  ranking: (token: string, name: string) =>
+    request<{ name: string; normalized: string; ranking: Array<{ userId: string; userName: string; avatar: string | null; streak: number }> }>(
+      `/habits/${encodeURIComponent(name)}/ranking`,
+      {},
+      token
+    ),
+
+  shields: (token: string) =>
+    request<{ monthKey: string; used: string[]; remaining: number; max: number }>('/habits/shields', {}, token),
+
+  useShield: (token: string, date: string) =>
+    request<{ ok: boolean; alreadyUsed?: boolean; remaining: number }>('/habits/shields/use', {
+      method: 'POST',
+      body: JSON.stringify({ date }),
+    }, token),
+
+  badDay: (token: string, date: string) =>
+    request<{ ok: boolean }>('/habits/bad-day', {
+      method: 'POST',
+      body: JSON.stringify({ date }),
+    }, token),
+
+  weeklyDebrief: (token: string) =>
+    request<{ summary: string; pattern: string; suggestion: string; identity: string }>('/habits/ai/weekly-debrief', { method: 'POST' }, token),
+
+  recoveryNudge: (token: string, data: { habitName: string; streak?: number; tinyVersion?: string; whyStarted?: string }) =>
+    request<{ nudge: string; suggestTiny: boolean }>('/habits/ai/recovery-nudge', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, token),
+
+  patterns: (token: string) =>
+    request<{ patterns: Array<{ insight: string; actionable: string }> }>('/habits/ai/patterns', { method: 'POST' }, token),
+
+  allStatus: (token: string, date: string) =>
+    request<Array<{ id: string; normalized_name: string; done: boolean; count: number | null; streak: number }>>(
+      `/habits/all/status?date=${date}`, {}, token
+    ),
+
+  stats: (token: string, name: string) =>
+    request<{
+      name: string;
+      normalized: string;
+      consistency: number;
+      currentStreak: number;
+      longestStreak: number;
+      totalDone: number;
+      daysActive: number;
+      windowDays: number;
+      percentile: number | null;
+      totalUsersWithHabit: number;
+      doneDates: string[];
+    }>(`/habits/${encodeURIComponent(name)}/stats`, {}, token),
+
+  history: (token: string, name: string, from: string, to: string) =>
+    request<{ name: string; dates: string[] }>(
+      `/habits/history?name=${encodeURIComponent(name)}&from=${from}&to=${to}`,
+      {},
+      token
+    ),
+
+  disciplineDay: (token: string, date: string) =>
+    request<{
+      date: string;
+      buildScore: number;
+      controlScore: number;
+      overallScore: number;
+      buildDone: number;
+      buildTotal: number;
+      controlDone: number;
+      controlTotal: number;
+    }>(`/habits/discipline/day?date=${date}`, {}, token),
+};
+
+export type BodyPart =
+  | 'chest' | 'back' | 'shoulders' | 'legs'
+  | 'biceps' | 'triceps' | 'abs' | 'cardio';
+
+export type SetEntry = {
+  reps: number;
+  weight: number; // kg, 0 = bodyweight
+};
+
+export type ExerciseEntry = {
+  name: string;
+  sets: SetEntry[];
+};
+
+export type TrainingType = 'gym' | 'sports' | 'cardio';
+
+export type WorkoutLog = {
+  id: string;
+  mode: 'simple' | 'detailed';
+  category: 'strength' | 'cardio' | 'games' | null;
+  rating: number | null;
+  activity: string | null;
+  durationMins: number | null;
+  distanceKm: number | null;
+  intensity: number | null;
+  notes: string | null;
+  exercises: ExerciseEntry[] | null;
+  bodyPart: BodyPart | null;
+  score: number;
+  createdAt: string;
+};
+
+// Body parts with icons (used for the chooser grid)
+export const BODY_PARTS: { key: BodyPart; label: string; icon: string }[] = [
+  { key: 'chest',     label: 'CHEST',     icon: '🫁' },
+  { key: 'back',      label: 'BACK',      icon: '🔙' },
+  { key: 'shoulders', label: 'SHOULDERS', icon: '💪' },
+  { key: 'legs',      label: 'LEGS',      icon: '🦵' },
+  { key: 'biceps',    label: 'BICEPS',    icon: '💪' },
+  { key: 'triceps',   label: 'TRICEPS',   icon: '🦾' },
+  { key: 'abs',       label: 'ABS',       icon: '🟫' },
+  { key: 'cardio',    label: 'CARDIO',    icon: '🏃' },
+];
+
+// Common sports suggestions
+export const SPORTS_SUGGESTIONS = [
+  'Basketball', 'Football', 'Soccer', 'Tennis', 'Cricket',
+  'Badminton', 'Volleyball', 'Swimming', 'Table Tennis', 'Squash',
+];
+
+// Suggested exercises per body part
+export const EXERCISE_SUGGESTIONS: Record<BodyPart, string[]> = {
+  chest:     ['Bench Press', 'Incline Press', 'Dumbbell Flies', 'Push-ups', 'Cable Crossover', 'Dips'],
+  back:      ['Pull-ups', 'Lat Pulldown', 'Barbell Rows', 'Deadlifts', 'T-Bar Rows', 'Face Pulls'],
+  shoulders: ['Overhead Press', 'Lateral Raise', 'Front Raise', 'Reverse Flies', 'Shrugs', 'Arnold Press'],
+  legs:      ['Squats', 'Lunges', 'Leg Press', 'Romanian Deadlift', 'Leg Curls', 'Calf Raises'],
+  biceps:    ['Bicep Curl', 'Hammer Curl', 'Preacher Curl', 'Cable Curl', 'Concentration Curl'],
+  triceps:   ['Tricep Pushdown', 'Skull Crushers', 'Overhead Extension', 'Dips', 'Close-Grip Bench'],
+  abs:       ['Crunches', 'Plank', 'Leg Raises', 'Russian Twists', 'Cable Crunch', 'Hanging Knee Raise'],
+  cardio:    ['Running', 'Cycling', 'Rowing', 'Jump Rope', 'Stair Climber', 'Elliptical'],
+};
+
+export type LogResult = {
+  logId: string;
+  score: number;
+  xpEarned: number;
+  totalXP: number;
+  levelIndex: number;
+  levelName: string;
+  levelChanged: boolean;
+};
+
+// Strength
+export const strength = {
+  identity: (token: string) =>
+    request<StrengthIdentity>('/strength/identity', {}, token),
+
+  log: (token: string, data: {
+    mode: 'simple' | 'detailed';
+    date: string;
+    streak?: number;
+    // simple
+    rating?: number;
+    // detailed
+    category?: string;
+    activity?: string;
+    durationMins?: number;
+    intensity?: number;
+    distanceKm?: number;
+    notes?: string;
+    exercises?: ExerciseEntry[];
+    bodyPart?: BodyPart;
+  }) =>
+    request<LogResult>('/strength/log', { method: 'POST', body: JSON.stringify(data) }, token),
+
+  logs: (token: string, date: string) =>
+    request<WorkoutLog[]>(`/strength/logs?date=${date}`, {}, token),
+
+  leaderboard: (token: string, date: string) =>
+    request<{ date: string; leaderboard: LeaderboardEntry[] }>(`/strength/leaderboard?date=${date}`, {}, token),
+};
+
+export type FoodLog = {
+  id: string;
+  mode: 'simple' | 'detailed';
+  hadThreeMeals: boolean | null;
+  foodQuality: number | null;
+  hadJunkFood: boolean | null;
+  calories: number | null;
+  calorieTarget: number | null;
+  protein: number | null;
+  proteinTarget: number | null;
+  mealsLogged: number | null;
+  expectedMeals: number | null;
+  junkMeals: number | null;
+  notes: string | null;
+  score: number;
+  createdAt: string;
+};
+
+export type FuelLogResult = {
+  score: number;
+  fuelScore?: number;
+  xpEarned?: number;
+  levelName?: string;
+  levelChanged?: boolean;
+};
+
+export type MealTime = 'morning' | 'brunch' | 'lunch' | 'evening' | 'dinner' | 'snacks';
+
+export type FoodItem = {
+  id: string;
+  name: string;
+  mealTime: MealTime;
+  calories: number | null;
+  protein: number | null;
+  fat: number | null;
+  carbs: number | null;
+  createdAt: string;
+};
+
+// Fuel
+export const fuel = {
+  identity: (token: string) =>
+    request<FuelIdentity>('/fuel/identity', {}, token),
+
+  log: (token: string, data: {
+    mode: 'simple' | 'detailed';
+    date: string;
+    // simple
+    hadThreeMeals?: boolean;
+    foodQuality?: number;
+    hadJunkFood?: boolean;
+    // detailed
+    calories?: number;
+    calorieTarget?: number;
+    protein?: number;
+    proteinTarget?: number;
+    mealsLogged?: number;
+    expectedMeals?: number;
+    junkMeals?: number;
+    notes?: string;
+  }) =>
+    request<FuelLogResult>('/fuel/log', { method: 'POST', body: JSON.stringify(data) }, token),
+
+  logs: (token: string, date: string) =>
+    request<FoodLog[]>(`/fuel/logs?date=${date}`, {}, token),
+
+  history: (token: string, from: string, to: string) =>
+    request<Array<{
+      date: string;
+      foodQuality: number | null;
+      hadJunkFood: boolean | null;
+      stuckToMeal: boolean | null;
+      score: number | null;
+    }>>(`/fuel/history?from=${from}&to=${to}`, {}, token),
+
+  items: (token: string, date: string) =>
+    request<FoodItem[]>(`/fuel/items?date=${date}`, {}, token),
+
+  addItem: (token: string, data: { date: string; name: string; mealTime: MealTime; calories?: number; protein?: number; fat?: number; carbs?: number }) =>
+    request<FoodItem>('/fuel/items', { method: 'POST', body: JSON.stringify(data) }, token),
+
+  deleteItem: (token: string, id: string) =>
+    request<null>(`/fuel/items/${id}`, { method: 'DELETE' }, token),
+};
+
+// AI
+export const ai = {
+  foodCoach: (token: string, data: { dailyLogs: Array<{ date: string; calories: number; protein: number; carbs: number; fats: number }>; calorieGoal: number; proteinGoal: number }) =>
+    request<{ tips: string[] }>('/ai/food-coach', { method: 'POST', body: JSON.stringify(data) }, token),
+
+  workout: (token: string, data: { levelName: string; levelIndex: number; totalXP: number; workoutDaysPerWeek: number; recentSessions: Array<{ date: string; completedWeight: number; totalWeight: number; effort: number }> }) =>
+    request<{ plan: Array<{ day: string; focus: string; exercises: string[] }> }>('/ai/workout', { method: 'POST', body: JSON.stringify(data) }, token),
+
+  snapTrack: (token: string, imageBase64: string) =>
+    request<{ name: string; calories: number; protein: number; carbs: number; fats: number; servingNote: string }>(
+      '/ai/snap-track',
+      { method: 'POST', body: JSON.stringify({ imageBase64 }) },
+      token
+    ),
+};
+
+// Challenges
+export type Challenge = {
+  id: string;
+  title: string;
+  description: string;
+  domain: string;
+  durationDays: number;
+  isPreset: boolean;
+  joined: boolean;
+  status: 'active' | 'completed' | 'abandoned' | null;
+  startedAt: string | null;
+  targetDate: string | null;
+  daysDone: number;
+  completedAt: string | null;
+};
+
+export const challenges = {
+  list: (token: string, domain?: string) =>
+    request<Challenge[]>(
+      `/challenges${domain ? `?domain=${domain}` : ''}`,
+      {},
+      token
+    ),
+
+  create: (token: string, data: { title: string; description?: string; domain: string; durationDays: number }) =>
+    request<Challenge>('/challenges', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, token),
+
+  join: (token: string, id: string) =>
+    request<{ ok: boolean; startedAt: string; targetDate: string }>(
+      `/challenges/${id}/join`,
+      { method: 'POST' },
+      token
+    ),
+
+  abandon: (token: string, id: string) =>
+    request<null>(`/challenges/${id}/join`, { method: 'DELETE' }, token),
+};
+
+export function today(): string {
+  return new Date().toISOString().split('T')[0];
+}

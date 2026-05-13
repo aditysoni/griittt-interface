@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Grittt",
+    "slug": "grittt-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "grittt",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0F0F14"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.grittt.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Allow Grittt to access your photos to track your food.",
+        "NSCameraUsageDescription": "Allow Grittt to use your camera to snap and track food."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0F0F14"
+      },
+      "package": "com.grittt.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Grittt to access your photos to track your food.",
+          "cameraPermission": "Allow Grittt to use your camera to snap and track food."
+        }
+      ],
+      "expo-web-browser",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
