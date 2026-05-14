@@ -30,6 +30,9 @@ export default function LoginScreen() {
     try {
       await login(email.trim().toLowerCase(), password);
     } catch (err: any) {
+      // Log full error for Metro/console visibility (helps when server returns non-JSON)
+      // eslint-disable-next-line no-console
+      console.error('Login error', err);
       Alert.alert('Login Failed', err.message || 'Invalid credentials');
     } finally {
       setLoading(false);

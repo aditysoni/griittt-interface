@@ -11,7 +11,7 @@ const FUTURE_DAYS = 3;
 function buildDays() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const total = PAST_DAYS + 1 + FUTURE_DAYS; // past + today + future
+  const total = PAST_DAYS + 1 + FUTURE_DAYS;
   return Array.from({ length: total }, (_, i) => {
     const d = new Date(today);
     d.setDate(today.getDate() - PAST_DAYS + i);
@@ -31,11 +31,9 @@ export function DaySelector({ selectedDate, onSelect }: Props) {
   const today     = new Date().toISOString().slice(0, 10);
   const days      = buildDays();
 
-  // Scroll so today is on screen with the 3 future days visible to its right.
   useEffect(() => {
     const idx = days.findIndex(d => d.full === today);
     if (idx < 0) return;
-    // Show ~4 past days + today + 3 future cells. Position today as the 5th cell.
     const x = (idx - 4) * (CELL_W + CELL_GAP);
     setTimeout(() => scrollRef.current?.scrollTo({ x: Math.max(0, x), animated: false }), 50);
   }, []);
@@ -55,23 +53,28 @@ export function DaySelector({ selectedDate, onSelect }: Props) {
         return (
           <TouchableOpacity
             key={d.full}
-            style={[s.cell, active && { backgroundColor: '#FFFFFF' }, isFuture && !active && s.cellFuture]}
+            style={[
+              s.cell,
+              { backgroundColor: theme.overlay },
+              active && { backgroundColor: theme.inverse },
+              isFuture && !active && { backgroundColor: theme.surface, opacity: 0.6 },
+            ]}
             onPress={() => onSelect(d.full)}
             activeOpacity={0.7}
           >
             <Text style={[s.letter, {
-              color: active ? '#000' : isFuture ? 'rgba(255,255,255,0.3)' : theme.textSecondary,
+              color: active ? theme.inverseText : isFuture ? theme.textMuted : theme.textSecondary,
             }]}>
               {d.letter}
             </Text>
             <Text style={[s.num, {
-              color: active ? '#000' : isFuture ? 'rgba(255,255,255,0.3)' : theme.text,
+              color: active ? theme.inverseText : isFuture ? theme.textMuted : theme.text,
               fontFamily: active ? 'Inter_900Black' : 'Inter_500Medium',
             }]}>
               {d.date}
             </Text>
             {isToday && !active && (
-              <View style={[s.dot, { backgroundColor: '#34C759' }]} />
+              <View style={[s.dot, { backgroundColor: theme.success }]} />
             )}
           </TouchableOpacity>
         );
@@ -89,9 +92,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  cellFuture: { backgroundColor: 'rgba(255,255,255,0.02)' },
   letter:     { fontSize: 7, fontWeight: '700', letterSpacing: 0.8 },
   num:        { fontSize: 16, lineHeight: 18 },
   dot:        { width: 4, height: 4, borderRadius: 2, position: 'absolute', bottom: 6 },

@@ -1,12 +1,13 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { COLORS } from './theme';
+import { useTheme } from './ThemeContext';
 
 export function LoadingScreen({ message }: { message?: string }) {
+  const { theme } = useTheme();
   return (
-    <View style={styles.container}>
-      <ActivityIndicator size="large" color={COLORS.primary} />
-      {message && <Text style={styles.text}>{message}</Text>}
+    <View style={[styles.container, { backgroundColor: theme.bg }]}>
+      <ActivityIndicator size="large" color={theme.text} />
+      {message && <Text style={[styles.text, { color: theme.textSecondary }]}>{message}</Text>}
     </View>
   );
 }
@@ -14,13 +15,11 @@ export function LoadingScreen({ message }: { message?: string }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.bg,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 16,
   },
   text: {
-    color: COLORS.textSecondary,
     fontSize: 14,
   },
 });

@@ -33,7 +33,12 @@ function InitialLayout() {
   }, [user, isLoading, segments]);
 
   if (isLoading) return <LoadingScreen />;
-  return <Slot />;
+  return (
+    <>
+      <StatusBar style={theme.isDark ? 'light' : 'dark'} />
+      <Slot />
+    </>
+  );
 }
 
 export default function RootLayout() {
@@ -54,7 +59,6 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <StatusBar style="auto" />
         <InitialLayout />
       </AuthProvider>
     </ThemeProvider>

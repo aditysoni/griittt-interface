@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 import { ai, habits, tasks, today } from '../../lib/api';
 import { COLORS } from '../../components/theme';
+import { useTheme } from '../../components/ThemeContext';
 
 type SnapResult = {
   name: string;
@@ -37,6 +38,7 @@ type DebriefResult = {
 
 export default function AIScreen() {
   const { token } = useAuth();
+  const { theme } = useTheme();
 
   const [debriefLoading, setDebriefLoading] = useState(false);
   const [debrief, setDebrief] = useState<DebriefResult | null>(null);
@@ -151,10 +153,10 @@ export default function AIScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.screenTitle}>AI Coach</Text>
-        <Text style={styles.screenSub}>Your personal AI-powered habit & health coach</Text>
+        <Text style={[styles.screenTitle, { color: theme.text }]}>AI Coach</Text>
+        <Text style={[styles.screenSub, { color: theme.textSecondary }]}>Your personal AI-powered habit & health coach</Text>
 
         {/* Weekly Debrief */}
         <AICard
@@ -165,6 +167,7 @@ export default function AIScreen() {
           buttonLabel="Generate Debrief"
           onPress={runWeeklyDebrief}
           loading={debriefLoading}
+          theme={theme}
         />
 
         {/* Pattern Analysis */}
@@ -176,17 +179,18 @@ export default function AIScreen() {
           buttonLabel="Analyze Patterns"
           onPress={runPatterns}
           loading={patternsLoading}
+          theme={theme}
         />
 
         {/* Snap Track */}
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.cardHeader}>
             <View style={[styles.iconBadge, { backgroundColor: '#10B981' + '20' }]}>
               <Ionicons name="camera-outline" size={22} color="#10B981" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>Snap Track</Text>
-              <Text style={styles.cardDesc}>Take a photo of your food and get instant nutrition estimates powered by AI.</Text>
+              <Text style={[styles.cardTitle, { color: theme.text }]}>Snap Track</Text>
+              <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>Take a photo of your food and get instant nutrition estimates powered by AI.</Text>
             </View>
           </View>
 
@@ -197,24 +201,24 @@ export default function AIScreen() {
           {snapLoading && (
             <View style={styles.snapLoading}>
               <ActivityIndicator color="#10B981" />
-              <Text style={styles.snapLoadingText}>Analyzing food...</Text>
+              <Text style={[styles.snapLoadingText, { color: theme.textSecondary }]}>Analyzing food...</Text>
             </View>
           )}
 
           {snapResult && (
             <View style={styles.snapResult}>
-              <Text style={styles.snapFoodName}>{snapResult.name}</Text>
-              <Text style={styles.snapServing}>{snapResult.servingNote}</Text>
+              <Text style={[styles.snapFoodName, { color: theme.text }]}>{snapResult.name}</Text>
+              <Text style={[styles.snapServing, { color: theme.textSecondary }]}>{snapResult.servingNote}</Text>
               <View style={styles.macroRow}>
-                <Macro label="Calories" value={snapResult.calories} unit="kcal" color={COLORS.warning} />
-                <Macro label="Protein" value={snapResult.protein} unit="g" color="#10B981" />
-                <Macro label="Carbs" value={snapResult.carbs} unit="g" color={COLORS.primary} />
-                <Macro label="Fats" value={snapResult.fats} unit="g" color={COLORS.error} />
+                <Macro label="Calories" value={snapResult.calories} unit="kcal" color={COLORS.warning} theme={theme} />
+                <Macro label="Protein" value={snapResult.protein} unit="g" color="#10B981" theme={theme} />
+                <Macro label="Carbs" value={snapResult.carbs} unit="g" color={COLORS.primary} theme={theme} />
+                <Macro label="Fats" value={snapResult.fats} unit="g" color={COLORS.error} theme={theme} />
               </View>
             </View>
           )}
 
-          <Text style={styles.snapHint}>📸 Take a photo with your Camera app first, then pick it here</Text>
+          <Text style={[styles.snapHint, { color: theme.textSecondary }]}>📸 Take a photo with your Camera app first, then pick it here</Text>
           <TouchableOpacity style={styles.snapPickBtn} onPress={() => snapFromSource(false)}>
             <Ionicons name="images" size={20} color="#10B981" />
             <Text style={styles.snapPickBtnText}>Pick Photo from Gallery</Text>
@@ -224,26 +228,26 @@ export default function AIScreen() {
 
       {/* Weekly Debrief Modal */}
       <Modal visible={debriefModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHandle} />
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Weekly Debrief</Text>
+        <View style={[styles.modal, { backgroundColor: theme.bg }]}>
+          <View style={[styles.modalHandle, { backgroundColor: theme.border }]} />
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Weekly Debrief</Text>
             <TouchableOpacity onPress={() => { setDebriefModal(false); setDebrief(null); }}>
-              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              <Ionicons name="close" size={24} color={theme.textSecondary} />
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.modalBody}>
             {debriefLoading ? (
               <View style={styles.modalLoading}>
                 <ActivityIndicator size="large" color={COLORS.primary} />
-                <Text style={styles.modalLoadingText}>Generating your debrief...</Text>
+                <Text style={[styles.modalLoadingText, { color: theme.textSecondary }]}>Generating your debrief...</Text>
               </View>
             ) : debrief ? (
               <View style={{ gap: 20 }}>
-                <DebriefSection icon="📊" title="Summary" body={debrief.summary} />
-                <DebriefSection icon="🔍" title="Pattern" body={debrief.pattern} />
-                <DebriefSection icon="💡" title="Suggestion" body={debrief.suggestion} />
-                <DebriefSection icon="🧬" title="Identity" body={debrief.identity} />
+                <DebriefSection icon="📊" title="Summary" body={debrief.summary} theme={theme} />
+                <DebriefSection icon="🔍" title="Pattern" body={debrief.pattern} theme={theme} />
+                <DebriefSection icon="💡" title="Suggestion" body={debrief.suggestion} theme={theme} />
+                <DebriefSection icon="🧬" title="Identity" body={debrief.identity} theme={theme} />
               </View>
             ) : null}
           </ScrollView>
@@ -252,26 +256,26 @@ export default function AIScreen() {
 
       {/* Patterns Modal */}
       <Modal visible={patternsModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHandle} />
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Pattern Analysis</Text>
+        <View style={[styles.modal, { backgroundColor: theme.bg }]}>
+          <View style={[styles.modalHandle, { backgroundColor: theme.border }]} />
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Pattern Analysis</Text>
             <TouchableOpacity onPress={() => { setPatternsModal(false); setPatterns([]); }}>
-              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              <Ionicons name="close" size={24} color={theme.textSecondary} />
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.modalBody}>
             {patternsLoading ? (
               <View style={styles.modalLoading}>
                 <ActivityIndicator size="large" color={COLORS.secondary} />
-                <Text style={styles.modalLoadingText}>Analyzing 30 days of data...</Text>
+                <Text style={[styles.modalLoadingText, { color: theme.textSecondary }]}>Analyzing 30 days of data...</Text>
               </View>
             ) : patterns.length > 0 ? (
               <View style={{ gap: 16 }}>
                 {patterns.map((p, i) => (
-                  <View key={i} style={styles.patternCard}>
-                    <Text style={styles.patternInsight}>💡 {p.insight}</Text>
-                    <Text style={styles.patternActionable}>→ {p.actionable}</Text>
+                  <View key={i} style={[styles.patternCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <Text style={[styles.patternInsight, { color: theme.text }]}>💡 {p.insight}</Text>
+                    <Text style={[styles.patternActionable, { color: COLORS.secondary }]}>→ {p.actionable}</Text>
                   </View>
                 ))}
               </View>
@@ -283,19 +287,19 @@ export default function AIScreen() {
   );
 }
 
-function AICard({ icon, iconColor, title, description, buttonLabel, onPress, loading }: {
+function AICard({ icon, iconColor, title, description, buttonLabel, onPress, loading, theme }: {
   icon: any; iconColor: string; title: string; description: string;
-  buttonLabel: string; onPress: () => void; loading: boolean;
+  buttonLabel: string; onPress: () => void; loading: boolean; theme: any;
 }) {
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.cardHeader}>
         <View style={[styles.iconBadge, { backgroundColor: iconColor + '20' }]}>
           <Ionicons name={icon} size={22} color={iconColor} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.cardTitle}>{title}</Text>
-          <Text style={styles.cardDesc}>{description}</Text>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>{title}</Text>
+          <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>{description}</Text>
         </View>
       </View>
       <TouchableOpacity
@@ -311,41 +315,41 @@ function AICard({ icon, iconColor, title, description, buttonLabel, onPress, loa
   );
 }
 
-function Macro({ label, value, unit, color }: { label: string; value: number; unit: string; color: string }) {
+function Macro({ label, value, unit, color, theme }: { label: string; value: number; unit: string; color: string; theme: any }) {
   return (
     <View style={styles.macro}>
       <Text style={[styles.macroValue, { color }]}>{value}</Text>
-      <Text style={styles.macroUnit}>{unit}</Text>
-      <Text style={styles.macroLabel}>{label}</Text>
+      <Text style={[styles.macroUnit, { color: theme.textSecondary }]}>{unit}</Text>
+      <Text style={[styles.macroLabel, { color: theme.textSecondary }]}>{label}</Text>
     </View>
   );
 }
 
-function DebriefSection({ icon, title, body }: { icon: string; title: string; body: string }) {
+function DebriefSection({ icon, title, body, theme }: { icon: string; title: string; body: string; theme: any }) {
   return (
     <View style={styles.debriefSection}>
-      <Text style={styles.debriefTitle}>{icon} {title}</Text>
-      <Text style={styles.debriefBody}>{body}</Text>
+      <Text style={[styles.debriefTitle, { color: theme.text }]}>{icon} {title}</Text>
+      <Text style={[styles.debriefBody, { color: theme.textSecondary }]}>{body}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.bg },
+  safe: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, gap: 16 },
-  screenTitle: { fontSize: 28, fontWeight: '800', color: COLORS.text },
-  screenSub: { fontSize: 13, color: COLORS.textSecondary, marginTop: -8 },
+  screenTitle: { fontSize: 28, fontWeight: '800' },
+  screenSub: { fontSize: 13, marginTop: -8 },
   card: {
-    backgroundColor: COLORS.surface, borderRadius: 16, padding: 20,
-    borderWidth: 1, borderColor: COLORS.border, gap: 14,
+    borderRadius: 16, padding: 20,
+    borderWidth: 1, gap: 14,
   },
   cardHeader: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
   iconBadge: {
     width: 44, height: 44, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
   },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 4 },
-  cardDesc: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 18 },
+  cardTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  cardDesc: { fontSize: 13, lineHeight: 18 },
   cardBtn: {
     borderWidth: 1, borderRadius: 10, paddingVertical: 12,
     alignItems: 'center', justifyContent: 'center', minHeight: 44,
@@ -354,43 +358,43 @@ const styles = StyleSheet.create({
   cardBtnText: { fontSize: 14, fontWeight: '600' },
   snapImage: { width: '100%', height: 200, borderRadius: 12 },
   snapLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
-  snapLoadingText: { color: COLORS.textSecondary, fontSize: 14 },
+  snapLoadingText: { fontSize: 14 },
   snapResult: { gap: 8 },
-  snapFoodName: { fontSize: 18, fontWeight: '700', color: COLORS.text },
-  snapServing: { fontSize: 12, color: COLORS.textSecondary },
+  snapFoodName: { fontSize: 18, fontWeight: '700' },
+  snapServing: { fontSize: 12 },
   macroRow: { flexDirection: 'row', gap: 12 },
   macro: { flex: 1, alignItems: 'center', gap: 2 },
   macroValue: { fontSize: 20, fontWeight: '800' },
-  macroUnit: { fontSize: 10, color: COLORS.textSecondary },
-  macroLabel: { fontSize: 10, color: COLORS.textSecondary },
-  snapHint: { fontSize: 12, color: COLORS.textSecondary, textAlign: 'center' },
+  macroUnit: { fontSize: 10 },
+  macroLabel: { fontSize: 10 },
+  snapHint: { fontSize: 12, textAlign: 'center' },
   snapPickBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 10, paddingVertical: 14, borderRadius: 12, borderWidth: 1,
     borderColor: '#10B981', backgroundColor: '#10B981' + '15',
   },
   snapPickBtnText: { fontSize: 15, fontWeight: '700', color: '#10B981' },
-  modal: { flex: 1, backgroundColor: COLORS.surface, paddingTop: 8 },
+  modal: { flex: 1, paddingTop: 8 },
   modalHandle: {
-    width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2,
+    width: 40, height: 4, borderRadius: 2,
     alignSelf: 'center', marginBottom: 8,
   },
   modalHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+    borderBottomWidth: 1,
   },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: COLORS.text },
+  modalTitle: { fontSize: 20, fontWeight: '700' },
   modalBody: { padding: 20, paddingBottom: 40 },
   modalLoading: { alignItems: 'center', gap: 16, paddingTop: 60 },
-  modalLoadingText: { color: COLORS.textSecondary, fontSize: 15 },
+  modalLoadingText: { fontSize: 15 },
   debriefSection: { gap: 8 },
-  debriefTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text },
-  debriefBody: { fontSize: 14, color: COLORS.textSecondary, lineHeight: 22 },
+  debriefTitle: { fontSize: 16, fontWeight: '700' },
+  debriefBody: { fontSize: 14, lineHeight: 22 },
   patternCard: {
-    backgroundColor: COLORS.card, borderRadius: 12, padding: 16, gap: 8,
-    borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: 12, padding: 16, gap: 8,
+    borderWidth: 1,
   },
-  patternInsight: { fontSize: 14, color: COLORS.text, fontWeight: '600', lineHeight: 20 },
-  patternActionable: { fontSize: 13, color: COLORS.secondary, lineHeight: 18 },
+  patternInsight: { fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  patternActionable: { fontSize: 13, lineHeight: 18 },
 });

@@ -2,7 +2,6 @@ import { Tabs } from 'expo-router';
 import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../components/ThemeContext';
-import { useEffect } from 'react';
 
 const TABS = [
   { name: 'index',      label: 'INDEX',    icon: 'grid-outline'      as const },
@@ -12,15 +11,8 @@ const TABS = [
   { name: 'profile',    label: 'YOU',      icon: 'person-outline'    as const },
 ];
 
-const DARK_TABS = new Set(['index', 'strength', 'fuel', 'challenges', 'ai']);
-
-function TabBar({ state, descriptors, navigation }: any) {
-  const { theme, setDark } = useTheme();
-  const currentTabName = state.routes[state.index]?.name ?? 'index';
-
-  useEffect(() => {
-    setDark(DARK_TABS.has(currentTabName));
-  }, [currentTabName]);
+function TabBar({ state, navigation }: any) {
+  const { theme } = useTheme();
 
   return (
     <View style={[tb.root, { backgroundColor: theme.bg, borderTopColor: theme.border }]}>

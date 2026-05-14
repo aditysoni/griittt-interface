@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import {
   Alert, Dimensions, FlatList, RefreshControl,
   ScrollView, StyleSheet, Text, TouchableOpacity, View,
@@ -116,14 +116,14 @@ function ScrollableChart({ allData, theme }: {
             const x        = i * BAR_STEP + (BAR_STEP - BAR_W) / 2;
             const y        = PAD_T + INNER_H - barH;
             const isToday  = d.date === today();
-            const fill     = isToday ? '#FFFFFF' : v > 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.06)';
+            const fill     = isToday ? theme.text : v > 0 ? theme.overlayStrong : theme.overlay;
             const dayLabel = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'narrow' });
             return (
               <React.Fragment key={d.date}>
                 <Rect x={x} y={y} width={BAR_W} height={barH} fill={fill} rx={2} />
                 <SvgText
                   x={x + BAR_W / 2} y={H - 6}
-                  fill={isToday ? '#FFF' : 'rgba(255,255,255,0.3)'}
+                  fill={isToday ? theme.text : theme.textMuted}
                   fontSize={8} textAnchor="middle"
                   fontWeight={isToday ? '700' : '400'}
                 >
@@ -158,10 +158,10 @@ function DayCard({ item, theme }: { item: DayData; theme: any }) {
   const { headline } = identityMessage(overall);
 
   return (
-    <View style={[dc.card, { width: CARD_W }]}>
+    <View style={[dc.card, { width: CARD_W, backgroundColor: theme.card, borderColor: theme.border, borderTopColor: theme.borderStrong }]}>
       {/* Top label + headline */}
       <View style={dc.top}>
-        <Text style={[dc.dateLabel, { color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_700Bold' }]}>
+        <Text style={[dc.dateLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
           {formatDayLabel(item.date).toUpperCase()}
         </Text>
         <Text style={[dc.headline, { color, fontFamily: 'Inter_900Black' }]}>{headline}</Text>
@@ -169,51 +169,47 @@ function DayCard({ item, theme }: { item: DayData; theme: any }) {
 
       {/* Big score */}
       <View style={dc.scoreRow}>
-        <Text style={[dc.scoreBig, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>{overall}</Text>
-        <Text style={[dc.scoreMax, { color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_500Medium' }]}>/100</Text>
+        <Text style={[dc.scoreBig, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{overall}</Text>
+        <Text style={[dc.scoreMax, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>/100</Text>
       </View>
 
       {/* Score bar */}
-      <View style={dc.barTrack}>
+      <View style={[dc.barTrack, { backgroundColor: theme.overlayMid }]}>
         <View style={[dc.barFill, { width: `${overall}%`, backgroundColor: color }]} />
       </View>
 
       {/* 3-column breakdown */}
       <View style={dc.breakdown}>
-        <Cell label="DISCIPLINE" value={item.discipline} />
-        <View style={dc.sep} />
-        <Cell label="FOOD" value={item.food} />
-        <View style={dc.sep} />
-        <Cell label="PHYSICAL" value={item.physical} />
+        <Cell label="DISCIPLINE" value={item.discipline} theme={theme} />
+        <View style={[dc.sep, { backgroundColor: theme.border }]} />
+        <Cell label="FOOD" value={item.food} theme={theme} />
+        <View style={[dc.sep, { backgroundColor: theme.border }]} />
+        <Cell label="PHYSICAL" value={item.physical} theme={theme} />
       </View>
     </View>
   );
 }
 
-function Cell({ label, value }: { label: string; value: number }) {
+function Cell({ label, value, theme }: { label: string; value: number; theme: any }) {
   return (
     <View style={dc.cell}>
-      <Text style={[dc.cellLabel, { color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_700Bold' }]}>{label}</Text>
-      <Text style={[dc.cellValue, { color: '#FFFFFF', fontFamily: 'SpaceGrotesk_700Bold' }]}>{value}</Text>
+      <Text style={[dc.cellLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>{label}</Text>
+      <Text style={[dc.cellValue, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>{value}</Text>
     </View>
   );
 }
 
 const dc = StyleSheet.create({
   card: {
-    backgroundColor: '#111111',
     borderRadius: 2,
     padding: 20, gap: 14,
-    // Pop-out shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.6,
+    shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 10,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
   },
   top:       { gap: 3 },
   dateLabel: { fontSize: 8, letterSpacing: 3 },
@@ -221,13 +217,13 @@ const dc = StyleSheet.create({
   scoreRow:  { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
   scoreBig:  { fontSize: 64, letterSpacing: -4, lineHeight: 68 },
   scoreMax:  { fontSize: 18 },
-  barTrack:  { height: 1.5, borderRadius: 1, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.1)' },
+  barTrack:  { height: 1.5, borderRadius: 1, overflow: 'hidden' },
   barFill:   { height: '100%', borderRadius: 1 },
   breakdown: { flexDirection: 'row', alignItems: 'center' },
   cell:      { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 10 },
   cellLabel: { fontSize: 7, letterSpacing: 1.5 },
   cellValue: { fontSize: 20 },
-  sep:       { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.08)' },
+  sep:       { width: 1, height: 28 },
 });
 
 // ── Trend card ─────────────────────────────────────────────────────────────────
@@ -279,11 +275,9 @@ const tc = StyleSheet.create({
 
 export default function ProfileScreen() {
   const { user, token, logout } = useAuth();
-  const { theme, setDark }      = useTheme();
+  const { theme, setMode }      = useTheme();
   const router   = useRouter();
   const flatRef  = useRef<FlatList>(null);
-
-  useFocusEffect(React.useCallback(() => { setDark(true); }, []));
 
   const NUM_DAYS = 7;
   const DAYS = Array.from({ length: NUM_DAYS }, (_, i) => shiftDate(today(), i - (NUM_DAYS - 1)));
@@ -374,8 +368,12 @@ export default function ProfileScreen() {
         />
 
         {/* Hawk Eye — centred, popped */}
-        <TouchableOpacity style={s.hawkBtn} onPress={() => setHawkEye(true)} activeOpacity={0.85}>
-          <Text style={[s.hawkTitle, { fontFamily: 'SpaceGrotesk_700Bold' }]}>HAWK EYE</Text>
+        <TouchableOpacity
+          style={[s.hawkBtn, { backgroundColor: theme.inverse, shadowColor: theme.inverse }]}
+          onPress={() => setHawkEye(true)}
+          activeOpacity={0.85}
+        >
+          <Text style={[s.hawkTitle, { color: theme.inverseText, fontFamily: 'SpaceGrotesk_700Bold' }]}>HAWK EYE</Text>
         </TouchableOpacity>
         <HawkEyeModal visible={hawkEye} onClose={() => setHawkEye(false)} token={token!} />
 
@@ -420,6 +418,38 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
+        {/* Appearance / theme toggle */}
+        <View style={[s.actionRow, { borderColor: theme.border }]}>
+          <Ionicons
+            name={theme.isDark ? 'moon' : 'sunny'}
+            size={22}
+            color={theme.text}
+            style={{ width: 22 }}
+          />
+          <View style={s.actionInfo}>
+            <Text style={[s.actionTitle, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>APPEARANCE</Text>
+            <Text style={[s.actionSub, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+              Currently {theme.isDark ? 'Dark' : 'Light'} mode
+            </Text>
+          </View>
+          <View style={[s.themeToggle, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <TouchableOpacity
+              style={[s.themeOpt, !theme.isDark && { backgroundColor: theme.inverse }]}
+              onPress={() => setMode('light')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="sunny" size={13} color={!theme.isDark ? theme.inverseText : theme.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.themeOpt, theme.isDark && { backgroundColor: theme.inverse }]}
+              onPress={() => setMode('dark')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="moon" size={13} color={theme.isDark ? theme.inverseText : theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <TouchableOpacity style={s.signOut} onPress={handleLogout}>
           <Text style={[s.signOutText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>SIGN OUT</Text>
         </TouchableOpacity>
@@ -437,12 +467,12 @@ const s = StyleSheet.create({
   cardList:  { paddingHorizontal: 16, paddingVertical: 4 },
   hawkBtn:   {
     marginHorizontal: 16, alignItems: 'center', justifyContent: 'center', gap: 4,
-    backgroundColor: '#FFFFFF', paddingVertical: 12, paddingHorizontal: 24,
-    shadowColor: '#FFFFFF', shadowOffset: { width: 0, height: 0 },
+    paddingVertical: 12, paddingHorizontal: 24,
+    shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.15, shadowRadius: 20, elevation: 8,
   },
-  hawkTitle: { fontSize: 16, letterSpacing: 3, color: '#000000' },
-  hawkSub:   { fontSize: 10, color: 'rgba(0,0,0,0.45)', letterSpacing: 1 },
+  hawkTitle: { fontSize: 16, letterSpacing: 3 },
+  hawkSub:   { fontSize: 10, letterSpacing: 1 },
   chartCard: { marginHorizontal: 16, borderWidth: 1, padding: 16, gap: 12, overflow: 'hidden' },
   chartLabel: { fontSize: 9, letterSpacing: 3 },
   levelDomain: { fontSize: 8, letterSpacing: 2 },
@@ -457,6 +487,8 @@ const s = StyleSheet.create({
   actionInfo: { flex: 1, gap: 3 },
   actionTitle: { fontSize: 12, letterSpacing: 1 },
   actionSub: { fontSize: 10 },
+  themeToggle: { flexDirection: 'row', borderWidth: 1, borderRadius: 8, padding: 2, gap: 2 },
+  themeOpt: { width: 32, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 6 },
   signOut:   { alignItems: 'center', paddingVertical: 20 },
   signOutText: { fontSize: 9, letterSpacing: 4 },
 });

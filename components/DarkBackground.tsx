@@ -1,15 +1,17 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme } from './ThemeContext';
 
-// Liquid black-grey gradient — multiple stops create a flowing, depth-layered feel
 type Props = { children: React.ReactNode };
 
+// Kept the export name for backwards-compat; renders the active theme's gradient.
 export function DarkBackground({ children }: Props) {
+  const { theme } = useTheme();
   return (
     <View style={s.root}>
       <LinearGradient
-        colors={['#000000', '#1F1E1E']}
+        colors={theme.bgGradient}
         locations={[0, 1]}
         start={{ x: 0.3, y: 1 }}
         end={{ x: 0.7, y: 0 }}

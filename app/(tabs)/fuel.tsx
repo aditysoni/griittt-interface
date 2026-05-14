@@ -182,18 +182,22 @@ export default function FuelScreen() {
         {mode === 'detailed' && <MacroTracker items={foodItems} theme={theme} />}
 
         {/* QUICK / DETAILED toggle */}
-        <View style={s.tabToggle} onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}>
+        <View
+          style={[s.tabToggle, { backgroundColor: theme.isDark ? '#000000' : theme.overlay }]}
+          onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
+        >
           {tabContainerW > 0 && (
             <Animated.View style={[s.tabPill, {
+              backgroundColor: theme.inverse,
               width: tabContainerW / 2,
               transform: [{ translateX: tabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, tabContainerW / 2] }) }],
             }]} />
           )}
           <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('quick')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, { color: mode === 'quick' ? '#000000' : 'rgba(255,255,255,0.4)', fontFamily: 'Inter_900Black' }]}>QUICK</Text>
+            <Text style={[s.tabBtnText, { color: mode === 'quick' ? theme.inverseText : theme.textMuted, fontFamily: 'Inter_900Black' }]}>QUICK</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('detailed')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, { color: mode === 'detailed' ? '#000000' : 'rgba(255,255,255,0.4)', fontFamily: 'Inter_900Black' }]}>DETAILED</Text>
+            <Text style={[s.tabBtnText, { color: mode === 'detailed' ? theme.inverseText : theme.textMuted, fontFamily: 'Inter_900Black' }]}>DETAILED</Text>
           </TouchableOpacity>
         </View>
 
@@ -241,15 +245,15 @@ export default function FuelScreen() {
               </View>
               <View style={qcs.qualityBars}>
                 {Array.from({ length: 10 }).map((_, i) => (
-                  <View key={i} style={[qcs.qualityBar, { backgroundColor: i < foodQuality ? '#34C759' : 'rgba(255,255,255,0.08)' }]} />
+                  <View key={i} style={[qcs.qualityBar, { backgroundColor: i < foodQuality ? '#34C759' : theme.overlay }]} />
                 ))}
               </View>
             </TouchableOpacity>
 
             {/* Quality bottom-sheet modal */}
             <Modal visible={showQPicker} transparent animationType="slide">
-              <Pressable style={qs.backdrop} onPress={() => setShowQPicker(false)} />
-              <View style={[qs.sheet, { backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF' }]}>
+              <Pressable style={[qs.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setShowQPicker(false)} />
+              <View style={[qs.sheet, { backgroundColor: theme.cardElevated }]}>
                 <View style={[qs.handle, { backgroundColor: theme.border }]} />
                 <Text style={[qs.sheetTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>FOOD QUALITY</Text>
                 <Text style={[qs.sheetSub, { color: '#34C759', fontFamily: 'Inter_700Bold' }]}>{QUALITY_LABELS[foodQuality]}</Text>
@@ -457,7 +461,7 @@ function QualityScroll({ value, onChange, theme }: { value: number; onChange: (n
             activeOpacity={0.7}
           >
             <Text style={[qs.num, {
-              color: active ? '#FFFFFF' : 'rgba(255,255,255,0.2)',
+              color: active ? theme.text : theme.textMuted,
               fontSize: active ? 40 : 28,
               fontFamily: active ? 'Inter_900Black' : 'Inter_500Medium',
             }]}>
@@ -476,7 +480,7 @@ const qs = StyleSheet.create({
   item:       { alignItems: 'center', justifyContent: 'center', height: 64, gap: 4 },
   num:        { lineHeight: 48 },
   dot:        { width: 4, height: 4, borderRadius: 2 },
-  backdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
+  backdrop:   { flex: 1 },
   sheet:      { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40, paddingTop: 12 },
   handle:     { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
   sheetTitle: { fontSize: 14, letterSpacing: 3, textAlign: 'center' },
@@ -530,7 +534,7 @@ function MacroTracker({ items, theme }: { items: FoodItem[]; theme: any }) {
                 </View>
               </View>
               <View style={mt.barWrap}>
-                <View style={[mt.barTrack, { backgroundColor: 'rgba(255,255,255,0.07)' }]}>
+                <View style={[mt.barTrack, { backgroundColor: theme.overlay }]}>
                   <View style={[mt.barFill, { width: `${pct * 100}%` as any, backgroundColor: color }]} />
                 </View>
                 <Text style={[mt.target, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
@@ -569,7 +573,7 @@ function FoodItemCard({ item, theme, onDelete }: { item: FoodItem; theme: any; o
   return (
     <View style={[fi.itemCard, { borderColor: theme.border }]}>
       <View style={fi.itemHeader}>
-        <View style={[fi.mealTimeBadge, { backgroundColor: 'rgba(255,255,255,0.07)' }]}>
+        <View style={[fi.mealTimeBadge, { backgroundColor: theme.overlay }]}>
           <Text style={fi.mealTimeEmoji}>{MEAL_TIME_ICONS[item.mealTime]}</Text>
           <Text style={[fi.mealTimeText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
             {item.mealTime.toUpperCase()}
@@ -621,7 +625,7 @@ function MacroTotalsBar({ items, theme }: { items: FoodItem[]; theme: any }) {
   if (!hasAny) return null;
 
   return (
-    <View style={[fi.totalsBar, { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.04)' }]}>
+    <View style={[fi.totalsBar, { borderColor: theme.border, backgroundColor: theme.surface }]}>
       <Text style={[fi.totalsLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>DAILY TOTAL</Text>
       <View style={fi.totalsRow}>
         {[
@@ -772,7 +776,7 @@ function MealRow({ log, theme }: { log: FoodLog; theme: any }) {
         {!!time && (
           <Text style={[mr.time, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{time}</Text>
         )}
-        <View style={[mr.scorePill, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+        <View style={[mr.scorePill, { backgroundColor: theme.surfaceStrong }]}>
           <Text style={[mr.scoreText, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>+{log.score}</Text>
         </View>
       </View>
@@ -900,8 +904,8 @@ const s = StyleSheet.create({
   topIcon: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   datesRow: { paddingHorizontal: 14, paddingBottom: 8 },
   scroll: { paddingBottom: 120 },
-  tabToggle: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, height: 46, backgroundColor: '#000000', borderRadius: 12, overflow: 'hidden', position: 'relative' },
-  tabPill: { position: 'absolute', top: 0, left: 0, height: 46, backgroundColor: '#FFFFFF', borderRadius: 12 },
+  tabToggle: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, height: 46, borderRadius: 12, overflow: 'hidden', position: 'relative' },
+  tabPill: { position: 'absolute', top: 0, left: 0, height: 46, borderRadius: 12 },
   tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
   tabBtnText: { fontSize: 11, letterSpacing: 3 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 24, paddingTop: 20, paddingBottom: 0 },

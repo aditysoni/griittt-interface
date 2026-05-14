@@ -79,17 +79,50 @@ async function request<T>(
     ...(options.headers as Record<string, string> || {}),
   };
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  const url = `${BASE_URL}${path}`;
+
+  // Helpful debug logs when running in development
+  // Expo defines global __DEV__ -- keep this small and conditional
+  try {
+    // eslint-disable-next-line no-undef
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      // Keep body small to avoid leaking large payloads
+      // eslint-disable-next-line no-console
+      console.debug('[api] request', options.method || 'GET', url, {
+        headers,
+        body: options.body ? (typeof options.body === 'string' ? options.body : '[body]') : undefined,
+      });
+    }
+  } catch (e) {
+    // ignore logging failures
+  }
+
+  const res = await fetch(url, { ...options, headers });
 
   if (res.status === 204) return null as T;
 
-  const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-
-  if (!res.ok) {
-    throw new Error(data.error || data.message || `HTTP ${res.status}`);
+  // Prefer reading as text so we can provide meaningful errors when server
+  // returns non-JSON (e.g., HTML error page, plain text, etc.). Then try to
+  // parse JSON; if that fails include the raw text in the thrown error.
+  const text = await res.text().catch(() => '');
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      data = { _raw: text };
+    }
   }
 
-  return data;
+  if (!res.ok) {
+    const message = (data && (data.error || data.message)) || data?._raw || `HTTP ${res.status}`;
+    const err: any = new Error(message);
+    err.status = res.status;
+    err.response = data;
+    throw err;
+  }
+
+  return data as T;
 }
 
 // Auth
@@ -420,11 +453,17 @@ export const ai = {
 };
 
 // Challenges
+export type ChallengeTheme = 'physical' | 'health' | 'career' | 'lifestyle';
+
 export type Challenge = {
   id: string;
   title: string;
   description: string;
   domain: string;
+  theme: ChallengeTheme;
+  habitCategory: 'build' | 'control';
+  benefits: string[];
+  instructions: string | null;
   durationDays: number;
   isPreset: boolean;
   joined: boolean;
@@ -433,6 +472,17 @@ export type Challenge = {
   targetDate: string | null;
   daysDone: number;
   completedAt: string | null;
+  participantCount: number;
+};
+
+export type DurationStats = {
+  challengeId: string;
+  durationDays: number;
+  total: number;
+  completed: number;
+  active: number;
+  abandoned: number;
+  histogram: Array<{ range: [number, number]; label: string; users: number }>;
 };
 
 export const challenges = {
@@ -443,7 +493,11 @@ export const challenges = {
       token
     ),
 
-  create: (token: string, data: { title: string; description?: string; domain: string; durationDays: number }) =>
+  create: (token: string, data: {
+    title: string; description?: string; domain: string; durationDays: number;
+    theme?: ChallengeTheme; benefits?: string[]; instructions?: string;
+    habitCategory?: 'build' | 'control';
+  }) =>
     request<Challenge>('/challenges', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -458,6 +512,9 @@ export const challenges = {
 
   abandon: (token: string, id: string) =>
     request<null>(`/challenges/${id}/join`, { method: 'DELETE' }, token),
+
+  durationStats: (token: string, id: string) =>
+    request<DurationStats>(`/challenges/${id}/duration-stats`, {}, token),
 };
 
 export function today(): string {

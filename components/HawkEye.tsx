@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { habits, fuel, tasks, Task } from '../lib/api';
-import { COLORS } from './theme';
+import { useTheme, AppTheme } from './ThemeContext';
 
 // ── constants ──────────────────────────────────────────────────────────────────
 
@@ -26,13 +26,11 @@ const STORAGE_KEY = 'grittt_hawkeye_countdown';
 const PRIMARY  = '#8B5CF6';
 const GREEN    = '#10B981';
 const RED      = '#EF4444';
-const CROSSED  = '#1A1A2A';
 
 type HawkMode   = 'calendar' | 'countdown';
 type FilterKind = 'none' | 'habit' | 'food';
 type FoodMetric = 'quality' | 'junk' | 'meal';
 
-// overlay per day: 'done' | 'missed' | number (quality 0-10) | null (no data)
 type Overlay = 'done' | 'missed' | number | null;
 type OverlayMap = Record<string, Overlay>;
 
@@ -63,22 +61,19 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 type CircleState = 'future' | 'today' | 'past';
 
 function DayCircle({
-  label, state, overlay,
-}: { label: string; state: CircleState; overlay?: Overlay }) {
+  label, state, overlay, theme,
+}: { label: string; state: CircleState; overlay?: Overlay; theme: AppTheme }) {
   const today  = state === 'today';
   const past   = state === 'past';
-  const hasData = overlay !== undefined && overlay !== null;
 
-  // Determine bg + text + icon based on overlay
   let bg = 'transparent';
-  let borderColor = COLORS.border;
-  let textColor = COLORS.textSecondary;
+  let borderColor = theme.border;
+  let textColor = theme.textSecondary;
   let icon: React.ReactNode = null;
   let displayLabel = label;
 
   if (overlay !== undefined && overlay !== null) {
     if (typeof overlay === 'number') {
-      // Food quality: show quality number, color-coded background
       bg = qualityColor(overlay) + '30';
       borderColor = qualityColor(overlay);
       textColor = qualityColor(overlay);
@@ -101,10 +96,10 @@ function DayCircle({
     borderColor = PRIMARY;
     textColor = '#FFF';
   } else if (past) {
-    bg = CROSSED;
-    borderColor = '#2D2D42';
-    textColor = '#3D3D55';
-    icon = <View style={dc.crossWrap}><Text style={dc.cross}>✕</Text></View>;
+    bg = theme.surface;
+    borderColor = theme.border;
+    textColor = theme.textMuted;
+    icon = <View style={dc.crossWrap}><Text style={[dc.cross, { color: theme.textMuted }]}>✕</Text></View>;
   }
 
   return (
@@ -123,12 +118,14 @@ const dc = StyleSheet.create({
   label: { fontSize: 12, fontWeight: '600' },
   icon: { fontSize: 16, fontWeight: '900', lineHeight: 18 },
   crossWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', borderRadius: CIRCLE / 2 },
-  cross: { fontSize: 18, color: '#3D3D55', fontWeight: '900' },
+  cross: { fontSize: 18, fontWeight: '900' },
 });
 
 // ── CalendarMonth ──────────────────────────────────────────────────────────────
 
-function CalendarMonth({ year, month, overlayMap }: { year: number; month: number; overlayMap?: OverlayMap }) {
+function CalendarMonth({ year, month, overlayMap, theme }: {
+  year: number; month: number; overlayMap?: OverlayMap; theme: AppTheme;
+}) {
   const today   = todayStr();
   const total   = daysInMonth(year, month);
   const offset  = firstWeekday(year, month);
@@ -137,9 +134,11 @@ function CalendarMonth({ year, month, overlayMap }: { year: number; month: numbe
 
   return (
     <View style={cs.month}>
-      <Text style={cs.monthLabel}>{MONTH_NAMES[month]} {year}</Text>
+      <Text style={[cs.monthLabel, { color: theme.text }]}>{MONTH_NAMES[month]} {year}</Text>
       <View style={cs.row}>
-        {DAY_LABELS.map(d => <Text key={d} style={cs.dayHeader}>{d}</Text>)}
+        {DAY_LABELS.map(d => (
+          <Text key={d} style={[cs.dayHeader, { color: theme.textTertiary }]}>{d}</Text>
+        ))}
       </View>
       {chunk(cells, 7).map((week, wi) => (
         <View key={wi} style={cs.row}>
@@ -148,7 +147,7 @@ function CalendarMonth({ year, month, overlayMap }: { year: number; month: numbe
             const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const state: CircleState = ds < today ? 'past' : ds === today ? 'today' : 'future';
             const overlay = overlayMap ? overlayMap[ds] : undefined;
-            return <DayCircle key={di} label={String(day)} state={state} overlay={overlay} />;
+            return <DayCircle key={di} label={String(day)} state={state} overlay={overlay} theme={theme} />;
           })}
         </View>
       ))}
@@ -158,14 +157,14 @@ function CalendarMonth({ year, month, overlayMap }: { year: number; month: numbe
 
 const cs = StyleSheet.create({
   month: { marginBottom: 28 },
-  monthLabel: { fontSize: 16, fontWeight: '800', color: COLORS.text, marginBottom: 14 },
+  monthLabel: { fontSize: 16, fontWeight: '800', marginBottom: 14 },
   row: { flexDirection: 'row', gap: GAP, marginBottom: GAP },
-  dayHeader: { width: CIRCLE, textAlign: 'center', fontSize: 10, fontWeight: '700', color: COLORS.textTertiary },
+  dayHeader: { width: CIRCLE, textAlign: 'center', fontSize: 10, fontWeight: '700' },
 });
 
 // ── CountdownGrid ──────────────────────────────────────────────────────────────
 
-function CountdownGrid({ startDate, endDate }: { startDate: string; endDate: string }) {
+function CountdownGrid({ startDate, endDate, theme }: { startDate: string; endDate: string; theme: AppTheme }) {
   const today = todayStr();
   const start = parseDate(startDate);
   const end   = parseDate(endDate);
@@ -182,12 +181,12 @@ function CountdownGrid({ startDate, endDate }: { startDate: string; endDate: str
   return (
     <View>
       <View style={cg.header}>
-        <Text style={cg.info}>{total} → 1 days remaining</Text>
-        <Text style={cg.done}>{days.filter(d => d.state === 'past').length} / {total} done</Text>
+        <Text style={[cg.info, { color: theme.textSecondary }]}>{total} → 1 days remaining</Text>
+        <Text style={[cg.done, { color: PRIMARY }]}>{days.filter(d => d.state === 'past').length} / {total} done</Text>
       </View>
       {chunk(days, COLS).map((row, ri) => (
         <View key={ri} style={cg.row}>
-          {row.map(({ n, state }) => <DayCircle key={n} label={String(n)} state={state} />)}
+          {row.map(({ n, state }) => <DayCircle key={n} label={String(n)} state={state} theme={theme} />)}
           {Array.from({ length: COLS - row.length }).map((_, i) => (
             <View key={`p${i}`} style={{ width: CIRCLE, height: CIRCLE }} />
           ))}
@@ -199,8 +198,8 @@ function CountdownGrid({ startDate, endDate }: { startDate: string; endDate: str
 
 const cg = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
-  info: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
-  done: { fontSize: 13, color: PRIMARY, fontWeight: '700' },
+  info: { fontSize: 13, fontWeight: '600' },
+  done: { fontSize: 13, fontWeight: '700' },
   row: { flexDirection: 'row', gap: GAP, marginBottom: GAP },
 });
 
@@ -208,7 +207,7 @@ const cg = StyleSheet.create({
 
 const PRESETS = [21, 30, 60, 90, 100];
 
-function CountdownSetup({ onSet }: { onSet: (start: string, end: string) => void }) {
+function CountdownSetup({ onSet, theme }: { onSet: (start: string, end: string) => void; theme: AppTheme }) {
   const [startInput, setStartInput] = useState(todayStr());
   const [duration, setDuration] = useState(30);
   const [custom, setCustom] = useState('');
@@ -223,22 +222,41 @@ function CountdownSetup({ onSet }: { onSet: (start: string, end: string) => void
   }
 
   return (
-    <View style={su.card}>
-      <Text style={su.title}>Set Your Countdown</Text>
+    <View style={[su.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <Text style={[su.title, { color: theme.text }]}>Set Your Countdown</Text>
       <View style={su.field}>
-        <Text style={su.label}>Start Date (YYYY-MM-DD)</Text>
-        <TextInput style={su.input} value={startInput} onChangeText={setStartInput} placeholder="2026-05-09" placeholderTextColor={COLORS.textTertiary} autoCorrect={false} />
+        <Text style={[su.label, { color: theme.textSecondary }]}>Start Date (YYYY-MM-DD)</Text>
+        <TextInput
+          style={[su.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
+          value={startInput} onChangeText={setStartInput}
+          placeholder="2026-05-09" placeholderTextColor={theme.textTertiary} autoCorrect={false}
+        />
       </View>
       <View style={su.field}>
-        <Text style={su.label}>Duration</Text>
+        <Text style={[su.label, { color: theme.textSecondary }]}>Duration</Text>
         <View style={su.presets}>
-          {PRESETS.map(p => (
-            <TouchableOpacity key={p} style={[su.chip, !custom && duration === p && su.chipActive]} onPress={() => { setDuration(p); setCustom(''); }}>
-              <Text style={[su.chipText, !custom && duration === p && { color: PRIMARY, fontWeight: '700' }]}>{p}d</Text>
-            </TouchableOpacity>
-          ))}
+          {PRESETS.map(p => {
+            const active = !custom && duration === p;
+            return (
+              <TouchableOpacity
+                key={p}
+                style={[
+                  su.chip,
+                  { backgroundColor: theme.surface, borderColor: theme.border },
+                  active && { borderColor: PRIMARY, backgroundColor: PRIMARY + '18' },
+                ]}
+                onPress={() => { setDuration(p); setCustom(''); }}
+              >
+                <Text style={[su.chipText, { color: theme.textSecondary }, active && { color: PRIMARY, fontWeight: '700' }]}>{p}d</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
-        <TextInput style={[su.input, { marginTop: 8 }]} value={custom} onChangeText={setCustom} placeholder="Custom days..." placeholderTextColor={COLORS.textTertiary} keyboardType="number-pad" />
+        <TextInput
+          style={[su.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text, marginTop: 8 }]}
+          value={custom} onChangeText={setCustom}
+          placeholder="Custom days..." placeholderTextColor={theme.textTertiary} keyboardType="number-pad"
+        />
       </View>
       <TouchableOpacity style={su.btn} onPress={handleSet}>
         <Ionicons name="flag" size={16} color="#FFF" />
@@ -249,15 +267,14 @@ function CountdownSetup({ onSet }: { onSet: (start: string, end: string) => void
 }
 
 const su = StyleSheet.create({
-  card: { backgroundColor: COLORS.card, borderRadius: 14, padding: 16, gap: 14, borderWidth: 1, borderColor: COLORS.border },
-  title: { fontSize: 15, fontWeight: '700', color: COLORS.text },
+  card: { borderRadius: 14, padding: 16, gap: 14, borderWidth: 1 },
+  title: { fontSize: 15, fontWeight: '700' },
   field: { gap: 8 },
-  label: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600' },
-  input: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, color: COLORS.text, fontSize: 14 },
+  label: { fontSize: 12, fontWeight: '600' },
+  input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14 },
   presets: { flexDirection: 'row', gap: 8 },
-  chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface },
-  chipActive: { borderColor: PRIMARY, backgroundColor: PRIMARY + '18' },
-  chipText: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
+  chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1.5 },
+  chipText: { fontSize: 13, fontWeight: '600' },
   btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: PRIMARY, borderRadius: 12, paddingVertical: 14 },
   btnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });
@@ -271,13 +288,14 @@ const FOOD_METRICS: { key: FoodMetric; label: string; desc: string }[] = [
 ];
 
 function FilterPanel({
-  token, taskList,
+  token, taskList, theme,
   filterKind, setFilterKind,
   selectedHabit, setSelectedHabit,
   foodMetric, setFoodMetric,
 }: {
   token: string;
   taskList: Task[];
+  theme: AppTheme;
   filterKind: FilterKind;
   setFilterKind: (k: FilterKind) => void;
   selectedHabit: Task | null;
@@ -288,50 +306,59 @@ function FilterPanel({
   return (
     <View style={fp.root}>
       {/* Kind selector */}
-      <View style={fp.kindRow}>
-        {(['none', 'habit', 'food'] as FilterKind[]).map(k => (
-          <TouchableOpacity
-            key={k}
-            style={[fp.kindBtn, filterKind === k && fp.kindBtnActive]}
-            onPress={() => { setFilterKind(k); if (k !== 'habit') setSelectedHabit(null); }}
-          >
-            <Text style={[fp.kindText, filterKind === k && { color: PRIMARY, fontWeight: '700' }]}>
-              {k === 'none' ? 'Calendar' : k === 'habit' ? '🏷 Habit' : '🥗 Food'}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={[fp.kindRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        {(['none', 'habit', 'food'] as FilterKind[]).map(k => {
+          const active = filterKind === k;
+          return (
+            <TouchableOpacity
+              key={k}
+              style={[fp.kindBtn, active && { backgroundColor: PRIMARY + '20' }]}
+              onPress={() => { setFilterKind(k); if (k !== 'habit') setSelectedHabit(null); }}
+            >
+              <Text style={[fp.kindText, { color: theme.textSecondary }, active && { color: PRIMARY, fontWeight: '700' }]}>
+                {k === 'none' ? 'Calendar' : k === 'habit' ? '🏷 Habit' : '🥗 Food'}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* Habit list */}
       {filterKind === 'habit' && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={fp.hScroll}>
-          {taskList.map(t => (
-            <TouchableOpacity
-              key={t.id}
-              style={[fp.habitChip, selectedHabit?.id === t.id && fp.habitChipActive]}
-              onPress={() => setSelectedHabit(selectedHabit?.id === t.id ? null : t)}
-            >
-              <Text style={[fp.habitChipText, selectedHabit?.id === t.id && { color: PRIMARY, fontWeight: '700' }]} numberOfLines={1}>
-                {t.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {taskList.map(t => {
+            const active = selectedHabit?.id === t.id;
+            return (
+              <TouchableOpacity
+                key={t.id}
+                style={[fp.habitChip, { backgroundColor: theme.card, borderColor: theme.border }, active && { borderColor: PRIMARY, backgroundColor: PRIMARY + '18' }]}
+                onPress={() => setSelectedHabit(active ? null : t)}
+              >
+                <Text style={[fp.habitChipText, { color: theme.textSecondary }, active && { color: PRIMARY, fontWeight: '700' }]} numberOfLines={1}>
+                  {t.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       )}
 
       {/* Food metrics */}
       {filterKind === 'food' && (
         <View style={fp.metricRow}>
-          {FOOD_METRICS.map(m => (
-            <TouchableOpacity
-              key={m.key}
-              style={[fp.metricBtn, foodMetric === m.key && fp.metricBtnActive]}
-              onPress={() => setFoodMetric(m.key)}
-            >
-              <Text style={[fp.metricLabel, foodMetric === m.key && { color: PRIMARY }]}>{m.label}</Text>
-              <Text style={fp.metricDesc}>{m.desc}</Text>
-            </TouchableOpacity>
-          ))}
+          {FOOD_METRICS.map(m => {
+            const active = foodMetric === m.key;
+            return (
+              <TouchableOpacity
+                key={m.key}
+                style={[fp.metricBtn, { backgroundColor: theme.card, borderColor: theme.border }, active && { borderColor: PRIMARY, backgroundColor: PRIMARY + '15' }]}
+                onPress={() => setFoodMetric(m.key)}
+              >
+                <Text style={[fp.metricLabel, { color: theme.textSecondary }, active && { color: PRIMARY }]}>{m.label}</Text>
+                <Text style={[fp.metricDesc, { color: theme.textTertiary }]}>{m.desc}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       )}
     </View>
@@ -340,31 +367,28 @@ function FilterPanel({
 
 const fp = StyleSheet.create({
   root: { paddingHorizontal: 16, gap: 10, marginBottom: 4 },
-  kindRow: { flexDirection: 'row', backgroundColor: COLORS.surface, borderRadius: 12, padding: 4, borderWidth: 1, borderColor: COLORS.border },
+  kindRow: { flexDirection: 'row', borderRadius: 12, padding: 4, borderWidth: 1 },
   kindBtn: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 9 },
-  kindBtnActive: { backgroundColor: PRIMARY + '20' },
-  kindText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
+  kindText: { fontSize: 12, fontWeight: '600' },
   hScroll: { gap: 8, paddingVertical: 2 },
-  habitChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.card },
-  habitChipActive: { borderColor: PRIMARY, backgroundColor: PRIMARY + '18' },
-  habitChipText: { fontSize: 13, color: COLORS.textSecondary },
+  habitChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
+  habitChipText: { fontSize: 13 },
   metricRow: { gap: 8 },
-  metricBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.card },
-  metricBtnActive: { borderColor: PRIMARY, backgroundColor: PRIMARY + '15' },
-  metricLabel: { fontSize: 13, fontWeight: '700', color: COLORS.textSecondary },
-  metricDesc: { fontSize: 11, color: COLORS.textTertiary },
+  metricBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 10, borderWidth: 1.5 },
+  metricLabel: { fontSize: 13, fontWeight: '700' },
+  metricDesc: { fontSize: 11 },
 });
 
 // ── Legend ─────────────────────────────────────────────────────────────────────
 
-function LegendItem({ color, border, label, icon, crossed }: { color: string; border: string; label: string; icon?: string; crossed?: boolean }) {
+function LegendItem({ color, border, label, icon, crossed, theme }: { color: string; border: string; label: string; icon?: string; crossed?: boolean; theme: AppTheme }) {
   return (
     <View style={leg.item}>
       <View style={[leg.dot, { backgroundColor: color, borderColor: border }]}>
         {icon   && <Text style={{ fontSize: 9, color: border, fontWeight: '900' }}>{icon}</Text>}
-        {crossed && <Text style={{ fontSize: 9, color: '#3D3D55', fontWeight: '900' }}>✕</Text>}
+        {crossed && <Text style={{ fontSize: 9, color: theme.textMuted, fontWeight: '900' }}>✕</Text>}
       </View>
-      <Text style={leg.label}>{label}</Text>
+      <Text style={[leg.label, { color: theme.textSecondary }]}>{label}</Text>
     </View>
   );
 }
@@ -372,7 +396,7 @@ function LegendItem({ color, border, label, icon, crossed }: { color: string; bo
 const leg = StyleSheet.create({
   item: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  label: { fontSize: 10, color: COLORS.textSecondary },
+  label: { fontSize: 10 },
 });
 
 // ── Main HawkEyeModal ──────────────────────────────────────────────────────────
@@ -380,6 +404,7 @@ const leg = StyleSheet.create({
 type Props = { visible: boolean; onClose: () => void; token: string };
 
 export function HawkEyeModal({ visible, onClose, token }: Props) {
+  const { theme } = useTheme();
   const [mode, setMode]         = useState<HawkMode>('calendar');
   const [countdown, setCountdown] = useState<{ start: string; end: string } | null>(null);
   const [filterKind, setFilterKind]     = useState<FilterKind>('none');
@@ -390,18 +415,15 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
   const [overlayLoading, setOverlayLoading] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Date range for data fetch (covers all visible months)
   const now = new Date();
   const rangeFrom = addMonths(now, -3).toISOString().slice(0, 10);
   const rangeTo   = todayStr();
 
-  // Build list of months to show
   const months = Array.from({ length: 8 }, (_, i) => {
     const d = addMonths(now, i - 3);
     return { year: d.getFullYear(), month: d.getMonth() };
   });
 
-  // Load tasks + countdown on open
   useEffect(() => {
     if (!visible) return;
     tasks.list(token).then(list => setTaskList(list.filter(t => !t.archived_at))).catch(() => {});
@@ -410,14 +432,12 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
     });
   }, [visible, token]);
 
-  // Scroll to current month
   useEffect(() => {
     if (visible && mode === 'calendar') {
       setTimeout(() => scrollRef.current?.scrollTo({ y: 3 * 340, animated: false }), 120);
     }
   }, [visible, mode]);
 
-  // Fetch overlay data when filter changes
   useEffect(() => {
     if (filterKind === 'none') { setOverlayMap({}); return; }
 
@@ -428,9 +448,7 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
         .then(res => {
           const doneSet = new Set(res.dates);
           const map: OverlayMap = {};
-          // mark done
           res.dates.forEach(d => { map[d] = 'done'; });
-          // mark missed for past days not in done set
           eachDay(rangeFrom, rangeTo, ds => {
             if (!doneSet.has(ds)) map[ds] = 'missed';
           });
@@ -473,57 +491,59 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
     await AsyncStorage.removeItem(STORAGE_KEY);
   }
 
-  // Build dynamic legend
   function renderLegend() {
     if (filterKind === 'habit') return (
       <View style={m.legend}>
-        <LegendItem color={GREEN + '25'} border={GREEN} label="Done" icon="✓" />
-        <LegendItem color={RED + '15'} border={RED + '60'} label="Missed" icon="✕" />
-        <LegendItem color="transparent" border={COLORS.border} label="Future" />
+        <LegendItem color={GREEN + '25'} border={GREEN} label="Done" icon="✓" theme={theme} />
+        <LegendItem color={RED + '15'} border={RED + '60'} label="Missed" icon="✕" theme={theme} />
+        <LegendItem color="transparent" border={theme.border} label="Future" theme={theme} />
       </View>
     );
     if (filterKind === 'food' && foodMetric === 'quality') return (
       <View style={m.legend}>
-        <LegendItem color={GREEN + '30'} border={GREEN} label="7–10 Great" />
-        <LegendItem color="#F59E0B30" border="#F59E0B" label="4–6 Avg" />
-        <LegendItem color={RED + '30'} border={RED} label="0–3 Poor" />
-        <LegendItem color="transparent" border={COLORS.border} label="No data" />
+        <LegendItem color={GREEN + '30'} border={GREEN} label="7–10 Great" theme={theme} />
+        <LegendItem color="#F59E0B30" border="#F59E0B" label="4–6 Avg" theme={theme} />
+        <LegendItem color={RED + '30'} border={RED} label="0–3 Poor" theme={theme} />
+        <LegendItem color="transparent" border={theme.border} label="No data" theme={theme} />
       </View>
     );
     if (filterKind === 'food') return (
       <View style={m.legend}>
-        <LegendItem color={GREEN + '25'} border={GREEN} label={foodMetric === 'junk' ? 'Avoided' : 'Stuck to it'} icon="✓" />
-        <LegendItem color={RED + '15'} border={RED + '60'} label={foodMetric === 'junk' ? 'Had junk' : 'Didn\'t'} icon="✕" />
+        <LegendItem color={GREEN + '25'} border={GREEN} label={foodMetric === 'junk' ? 'Avoided' : 'Stuck to it'} icon="✓" theme={theme} />
+        <LegendItem color={RED + '15'} border={RED + '60'} label={foodMetric === 'junk' ? 'Had junk' : 'Didn\'t'} icon="✕" theme={theme} />
       </View>
     );
     return (
       <View style={m.legend}>
-        <LegendItem color={'#1A1A2A'} border="#2D2D42" label="Past" crossed />
-        <LegendItem color={PRIMARY} border={PRIMARY} label="Today" />
-        <LegendItem color="transparent" border={COLORS.border} label="Future" />
+        <LegendItem color={theme.surface} border={theme.border} label="Past" crossed theme={theme} />
+        <LegendItem color={PRIMARY} border={PRIMARY} label="Today" theme={theme} />
+        <LegendItem color="transparent" border={theme.border} label="Future" theme={theme} />
       </View>
     );
   }
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={m.root}>
-        <View style={m.handle} />
-        <View style={m.header}>
-          <Text style={m.headerTitle}>🦅 Hawk Eye</Text>
+      <View style={[m.root, { backgroundColor: theme.bg }]}>
+        <View style={[m.handle, { backgroundColor: theme.border }]} />
+        <View style={[m.header, { borderBottomColor: theme.border }]}>
+          <Text style={[m.headerTitle, { color: theme.text }]}>🦅 Hawk Eye</Text>
           <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+            <Ionicons name="close" size={24} color={theme.textSecondary} />
           </TouchableOpacity>
         </View>
 
         {/* Mode toggle */}
-        <View style={m.modeBar}>
-          {(['calendar', 'countdown'] as HawkMode[]).map(md => (
-            <Pressable key={md} style={[m.modeBtn, mode === md && m.modeBtnActive]} onPress={() => setMode(md)}>
-              <Ionicons name={md === 'calendar' ? 'calendar-outline' : 'timer-outline'} size={14} color={mode === md ? '#FFF' : COLORS.textSecondary} />
-              <Text style={[m.modeBtnText, mode === md && { color: '#FFF' }]}>{md === 'calendar' ? 'Calendar' : 'Countdown'}</Text>
-            </Pressable>
-          ))}
+        <View style={[m.modeBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          {(['calendar', 'countdown'] as HawkMode[]).map(md => {
+            const active = mode === md;
+            return (
+              <Pressable key={md} style={[m.modeBtn, active && { backgroundColor: PRIMARY }]} onPress={() => setMode(md)}>
+                <Ionicons name={md === 'calendar' ? 'calendar-outline' : 'timer-outline'} size={14} color={active ? '#FFF' : theme.textSecondary} />
+                <Text style={[m.modeBtnText, { color: theme.textSecondary }, active && { color: '#FFF' }]}>{md === 'calendar' ? 'Calendar' : 'Countdown'}</Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* Filter panel — only in calendar mode */}
@@ -531,6 +551,7 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
           <FilterPanel
             token={token}
             taskList={taskList}
+            theme={theme}
             filterKind={filterKind} setFilterKind={setFilterKind}
             selectedHabit={selectedHabit} setSelectedHabit={setSelectedHabit}
             foodMetric={foodMetric} setFoodMetric={setFoodMetric}
@@ -543,7 +564,7 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
         {overlayLoading && (
           <View style={m.loadingRow}>
             <ActivityIndicator size="small" color={PRIMARY} />
-            <Text style={m.loadingText}>Loading history…</Text>
+            <Text style={[m.loadingText, { color: theme.textSecondary }]}>Loading history…</Text>
           </View>
         )}
 
@@ -551,7 +572,7 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
         {mode === 'calendar' && (
           <ScrollView ref={scrollRef} contentContainerStyle={m.calScroll} showsVerticalScrollIndicator={false}>
             {months.map(({ year, month }) => (
-              <CalendarMonth key={`${year}-${month}`} year={year} month={month} overlayMap={overlayMap} />
+              <CalendarMonth key={`${year}-${month}`} year={year} month={month} overlayMap={overlayMap} theme={theme} />
             ))}
           </ScrollView>
         )}
@@ -561,15 +582,15 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
           <ScrollView contentContainerStyle={m.cdScroll} showsVerticalScrollIndicator={false}>
             {countdown ? (
               <>
-                <View style={m.cdInfo}>
+                <View style={[m.cdInfo, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                   <View>
-                    <Text style={m.cdLabel}>Started</Text>
-                    <Text style={m.cdDate}>{countdown.start}</Text>
+                    <Text style={[m.cdLabel, { color: theme.textSecondary }]}>Started</Text>
+                    <Text style={[m.cdDate, { color: theme.text }]}>{countdown.start}</Text>
                   </View>
-                  <Ionicons name="arrow-forward" size={16} color={COLORS.textTertiary} />
+                  <Ionicons name="arrow-forward" size={16} color={theme.textTertiary} />
                   <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={m.cdLabel}>Ends</Text>
-                    <Text style={m.cdDate}>{countdown.end}</Text>
+                    <Text style={[m.cdLabel, { color: theme.textSecondary }]}>Ends</Text>
+                    <Text style={[m.cdDate, { color: theme.text }]}>{countdown.end}</Text>
                   </View>
                   <TouchableOpacity style={m.resetBtn} onPress={() =>
                     Alert.alert('Reset Countdown', 'Clear this countdown?', [
@@ -577,13 +598,13 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
                       { text: 'Reset', style: 'destructive', onPress: clearCountdown },
                     ])
                   }>
-                    <Ionicons name="refresh" size={16} color={COLORS.error} />
+                    <Ionicons name="refresh" size={16} color={theme.danger} />
                   </TouchableOpacity>
                 </View>
-                <CountdownGrid startDate={countdown.start} endDate={countdown.end} />
+                <CountdownGrid startDate={countdown.start} endDate={countdown.end} theme={theme} />
               </>
             ) : (
-              <CountdownSetup onSet={saveCountdown} />
+              <CountdownSetup onSet={saveCountdown} theme={theme} />
             )}
           </ScrollView>
         )}
@@ -593,30 +614,28 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
 }
 
 const m = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.bg, paddingTop: 8 },
-  handle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
+  root: { flex: 1, paddingTop: 8 },
+  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+    borderBottomWidth: 1,
   },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: COLORS.text },
-  modeBar: { flexDirection: 'row', margin: 16, marginBottom: 10, backgroundColor: COLORS.surface, borderRadius: 12, padding: 4, borderWidth: 1, borderColor: COLORS.border },
+  headerTitle: { fontSize: 20, fontWeight: '800' },
+  modeBar: { flexDirection: 'row', margin: 16, marginBottom: 10, borderRadius: 12, padding: 4, borderWidth: 1 },
   modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 9, borderRadius: 9 },
-  modeBtnActive: { backgroundColor: PRIMARY },
-  modeBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
+  modeBtnText: { fontSize: 13, fontWeight: '600' },
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 16, paddingBottom: 8 },
   loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
-  loadingText: { fontSize: 12, color: COLORS.textSecondary },
+  loadingText: { fontSize: 12 },
   calScroll: { paddingHorizontal: 16, paddingVertical: 16 },
   cdScroll: { padding: 16, gap: 20 },
   cdInfo: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, gap: 8,
-    borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: 12, padding: 14, gap: 8, borderWidth: 1,
   },
-  cdLabel: { fontSize: 10, color: COLORS.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  cdDate: { fontSize: 15, fontWeight: '700', color: COLORS.text, marginTop: 2 },
+  cdLabel: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  cdDate: { fontSize: 15, fontWeight: '700', marginTop: 2 },
   resetBtn: { padding: 6 },
 });
 

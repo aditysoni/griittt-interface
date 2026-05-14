@@ -224,18 +224,22 @@ export default function StrengthScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
       >
         {/* QUICK / SESSION tabs */}
-        <View style={s.tabToggle} onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}>
+        <View
+          style={[s.tabToggle, { backgroundColor: theme.isDark ? '#000' : theme.overlay }]}
+          onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
+        >
           {tabContainerW > 0 && (
             <Animated.View style={[s.tabPill, {
+              backgroundColor: theme.inverse,
               width: tabContainerW / 2,
               transform: [{ translateX: tabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, tabContainerW / 2] }) }],
             }]} />
           )}
           <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('quick')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, { color: mode === 'quick' ? '#000' : 'rgba(255,255,255,0.4)', fontFamily: 'Inter_900Black' }]}>QUICK</Text>
+            <Text style={[s.tabBtnText, { color: mode === 'quick' ? theme.inverseText : theme.textMuted, fontFamily: 'Inter_900Black' }]}>QUICK</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('session')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, { color: mode === 'session' ? '#000' : 'rgba(255,255,255,0.4)', fontFamily: 'Inter_900Black' }]}>SESSION</Text>
+            <Text style={[s.tabBtnText, { color: mode === 'session' ? theme.inverseText : theme.textMuted, fontFamily: 'Inter_900Black' }]}>SESSION</Text>
           </TouchableOpacity>
         </View>
 
@@ -257,7 +261,7 @@ export default function StrengthScreen() {
               </View>
               <View style={s.ratingBars}>
                 {Array.from({ length: 10 }).map((_, i) => (
-                  <View key={i} style={[s.ratingBar, { backgroundColor: i < rating ? '#34C759' : 'rgba(255,255,255,0.08)' }]} />
+                  <View key={i} style={[s.ratingBar, { backgroundColor: i < rating ? '#34C759' : theme.overlay }]} />
                 ))}
               </View>
             </TouchableOpacity>
@@ -270,8 +274,8 @@ export default function StrengthScreen() {
             </TouchableOpacity>
 
             <Modal visible={showRatingPicker} transparent animationType="slide">
-              <Pressable style={bs.backdrop} onPress={() => setShowRatingPicker(false)} />
-              <View style={[bs.sheet, { backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF' }]}>
+              <Pressable style={[bs.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setShowRatingPicker(false)} />
+              <View style={[bs.sheet, { backgroundColor: theme.cardElevated }]}>
                 <View style={[bs.handle, { backgroundColor: theme.border }]} />
                 <Text style={[bs.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>PHYSICAL ACTIVITY</Text>
                 <Text style={[bs.sub, { color: '#34C759', fontFamily: 'Inter_700Bold' }]}>{RATING_LABELS[rating]}</Text>
@@ -296,7 +300,7 @@ export default function StrengthScreen() {
                     key={tt.key}
                     style={[s.trainingCard, {
                       borderColor: active ? theme.text : theme.border,
-                      backgroundColor: active ? 'rgba(255,255,255,0.06)' : 'transparent',
+                      backgroundColor: active ? theme.overlay : 'transparent',
                     }]}
                     onPress={() => setTrainingType(active ? null : tt.key)}
                     activeOpacity={0.7}
@@ -434,8 +438,8 @@ export default function StrengthScreen() {
       {/* ── GYM body-part / multi-set exercise modal ── */}
       <Modal visible={!!activeBodyPart} transparent animationType="slide" onRequestClose={() => setActiveBodyPart(null)}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <Pressable style={ef.backdrop} onPress={() => setActiveBodyPart(null)} />
-          <View style={[ef.sheet, { backgroundColor: theme.isDark ? '#111' : '#FFF' }]}>
+          <Pressable style={[ef.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setActiveBodyPart(null)} />
+          <View style={[ef.sheet, { backgroundColor: theme.cardElevated }]}>
             <View style={[ef.handle, { backgroundColor: theme.border }]} />
             <View style={ef.header}>
               <Text style={ef.headerIcon}>{activeBodyPartMeta?.icon}</Text>
@@ -512,7 +516,7 @@ export default function StrengthScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[ef.saveExBtn, { backgroundColor: 'rgba(255,255,255,0.08)', opacity: (exSets.length === 0 || !exName.trim()) ? 0.4 : 1 }]}
+                style={[ef.saveExBtn, { backgroundColor: theme.overlay, opacity: (exSets.length === 0 || !exName.trim()) ? 0.4 : 1 }]}
                 onPress={saveExercise}
                 disabled={exSets.length === 0 || !exName.trim()}
                 activeOpacity={0.7}
@@ -582,7 +586,7 @@ function RatingScroll({ value, onChange, theme }: { value: number; onChange: (n:
         return (
           <TouchableOpacity key={n} style={{ width: ITEM_W, height: 64, alignItems: 'center', justifyContent: 'center', gap: 4 }}
             onPress={() => { onChange(n); ref.current?.scrollTo({ x: n * ITEM_W, animated: true }); }} activeOpacity={0.7}>
-            <Text style={{ fontSize: active ? 40 : 28, lineHeight: 48, color: active ? '#FFFFFF' : 'rgba(255,255,255,0.2)', fontFamily: active ? 'Inter_900Black' : 'Inter_500Medium' }}>{n}</Text>
+            <Text style={{ fontSize: active ? 40 : 28, lineHeight: 48, color: active ? theme.text : theme.textMuted, fontFamily: active ? 'Inter_900Black' : 'Inter_500Medium' }}>{n}</Text>
             {active && <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#34C759' }} />}
           </TouchableOpacity>
         );
@@ -592,7 +596,7 @@ function RatingScroll({ value, onChange, theme }: { value: number; onChange: (n:
 }
 
 const bs = StyleSheet.create({
-  backdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
+  backdrop:    { flex: 1 },
   sheet:       { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40, paddingTop: 12 },
   handle:      { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
   title:       { fontSize: 14, letterSpacing: 3, textAlign: 'center' },
@@ -639,13 +643,13 @@ function SessionCard({ log, theme }: { log: WorkoutLog; theme: any }) {
   return (
     <View style={[sc.card, { borderColor: theme.border }]}>
       <View style={sc.header}>
-        <View style={[sc.badge, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+        <View style={[sc.badge, { backgroundColor: theme.surfaceStrong }]}>
           {!!topIcon && <Text style={sc.badgeIcon}>{topIcon}</Text>}
           <Text style={[sc.badgeText, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>{topLabel}</Text>
         </View>
         <View style={{ flex: 1 }} />
         {!!time && <Text style={[sc.time, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{time}</Text>}
-        <View style={[sc.scorePill, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+        <View style={[sc.scorePill, { backgroundColor: theme.surfaceStrong }]}>
           <Text style={[sc.scoreText, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>{log.score}/100</Text>
         </View>
       </View>
@@ -708,8 +712,8 @@ const s = StyleSheet.create({
   datesRow:       { paddingHorizontal: 14, paddingBottom: 8 },
   scroll:         { paddingBottom: 120 },
 
-  tabToggle:      { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, height: 46, backgroundColor: '#000', borderRadius: 12, overflow: 'hidden', position: 'relative' },
-  tabPill:        { position: 'absolute', top: 0, left: 0, height: 46, backgroundColor: '#FFF', borderRadius: 12 },
+  tabToggle:      { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, height: 46, borderRadius: 12, overflow: 'hidden', position: 'relative' },
+  tabPill:        { position: 'absolute', top: 0, left: 0, height: 46, borderRadius: 12 },
   tabBtn:         { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
   tabBtnText:     { fontSize: 11, letterSpacing: 3 },
 
@@ -763,7 +767,7 @@ const s = StyleSheet.create({
 
 // Exercise form modal styles
 const ef = StyleSheet.create({
-  backdrop:        { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
+  backdrop:        { flex: 1 },
   sheet:           { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, maxHeight: '92%' },
   handle:          { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 10 },
   header:          { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 14 },

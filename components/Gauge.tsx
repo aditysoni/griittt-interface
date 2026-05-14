@@ -34,8 +34,10 @@ export function Gauge({ value, max, label, subLabel }: Props) {
   const pct    = Math.min(1, Math.max(0, value / max));
   const offset = SEMI * (1 - pct);
 
-  const trackColor = 'rgba(255,255,255,0.06)';
-  const ringColor  = 'rgba(255,255,255,0.03)';
+  const trackColor   = theme.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+  const ringColor    = theme.isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.05)';
+  const progressCol  = theme.text;
+  const glowCol      = theme.isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.15)';
 
   return (
     <View style={s.root}>
@@ -73,7 +75,7 @@ export function Gauge({ value, max, label, subLabel }: Props) {
             <Circle
               cx={CX} cy={CY} r={R}
               fill="none"
-              stroke="#FFFFFF"
+              stroke={progressCol}
               strokeWidth={7}
               strokeDasharray={`${SEMI} ${SEMI}`}
               strokeDashoffset={offset}
@@ -83,12 +85,12 @@ export function Gauge({ value, max, label, subLabel }: Props) {
             />
           )}
 
-          {/* Soft glow layer — thinner, slightly transparent white on top */}
+          {/* Soft glow layer — thinner, slightly transparent on top */}
           {pct > 0 && (
             <Circle
               cx={CX} cy={CY} r={R}
               fill="none"
-              stroke="rgba(255,255,255,0.25)"
+              stroke={glowCol}
               strokeWidth={14}
               strokeDasharray={`${SEMI} ${SEMI}`}
               strokeDashoffset={offset}
