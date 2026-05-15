@@ -10,7 +10,6 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { fuel, ai, FoodLog, FoodItem, MealTime, today } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
-import { Gauge } from '../../components/Gauge';
 import { DaySelector } from '../../components/DaySelector';
 import { useTheme } from '../../components/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -30,6 +29,7 @@ export default function FuelScreen() {
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
   const [submitting, setSubmitting]     = useState(false);
+  const [history, setHistory]           = useState<Array<{ date: string; score: number | null }>>([]);
 
   const tabAnim = useRef(new Animated.Value(0)).current;
   const [tabContainerW, setTabContainerW] = useState(0);
@@ -72,16 +72,18 @@ export default function FuelScreen() {
     );
   }, [stuckToMeal, foodQuality, hadJunk]);
 
-  const gaugeValue = logs.length > 0 ? Math.max(...logs.map(l => l.score)) : (isToday ? liveScore : 0);
+  const todayScore = logs.length > 0 ? Math.max(...logs.map(l => l.score)) : (isToday ? liveScore : 0);
 
   async function load(date: string) {
     if (!token) return;
-    const [id, dayLogs, items] = await Promise.all([
+    const from = new Date(Date.now() - 13 * 86400000).toISOString().split('T')[0];
+    const [id, dayLogs, items, hist] = await Promise.all([
       fuel.identity(token).catch(() => null),
       fuel.logs(token, date).catch(() => []),
       fuel.items(token, date).catch(() => []),
+      fuel.history(token, from, date).catch(() => []),
     ]);
-    setIdentity(id); setLogs(dayLogs); setFoodItems(items);
+    setIdentity(id); setLogs(dayLogs); setFoodItems(items); setHistory(hist);
   }
 
   function resetDetailedForm() {
@@ -177,7 +179,7 @@ export default function FuelScreen() {
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}>
-        {mode === 'quick' && <Gauge value={gaugeValue} max={100} label="Fuel Score" />}
+        <FuelScoreCard score={todayScore} history={history} selectedDate={selectedDate} theme={theme} />
 
         {mode === 'detailed' && <MacroTracker items={foodItems} theme={theme} />}
 
@@ -427,6 +429,117 @@ export default function FuelScreen() {
     </SafeAreaView></DarkBackground>
   );
 }
+
+function FuelScoreCard({ score, history, selectedDate, theme }: {
+  score: number;
+  history: Array<{ date: string; score: number | null }>;
+  selectedDate: string;
+  theme: any;
+}) {
+  const last7 = React.useMemo(() => {
+    const days: { date: string; score: number | null }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
+      const found = history.find(h => h.date === d);
+      days.push({ date: d, score: found?.score ?? null });
+    }
+    return days;
+  }, [history]);
+
+  const trend = React.useMemo(() => {
+    const scored = last7.filter(d => d.score != null).map(d => d.score as number);
+    if (scored.length < 3) return null;
+    const half = Math.floor(scored.length / 2);
+    const early = scored.slice(0, half).reduce((a, b) => a + b, 0) / half;
+    const recent = scored.slice(-half).reduce((a, b) => a + b, 0) / half;
+    const diff = recent - early;
+    if (diff > 8)  return { label: 'IMPROVING',  color: '#34C759', icon: '↑' };
+    if (diff < -8) return { label: 'DECLINING',   color: '#FF453A', icon: '↓' };
+    return { label: 'CONSISTENT', color: '#0A84FF', icon: '→' };
+  }, [last7]);
+
+  const streak = React.useMemo(() => {
+    let count = 0;
+    for (let i = last7.length - 1; i >= 0; i--) {
+      if (last7[i].score != null) count++;
+      else break;
+    }
+    return count;
+  }, [last7]);
+
+  const scoreColor = score >= 80 ? '#34C759' : score >= 50 ? '#FF9500' : '#FF453A';
+  const isToday = selectedDate === today();
+
+  return (
+    <View style={[sc.card, { backgroundColor: theme.isDark ? '#1E1E1E' : '#ECECEC', borderColor: theme.borderStrong, borderTopColor: scoreColor }]}>
+      <View style={sc.top}>
+        <View style={sc.scoreBlock}>
+          <Text style={[sc.scoreNum, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
+          <Text style={[sc.scoreLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+            {isToday ? "TODAY'S FUEL SCORE" : 'FUEL SCORE'}
+          </Text>
+        </View>
+        <View style={sc.right}>
+          {trend && (
+            <View style={[sc.trendBadge, { backgroundColor: trend.color + '22', borderColor: trend.color + '55' }]}>
+              <Text style={[sc.trendIcon, { color: trend.color }]}>{trend.icon}</Text>
+              <Text style={[sc.trendLabel, { color: trend.color, fontFamily: 'Inter_900Black' }]}>{trend.label}</Text>
+            </View>
+          )}
+          {streak > 0 && (
+            <Text style={[sc.streakText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+              {streak} day{streak !== 1 ? 's' : ''} logged
+            </Text>
+          )}
+        </View>
+      </View>
+
+      <View style={[sc.divider, { backgroundColor: theme.border }]} />
+
+      <View style={sc.dotsRow}>
+        {last7.map((day, i) => {
+          const isSelected = day.date === selectedDate;
+          const s = day.score;
+          const dotColor = s == null ? theme.overlay : s >= 80 ? '#34C759' : s >= 50 ? '#FF9500' : '#FF453A';
+          const label = ['M','T','W','T','F','S','S'][new Date(day.date + 'T12:00:00').getDay() === 0 ? 6 : new Date(day.date + 'T12:00:00').getDay() - 1];
+          return (
+            <View key={day.date} style={sc.dotCol}>
+              <View style={[sc.dot, {
+                backgroundColor: dotColor,
+                borderWidth: isSelected ? 2 : 0,
+                borderColor: theme.text,
+                opacity: s == null ? 0.25 : 1,
+              }]} />
+              {s != null && (
+                <Text style={[sc.dotScore, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{s}</Text>
+              )}
+              <Text style={[sc.dotDay, { color: isSelected ? theme.text : theme.textSecondary, fontFamily: isSelected ? 'Inter_700Bold' : 'Inter_500Medium' }]}>{label}</Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const sc = StyleSheet.create({
+  card:       { marginHorizontal: 16, marginBottom: 14, borderWidth: 1, borderRadius: 16, padding: 16, borderTopWidth: 3 },
+  top:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  scoreBlock: { gap: 2 },
+  scoreNum:   { fontSize: 52, lineHeight: 56 },
+  scoreLabel: { fontSize: 8, letterSpacing: 2.5 },
+  right:      { alignItems: 'flex-end', gap: 8 },
+  trendBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
+  trendIcon:  { fontSize: 13, fontWeight: '800' },
+  trendLabel: { fontSize: 9, letterSpacing: 2 },
+  streakText: { fontSize: 9, letterSpacing: 1 },
+  divider:    { height: 1, marginBottom: 14 },
+  dotsRow:    { flexDirection: 'row', justifyContent: 'space-between' },
+  dotCol:     { alignItems: 'center', gap: 4, flex: 1 },
+  dot:        { width: 10, height: 10, borderRadius: 5 },
+  dotScore:   { fontSize: 8 },
+  dotDay:     { fontSize: 8, letterSpacing: 0.5 },
+});
 
 const ITEM_W = 56;
 const SCORES = [0,1,2,3,4,5,6,7,8,9,10];
@@ -742,18 +855,18 @@ function QuestionCard({ icon, label, sub, state, onAnswer, yesColor, noColor, th
 }
 
 const qcs = StyleSheet.create({
-  card:          { marginHorizontal: 16, marginTop: 10, borderWidth: 1, borderRadius: 16, padding: 14 },
-  header:        { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  icon:          { fontSize: 26 },
-  label:         { fontSize: 13, letterSpacing: 1.5 },
-  sub:           { fontSize: 10, letterSpacing: 0.3, marginTop: 3 },
-  btnRow:        { flexDirection: 'row', gap: 8 },
-  btn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderWidth: 1.5, borderRadius: 10 },
-  btnText:       { fontSize: 11, letterSpacing: 3 },
+  card:          { marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 12, padding: 10 },
+  header:        { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  icon:          { fontSize: 18 },
+  label:         { fontSize: 11, letterSpacing: 1.5 },
+  sub:           { fontSize: 9, letterSpacing: 0.3, marginTop: 2 },
+  btnRow:        { flexDirection: 'row', gap: 6 },
+  btn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 8, borderWidth: 1.5, borderRadius: 8 },
+  btnText:       { fontSize: 10, letterSpacing: 3 },
   // Quality card extras
-  qualityValue:  { fontSize: 16 },
-  qualityBars:   { flexDirection: 'row', gap: 4, marginTop: 4 },
-  qualityBar:    { flex: 1, height: 5, borderRadius: 3 },
+  qualityValue:  { fontSize: 14 },
+  qualityBars:   { flexDirection: 'row', gap: 3, marginTop: 4 },
+  qualityBar:    { flex: 1, height: 4, borderRadius: 2 },
 });
 
 function MealRow({ log, theme }: { log: FoodLog; theme: any }) {
@@ -933,7 +1046,7 @@ const s = StyleSheet.create({
   targetLabel: { fontSize: 7, letterSpacing: 2 },
   targetField: { fontSize: 12, width: 48, textAlign: 'right' },
   notesInput: { marginHorizontal: 24, marginTop: 12, borderWidth: 1, padding: 14, fontSize: 12, letterSpacing: 1, minHeight: 60, textAlignVertical: 'top' },
-  submitBtn: { marginHorizontal: 24, marginTop: 20, paddingVertical: 16, alignItems: 'center' },
+  submitBtn: { marginHorizontal: 16, marginTop: 14, paddingVertical: 14, alignItems: 'center', borderRadius: 12 },
   submitBtnText: { fontSize: 10, letterSpacing: 4 },
   empty: { alignItems: 'center', paddingVertical: 48 },
   emptyText: { fontSize: 9, letterSpacing: 3 },
