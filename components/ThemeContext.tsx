@@ -41,6 +41,10 @@ export type AppTheme = {
   warning: string;
   danger: string;
 
+  // Hype accent — lime in light mode, used for wins / signature highlights
+  accent: string;
+  accentText: string;
+
   // Tab/pill active states
   tabActiveBg: string;
   tabActiveText: string;
@@ -55,37 +59,41 @@ function buildTheme(mode: ThemeMode): AppTheme {
     isDark,
     mode,
 
-    bg:           isDark ? '#000000' : '#FFFFFF',
-    bgGradient:   isDark ? ['#000000', '#1F1E1E'] : ['#FFFFFF', '#F2F2F2'],
+    // Warm Coach palette in light mode: cream bg, ink near-black, lime hype.
+    bg:           isDark ? '#000000' : '#F5F1E8',
+    bgGradient:   isDark ? ['#000000', '#1F1E1E'] : ['#F5F1E8', '#ECE8DC'],
 
-    text:          isDark ? '#FFFFFF' : '#000000',
-    textSecondary: isDark ? '#888888' : '#555555',
-    textTertiary:  isDark ? '#666666' : '#888888',
-    textMuted:     isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)',
+    text:          isDark ? '#FFFFFF' : '#14110D',
+    textSecondary: isDark ? '#888888' : '#5C544A',
+    textTertiary:  isDark ? '#666666' : '#A39B8E',
+    textMuted:     isDark ? 'rgba(255,255,255,0.4)' : '#A39B8E',
 
-    border:        isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
-    borderStrong:  isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
+    border:        isDark ? 'rgba(255,255,255,0.10)' : '#E8E0CE',
+    borderStrong:  isDark ? 'rgba(255,255,255,0.18)' : '#D4C9B0',
 
-    surface:       isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-    surfaceStrong: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-    card:          isDark ? '#111111' : '#F2F2F2',
-    cardElevated:  isDark ? '#141414' : '#E8E8E8',
+    surface:       isDark ? 'rgba(255,255,255,0.05)' : '#EFE8D7',
+    surfaceStrong: isDark ? 'rgba(255,255,255,0.08)' : '#E8E0CE',
+    card:          isDark ? '#111111' : '#FFFFFF',
+    cardElevated:  isDark ? '#141414' : '#FFFBEC',
 
-    overlay:       isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    overlayMid:    isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
-    overlayStrong: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)',
+    overlay:       isDark ? 'rgba(255,255,255,0.06)' : '#EFE8D7',
+    overlayMid:    isDark ? 'rgba(255,255,255,0.15)' : 'rgba(20,17,13,0.10)',
+    overlayStrong: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(20,17,13,0.20)',
 
-    inverse:       isDark ? '#FFFFFF' : '#000000',
+    inverse:       isDark ? '#FFFFFF' : '#14110D',
     inverseText:   isDark ? '#000000' : '#FFFFFF',
 
-    success: '#34C759',
-    warning: '#F59E0B',
-    danger:  '#EF4444',
+    success: isDark ? '#34C759' : '#22A664',
+    warning: isDark ? '#F59E0B' : '#F0A12E',
+    danger:  isDark ? '#EF4444' : '#E84A4A',
 
-    tabActiveBg:   isDark ? '#FFFFFF' : '#000000',
+    accent:      '#B8F23A',  // lime — same across modes (it's the brand spark)
+    accentText:  '#14110D',  // ink reads on lime in both modes
+
+    tabActiveBg:   isDark ? '#FFFFFF' : '#14110D',
     tabActiveText: isDark ? '#000000' : '#FFFFFF',
 
-    backdrop: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)',
+    backdrop: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(20,17,13,0.4)',
   };
 }
 

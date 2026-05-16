@@ -117,6 +117,13 @@ export default function LoginScreen() {
             >
               <Text style={styles.demoBtnText}>⚡ Fill Demo Credentials</Text>
             </Pressable>
+
+            {/* Preview onboarding (no backend wired yet) */}
+            <Link href={'/(auth)/onboarding' as any} asChild>
+              <Pressable style={styles.demoBtn}>
+                <Text style={styles.demoBtnText}>👋 Preview Onboarding</Text>
+              </Pressable>
+            </Link>
           </View>
         </ScrollView>
       </LinearGradient>

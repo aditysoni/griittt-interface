@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, Animated, KeyboardAvoidingView, Modal, Platform, Pressable,
+  Alert, KeyboardAvoidingView, Modal, Platform, Pressable,
   RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,7 +17,6 @@ import { LoadingScreen } from '../../components/LoadingScreen';
 import { DaySelector } from '../../components/DaySelector';
 import { useTheme } from '../../components/ThemeContext';
 
-type TabMode = 'quick' | 'session';
 const RATING_LABELS = ['Rest','Very light','Light','Easy','Moderate','Medium','Good','Strong','Very strong','Excellent','Elite'];
 
 const TRAINING_TYPES: { key: TrainingType; label: string; icon: string; sub: string }[] = [
@@ -26,35 +25,28 @@ const TRAINING_TYPES: { key: TrainingType; label: string; icon: string; sub: str
   { key: 'cardio', label: 'RUN / WALK',    icon: '🏃', sub: 'Distance & time' },
 ];
 
+function shiftDateStr(base: string, days: number) {
+  const d = new Date(base); d.setDate(d.getDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
 export default function StrengthScreen() {
   const { token } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
 
   const [selectedDate, setSelectedDate] = useState(today());
-  const [mode, setMode]                 = useState<TabMode>('quick');
   const [logs, setLogs]                 = useState<WorkoutLog[]>([]);
+  const [history, setHistory]           = useState<Record<string, WorkoutLog[]>>({});
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
   const [submitting, setSubmitting]     = useState(false);
 
-  // Tab animation
-  const tabAnim = useRef(new Animated.Value(0)).current;
-  const [tabContainerW, setTabContainerW] = useState(0);
-  function switchMode(tab: TabMode) {
-    setMode(tab);
-    Animated.spring(tabAnim, {
-      toValue: tab === 'quick' ? 0 : 1,
-      useNativeDriver: false,
-      damping: 18, stiffness: 220, mass: 0.8,
-    }).start();
-  }
-
-  // Quick mode state
+  // Rating
   const [rating, setRating] = useState(7);
   const [showRatingPicker, setShowRatingPicker] = useState(false);
 
-  // Session mode state
+  // Training type selected from the inline row
   const [trainingType, setTrainingType] = useState<TrainingType | null>(null);
 
   // GYM flow
@@ -82,9 +74,24 @@ export default function StrengthScreen() {
     if (!token) return;
     const dayLogs = await strength.logs(token, date).catch(() => []);
     setLogs(dayLogs);
+
+    // 14-day history for the trend/comparison card. Runs in the background
+    // so a slow strength endpoint can never block the main screen render.
+    const todayStr = today();
+    const dates    = Array.from({ length: 14 }, (_, i) => shiftDateStr(todayStr, -i));
+    Promise.all(dates.map(d => strength.logs(token, d).catch(() => [])))
+      .then(results => {
+        const map: Record<string, WorkoutLog[]> = {};
+        dates.forEach((d, i) => { map[d] = results[i]; });
+        setHistory(map);
+      })
+      .catch(() => {});
   }
   useEffect(() => { load(selectedDate).finally(() => setLoading(false)); }, [token, selectedDate]);
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(selectedDate); setRefreshing(false); }, [token, selectedDate]);
+
+  // Today's score = max of today's session scores, or 0 if nothing logged.
+  const todayScore = logs.length > 0 ? Math.max(...logs.map(l => l.score ?? 0)) : 0;
 
   // ── Quick log ────────────────────────────────────────────────────────────────
   async function submitQuick() {
@@ -223,75 +230,71 @@ export default function StrengthScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
       >
-        {/* QUICK / SESSION tabs */}
-        <View
-          style={[s.tabToggle, { backgroundColor: theme.isDark ? '#000' : theme.overlay }]}
-          onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
-        >
-          {tabContainerW > 0 && (
-            <Animated.View style={[s.tabPill, {
-              backgroundColor: theme.inverse,
-              width: tabContainerW / 2,
-              transform: [{ translateX: tabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, tabContainerW / 2] }) }],
-            }]} />
-          )}
-          <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('quick')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, { color: mode === 'quick' ? theme.inverseText : theme.textMuted, fontFamily: 'Inter_900Black' }]}>QUICK</Text>
+        {/* Hero score card — same layout as the food page's FuelScoreCard */}
+        <StrengthScoreCard
+          score={todayScore}
+          history={history}
+          selectedDate={selectedDate}
+          theme={theme}
+        />
+
+        {/* Compact rating card */}
+        {isToday && (
+          <TouchableOpacity
+            style={[s.compactRating, { borderColor: theme.border, backgroundColor: theme.card }]}
+            onPress={() => setShowRatingPicker(true)}
+            activeOpacity={0.85}
+          >
+            <View style={s.compactRatingTop}>
+              <Text style={[s.compactRatingLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>HOW IT GO TODAY?</Text>
+              <View style={s.compactRatingRight}>
+                <Text style={[s.compactRatingBig, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
+                  {rating}
+                  <Text style={[s.compactRatingSlash, { color: theme.textSecondary }]}>/10</Text>
+                </Text>
+                <Text style={[s.compactRatingWord, { color: '#34C759', fontFamily: 'Inter_900Black' }]}>{RATING_LABELS[rating]?.toUpperCase()}</Text>
+              </View>
+            </View>
+            <View style={s.compactRatingBars}>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <View key={i} style={[s.compactRatingBar, { backgroundColor: i < rating ? '#34C759' : theme.overlay }]} />
+              ))}
+            </View>
+            <View style={s.compactRatingFooter}>
+              <Text style={[s.compactRatingHint, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
+                TAP TO ADJUST
+              </Text>
+              <TouchableOpacity
+                style={[s.compactLogBtn, { backgroundColor: theme.inverse, opacity: submitting ? 0.4 : 1 }]}
+                onPress={submitQuick}
+                disabled={submitting}
+                activeOpacity={0.8}
+              >
+                <Text style={[s.compactLogBtnText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>
+                  {submitting ? 'LOGGING...' : 'LOG →'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </TouchableOpacity>
-          <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('session')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, { color: mode === 'session' ? theme.inverseText : theme.textMuted, fontFamily: 'Inter_900Black' }]}>SESSION</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── QUICK: rating card ── */}
-        {mode === 'quick' && isToday && (
-          <>
-            <TouchableOpacity
-              style={[s.ratingCard, { borderColor: theme.border }]}
-              onPress={() => setShowRatingPicker(true)}
-              activeOpacity={0.85}
-            >
-              <View style={s.ratingCardTop}>
-                <Text style={[s.ratingCardLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>HOW DID IT GO TODAY?</Text>
-                <Ionicons name="chevron-down" size={16} color={theme.textSecondary} />
-              </View>
-              <View style={s.ratingCardCenter}>
-                <Text style={[s.ratingCardBig, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{rating}<Text style={[s.ratingCardSlash, { color: theme.textSecondary }]}>/10</Text></Text>
-                <Text style={[s.ratingCardWord, { color: '#34C759', fontFamily: 'Inter_700Bold' }]}>{RATING_LABELS[rating]}</Text>
-              </View>
-              <View style={s.ratingBars}>
-                {Array.from({ length: 10 }).map((_, i) => (
-                  <View key={i} style={[s.ratingBar, { backgroundColor: i < rating ? '#34C759' : theme.overlay }]} />
-                ))}
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[s.submitBtn, { backgroundColor: theme.tabActiveBg, opacity: submitting ? 0.4 : 1 }]}
-              onPress={submitQuick} disabled={submitting}
-            >
-              <Text style={[s.submitBtnText, { color: theme.tabActiveText, fontFamily: 'Inter_900Black' }]}>{submitting ? 'LOGGING...' : 'LOG ACTIVITY →'}</Text>
-            </TouchableOpacity>
-
-            <Modal visible={showRatingPicker} transparent animationType="slide">
-              <Pressable style={[bs.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setShowRatingPicker(false)} />
-              <View style={[bs.sheet, { backgroundColor: theme.cardElevated }]}>
-                <View style={[bs.handle, { backgroundColor: theme.border }]} />
-                <Text style={[bs.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>PHYSICAL ACTIVITY</Text>
-                <Text style={[bs.sub, { color: '#34C759', fontFamily: 'Inter_700Bold' }]}>{RATING_LABELS[rating]}</Text>
-                <RatingScroll value={rating} onChange={setRating} theme={theme} />
-                <TouchableOpacity style={[bs.doneBtn, { backgroundColor: theme.text }]} onPress={() => setShowRatingPicker(false)}>
-                  <Text style={[bs.doneBtnText, { color: theme.bg, fontFamily: 'Inter_900Black' }]}>DONE</Text>
-                </TouchableOpacity>
-              </View>
-            </Modal>
-          </>
         )}
 
-        {/* ── SESSION: training-type picker → either GYM body parts or inline form ── */}
-        {mode === 'session' && isToday && (
+        <Modal visible={showRatingPicker} transparent animationType="slide">
+          <Pressable style={[bs.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setShowRatingPicker(false)} />
+          <View style={[bs.sheet, { backgroundColor: theme.cardElevated }]}>
+            <View style={[bs.handle, { backgroundColor: theme.border }]} />
+            <Text style={[bs.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>PHYSICAL ACTIVITY</Text>
+            <Text style={[bs.sub, { color: '#34C759', fontFamily: 'Inter_700Bold' }]}>{RATING_LABELS[rating]}</Text>
+            <RatingScroll value={rating} onChange={setRating} theme={theme} />
+            <TouchableOpacity style={[bs.doneBtn, { backgroundColor: theme.text }]} onPress={() => setShowRatingPicker(false)}>
+              <Text style={[bs.doneBtnText, { color: theme.bg, fontFamily: 'Inter_900Black' }]}>DONE</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+
+        {/* ── Training type buttons (Gym / Sports / Run) ── */}
+        {isToday && (
           <>
-            <Text style={[s.sectionHint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>CHOOSE YOUR TRAINING</Text>
+            <Text style={[s.sectionHint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>OR LOG A FULL SESSION</Text>
             <View style={s.trainingRow}>
               {TRAINING_TYPES.map(tt => {
                 const active = trainingType === tt.key;
@@ -712,20 +715,20 @@ const s = StyleSheet.create({
   datesRow:       { paddingHorizontal: 14, paddingBottom: 8 },
   scroll:         { paddingBottom: 120 },
 
-  tabToggle:      { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, height: 46, borderRadius: 12, overflow: 'hidden', position: 'relative' },
-  tabPill:        { position: 'absolute', top: 0, left: 0, height: 46, borderRadius: 12 },
-  tabBtn:         { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
-  tabBtnText:     { fontSize: 11, letterSpacing: 3 },
-
-  ratingCard:     { marginHorizontal: 16, marginTop: 12, borderWidth: 1, borderRadius: 16, padding: 18, gap: 14 },
-  ratingCardTop:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  ratingCardLabel:{ fontSize: 9, letterSpacing: 2 },
-  ratingCardCenter:{ alignItems: 'center', gap: 4 },
-  ratingCardBig:  { fontSize: 56, letterSpacing: -2 },
-  ratingCardSlash:{ fontSize: 24 },
-  ratingCardWord: { fontSize: 11, letterSpacing: 2 },
-  ratingBars:     { flexDirection: 'row', gap: 4, marginTop: 6 },
-  ratingBar:      { flex: 1, height: 5, borderRadius: 3 },
+  // Compact rating card
+  compactRating:        { marginHorizontal: 16, marginTop: 14, borderWidth: 1, borderRadius: 14, padding: 14, gap: 10 },
+  compactRatingTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  compactRatingLabel:   { fontSize: 9, letterSpacing: 2 },
+  compactRatingRight:   { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  compactRatingBig:     { fontSize: 28, letterSpacing: -1, lineHeight: 32 },
+  compactRatingSlash:   { fontSize: 14 },
+  compactRatingWord:    { fontSize: 9, letterSpacing: 1.5 },
+  compactRatingBars:    { flexDirection: 'row', gap: 3 },
+  compactRatingBar:     { flex: 1, height: 4, borderRadius: 2 },
+  compactRatingFooter:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+  compactRatingHint:    { fontSize: 8, letterSpacing: 2 },
+  compactLogBtn:        { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6 },
+  compactLogBtnText:    { fontSize: 10, letterSpacing: 2 },
 
   // Training type chooser
   sectionHint:    { fontSize: 9, letterSpacing: 3, paddingHorizontal: 24, paddingTop: 16, paddingBottom: 10 },
@@ -759,10 +762,124 @@ const s = StyleSheet.create({
   sectionHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 24, paddingTop: 20 },
   sectionTitle:   { fontSize: 9, letterSpacing: 3 },
   sectionCount:   { fontSize: 9 },
-  submitBtn:      { marginHorizontal: 16, marginTop: 16, paddingVertical: 16, alignItems: 'center', borderRadius: 12 },
-  submitBtnText:  { fontSize: 10, letterSpacing: 4 },
   empty:          { alignItems: 'center', paddingVertical: 48 },
   emptyText:      { fontSize: 9, letterSpacing: 3 },
+});
+
+// ── Hero score card — mirrors the food page's FuelScoreCard ──
+function StrengthScoreCard({ score, history, selectedDate, theme }: {
+  score: number;
+  history: Record<string, WorkoutLog[]>;
+  selectedDate: string;
+  theme: any;
+}) {
+  // Last 7 days as { date, score } where score is the day's best session score.
+  const last7 = React.useMemo(() => {
+    const days: { date: string; score: number | null }[] = [];
+    const todayStr = today();
+    for (let i = 6; i >= 0; i--) {
+      const d = shiftDateStr(todayStr, -i);
+      const list = history[d];
+      const dayScore = list && list.length > 0 ? Math.max(...list.map(l => l.score ?? 0)) : null;
+      days.push({ date: d, score: dayScore });
+    }
+    return days;
+  }, [history]);
+
+  const trend = React.useMemo(() => {
+    const scored = last7.filter(d => d.score != null).map(d => d.score as number);
+    if (scored.length < 3) return null;
+    const half   = Math.floor(scored.length / 2);
+    const early  = scored.slice(0, half).reduce((a, b) => a + b, 0) / half;
+    const recent = scored.slice(-half).reduce((a, b) => a + b, 0) / half;
+    const diff   = recent - early;
+    if (diff > 8)  return { label: 'IMPROVING',  color: '#34C759', icon: '↑' };
+    if (diff < -8) return { label: 'DECLINING',  color: '#FF453A', icon: '↓' };
+    return            { label: 'CONSISTENT', color: '#0A84FF', icon: '→' };
+  }, [last7]);
+
+  const streak = React.useMemo(() => {
+    let count = 0;
+    for (let i = last7.length - 1; i >= 0; i--) {
+      if (last7[i].score != null) count++;
+      else break;
+    }
+    return count;
+  }, [last7]);
+
+  const scoreColor = score >= 80 ? '#34C759' : score >= 50 ? '#FF9500' : score > 0 ? '#FF453A' : theme.textMuted;
+  const isToday    = selectedDate === today();
+
+  return (
+    <View style={[ssc.card, { backgroundColor: theme.isDark ? '#1E1E1E' : '#ECECEC', borderColor: theme.borderStrong, borderTopColor: scoreColor }]}>
+      <View style={ssc.top}>
+        <View style={ssc.scoreBlock}>
+          <Text style={[ssc.scoreNum, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
+          <Text style={[ssc.scoreLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+            {isToday ? "TODAY'S STRENGTH SCORE" : 'STRENGTH SCORE'}
+          </Text>
+        </View>
+        <View style={ssc.right}>
+          {trend && (
+            <View style={[ssc.trendBadge, { backgroundColor: trend.color + '22', borderColor: trend.color + '55' }]}>
+              <Text style={[ssc.trendIcon, { color: trend.color }]}>{trend.icon}</Text>
+              <Text style={[ssc.trendLabel, { color: trend.color, fontFamily: 'Inter_900Black' }]}>{trend.label}</Text>
+            </View>
+          )}
+          {streak > 0 && (
+            <Text style={[ssc.streakText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+              {streak} day{streak !== 1 ? 's' : ''} logged
+            </Text>
+          )}
+        </View>
+      </View>
+
+      <View style={[ssc.divider, { backgroundColor: theme.border }]} />
+
+      <View style={ssc.dotsRow}>
+        {last7.map(day => {
+          const isSelected = day.date === selectedDate;
+          const sv = day.score;
+          const dotColor = sv == null ? theme.overlay : sv >= 80 ? '#34C759' : sv >= 50 ? '#FF9500' : '#FF453A';
+          const dow = new Date(day.date + 'T12:00:00').getDay();
+          const label = ['M','T','W','T','F','S','S'][dow === 0 ? 6 : dow - 1];
+          return (
+            <View key={day.date} style={ssc.dotCol}>
+              <View style={[ssc.dot, {
+                backgroundColor: dotColor,
+                borderWidth: isSelected ? 2 : 0,
+                borderColor: theme.text,
+                opacity: sv == null ? 0.25 : 1,
+              }]} />
+              {sv != null && (
+                <Text style={[ssc.dotScore, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{sv}</Text>
+              )}
+              <Text style={[ssc.dotDay, { color: isSelected ? theme.text : theme.textSecondary, fontFamily: isSelected ? 'Inter_700Bold' : 'Inter_500Medium' }]}>{label}</Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const ssc = StyleSheet.create({
+  card:       { marginHorizontal: 16, marginBottom: 14, borderWidth: 1, borderRadius: 16, padding: 16, borderTopWidth: 3 },
+  top:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  scoreBlock: { gap: 2 },
+  scoreNum:   { fontSize: 52, lineHeight: 56 },
+  scoreLabel: { fontSize: 8, letterSpacing: 2.5 },
+  right:      { alignItems: 'flex-end', gap: 8 },
+  trendBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
+  trendIcon:  { fontSize: 13, fontWeight: '800' },
+  trendLabel: { fontSize: 9, letterSpacing: 2 },
+  streakText: { fontSize: 9, letterSpacing: 1 },
+  divider:    { height: 1, marginBottom: 14 },
+  dotsRow:    { flexDirection: 'row', justifyContent: 'space-between' },
+  dotCol:     { alignItems: 'center', gap: 4, flex: 1 },
+  dot:        { width: 10, height: 10, borderRadius: 5 },
+  dotScore:   { fontSize: 8 },
+  dotDay:     { fontSize: 8, letterSpacing: 0.5 },
 });
 
 // Exercise form modal styles

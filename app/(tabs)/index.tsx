@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 import { habits, Task, tasks, today, CONTROL_PRESETS, challenges } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
-import { Gauge } from '../../components/Gauge';
+import Svg, { Circle, G } from 'react-native-svg';
 import { DaySelector } from '../../components/DaySelector';
 import { useTheme } from '../../components/ThemeContext';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -235,23 +235,29 @@ export default function HabitsScreen() {
   return (
     <DarkBackground><SafeAreaView style={s.safe} edges={['top']}>
 
-      {/* ── Top bar row 1: header + icons ── */}
+      {/* ── Top bar: eyebrow + big title + sparkles + settings ── */}
       <View style={s.topBar}>
-        <Text style={[s.modeLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-          DISCIPLINE MODE
-        </Text>
-        <View style={{ flex: 1 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={[s.modeEyebrow, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>
+            DISCIPLINE MODE
+          </Text>
+          <Text style={[s.modeTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
+            LOCK IN
+          </Text>
+        </View>
         <TouchableOpacity
-          style={[s.topIcon, { borderColor: theme.border }]}
+          style={[s.sparkleBtn, { backgroundColor: theme.inverse }]}
           onPress={() => router.push('/(tabs)/ai')}
+          activeOpacity={0.85}
         >
-          <Ionicons name="sparkles" size={15} color="#34C759" />
+          <Ionicons name="sparkles" size={16} color={theme.accent} />
         </TouchableOpacity>
         <TouchableOpacity
-          style={[s.topIcon, { borderColor: theme.border }]}
+          style={[s.iconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
           onPress={() => router.push('/(tabs)/profile')}
+          activeOpacity={0.7}
         >
-          <Ionicons name="settings-outline" size={15} color={theme.text} />
+          <Ionicons name="settings-outline" size={16} color={theme.textSecondary} />
         </TouchableOpacity>
       </View>
 
@@ -266,55 +272,52 @@ export default function HabitsScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
       >
-        {/* Gauge */}
-        <Gauge value={overallScore} max={100} label="Identity Index" />
+        {/* Arc gauge + momentum status pill */}
+        <ArcGauge value={overallScore} theme={theme} />
+        <View style={s.momentumWrap}>
+          <MomentumPill score={overallScore} theme={theme} />
+        </View>
 
-        {/* ── BUILD / CONTROL tabs — animated sliding pill ── */}
+        {/* ── BUILD / CONTROL segmented control ── */}
         <View
-          style={[s.tabToggle, { backgroundColor: theme.isDark ? '#000000' : theme.overlay }]}
+          style={[s.segmented, { backgroundColor: theme.surface }]}
           onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
         >
-          {/* Sliding pill */}
           {tabContainerW > 0 && (
             <Animated.View
-              style={[s.tabPill, {
-                backgroundColor: theme.inverse,
-                width: tabContainerW / 2,
+              style={[s.segmentedPill, {
+                backgroundColor: theme.card,
+                width: (tabContainerW - 8) / 2,
                 transform: [{
                   translateX: tabAnim.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [0, tabContainerW / 2],
+                    outputRange: [0, (tabContainerW - 8) / 2],
                   }),
                 }],
               }]}
             />
           )}
-
-          {/* BUILD */}
-          <TouchableOpacity style={s.tabBtn} onPress={() => switchTab('build')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, {
-              color: activeTab === 'build' ? theme.inverseText : theme.textMuted,
+          <TouchableOpacity style={s.segmentedBtn} onPress={() => switchTab('build')} activeOpacity={0.8}>
+            <Text style={[s.segmentedText, {
+              color: activeTab === 'build' ? theme.text : theme.textSecondary,
               fontFamily: 'Inter_900Black',
             }]}>BUILD</Text>
           </TouchableOpacity>
-
-          {/* CONTROL */}
-          <TouchableOpacity style={s.tabBtn} onPress={() => switchTab('control')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, {
-              color: activeTab === 'control' ? theme.inverseText : theme.textMuted,
+          <TouchableOpacity style={s.segmentedBtn} onPress={() => switchTab('control')} activeOpacity={0.8}>
+            <Text style={[s.segmentedText, {
+              color: activeTab === 'control' ? theme.text : theme.textSecondary,
               fontFamily: 'Inter_900Black',
             }]}>CONTROL</Text>
           </TouchableOpacity>
         </View>
 
-
-        {/* Section header */}
-        <View style={s.sectionHeader}>
-          {/* <Text style={[s.sectionTitle, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-            {isControl ? 'CONTROL HABITS' : 'PROTOCOL EXECUTION'}
-          </Text> */}
-          <Text style={[s.sectionCount, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_500Medium' }]}>
-            {totalDone.toString().padStart(2,'0')}/{habitList.length.toString().padStart(2,'0')} COMPLETE
+        {/* Stats row: X / Y DONE  |  +N SCORE */}
+        <View style={s.statRow}>
+          <Text style={[s.statLeft, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+            {visibleHabits.filter(h => h.done).length} / {visibleHabits.length} DONE
+          </Text>
+          <Text style={[s.statRight, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>
+            +{visibleHabits.filter(h => h.done).reduce((a, h) => a + (h.score || 1), 0)} SCORE
           </Text>
         </View>
 
@@ -352,13 +355,13 @@ export default function HabitsScreen() {
         />
       )}
 
-      {/* Floating + button above navbar */}
+      {/* Floating + button — ink circle with white plus */}
       <TouchableOpacity
         style={[s.fab, { backgroundColor: theme.text }]}
         onPress={() => setShowAdd(true)}
         activeOpacity={0.85}
       >
-        <Ionicons name="add" size={26} color={theme.bg} />
+        <Ionicons name="add" size={28} color="#FFFFFF" />
       </TouchableOpacity>
 
       {/* Add Habit Modal */}
@@ -747,116 +750,216 @@ const hd = StyleSheet.create({
   calDayHead: { flex: 1, textAlign: 'center', fontSize: 8 },
 });
 
+// ── Arc gauge — 220° sweep with score in the centre ────────────────────────
+const GAUGE_W = 220;
+const GAUGE_H = 150;
+const GAUGE_R = 86;
+const GAUGE_CX = GAUGE_W / 2;
+const GAUGE_CY = 110;
+const GAUGE_SWEEP_DEG = 220;
+const GAUGE_C = 2 * Math.PI * GAUGE_R;
+const GAUGE_ARC_LEN = GAUGE_C * (GAUGE_SWEEP_DEG / 360);
+const GAUGE_GAP = GAUGE_C - GAUGE_ARC_LEN;
+// 220° centered around the bottom: rotate so the gap sits at the bottom.
+const GAUGE_ROTATE = 90 + (GAUGE_SWEEP_DEG / 2 - 180);
+
+function gaugeColor(v: number, theme: any): string {
+  if (v <= 33) return theme.danger;
+  if (v <= 66) return theme.warning;
+  return theme.success;
+}
+
+function ArcGauge({ value, theme }: { value: number; theme: any }) {
+  const pct = Math.max(0, Math.min(1, value / 100));
+  const fill = GAUGE_ARC_LEN * pct;
+  const col  = gaugeColor(value, theme);
+  return (
+    <View style={{ width: GAUGE_W, height: GAUGE_H, alignSelf: 'center' }}>
+      <Svg width={GAUGE_W} height={GAUGE_H} viewBox={`0 0 ${GAUGE_W} ${GAUGE_H + 30}`}>
+        <G transform={`rotate(${GAUGE_ROTATE}, ${GAUGE_CX}, ${GAUGE_CY})`}>
+          <Circle
+            cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R}
+            fill="none"
+            stroke={theme.surface}
+            strokeWidth={14}
+            strokeLinecap="round"
+            strokeDasharray={`${GAUGE_ARC_LEN} ${GAUGE_GAP}`}
+          />
+          {value > 0 && (
+            <Circle
+              cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R}
+              fill="none"
+              stroke={col}
+              strokeWidth={14}
+              strokeLinecap="round"
+              strokeDasharray={`${fill} ${GAUGE_C - fill}`}
+            />
+          )}
+        </G>
+      </Svg>
+      <View style={s.gaugeLabel} pointerEvents="none">
+        <Text style={[s.gaugeNum, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{value}</Text>
+        <Text style={[s.gaugeCap, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>OUT OF 100</Text>
+      </View>
+    </View>
+  );
+}
+
+// ── Momentum status pill ──────────────────────────────────────────────────
+function MomentumPill({ score, theme }: { score: number; theme: any }) {
+  let label: string, bg: string, fg: string, icon: 'arrow-up' | 'arrow-down' | 'remove';
+  if (score >= 75)      { label = 'CRUSHING IT';        bg = '#E2F7EC'; fg = theme.success; icon = 'arrow-up'; }
+  else if (score >= 50) { label = 'BUILDING MOMENTUM';  bg = '#FFF1DC'; fg = theme.warning; icon = 'arrow-up'; }
+  else if (score >= 25) { label = 'WAVERING';           bg = '#FFF1DC'; fg = theme.warning; icon = 'remove'; }
+  else if (score > 0)   { label = 'BELOW POTENTIAL';    bg = '#FCE6E6'; fg = theme.danger;  icon = 'arrow-down'; }
+  else                  { label = 'SHOW UP';            bg = theme.surface; fg = theme.textSecondary; icon = 'remove'; }
+
+  return (
+    <View style={[s.momentumPill, { backgroundColor: bg }]}>
+      <Ionicons name={icon} size={11} color={fg} />
+      <Text style={[s.momentumPillText, { color: fg, fontFamily: 'Inter_900Black' }]}>{label}</Text>
+    </View>
+  );
+}
+
 function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, onToggle, onInfo }: {
   habit: HabitWithStatus; theme: any; canToggle: boolean; isControl: boolean;
   fromChallenge?: boolean;
   onToggle: () => void; onInfo: () => void;
 }) {
-  const col = isControl ? '#EF4444' : toughnessColor(habit.score || 1, theme.isDark);
+  const impact = habit.score || 1;
   return (
     <TouchableOpacity
       style={[s.habitCard, {
-        borderColor: fromChallenge ? '#F59E0B' : theme.border,
+        borderColor: fromChallenge ? '#F0A12E' : theme.border,
         borderWidth: fromChallenge ? 2 : 1,
         backgroundColor: theme.card,
       }]}
       onPress={canToggle ? onToggle : undefined}
       activeOpacity={canToggle ? 0.7 : 1}
     >
-      {/* Gradient overlay */}
-
-      <View style={s.habitLeft}>
-        {/* Square checkbox */}
-        <View style={[s.checkbox, {
-          backgroundColor: habit.done ? theme.text : 'transparent',
-          borderColor: habit.done ? theme.text : theme.border,
-        }]}>
-          {habit.done && <Ionicons name="checkmark" size={10} color={theme.bg} />}
-        </View>
-
-        <View style={s.habitInfo}>
-          <View style={s.habitNameRow}>
-            <Text style={[s.habitName, {
-              color: habit.done ? theme.textSecondary : theme.text,
-              textDecorationLine: habit.done ? 'line-through' : 'none',
-              fontFamily: 'Inter_700Bold',
-            }]} numberOfLines={1}>
-              {habit.name.toUpperCase()}
-            </Text>
-            {habit.streak > 0 && (
-              <>
-                <View style={[s.dot, { backgroundColor: theme.textSecondary }]} />
-                <Text style={[s.streakText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-                  {habit.streak}
-                </Text>
-              </>
-            )}
-          </View>
-          <View style={s.habitMetaRow}>
-            <Text style={[s.impactText, { color: theme.success, fontFamily: 'Inter_700Bold' }]}>
-              +{habit.score || 1} ID% IMPACT
-            </Text>
-            {habit.done && habit.count != null && (
-              <>
-                <View style={[s.dot, { backgroundColor: theme.textSecondary }]} />
-                <Text style={[s.impactText, { color: isControl ? '#EF4444' : theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-                  {habit.count}{habit.count_unit ? ` ${habit.count_unit}` : ''}
-                </Text>
-              </>
-            )}
-          </View>
-        </View>
+      {/* Lime checkbox (rounded square) */}
+      <View style={[s.habitCheck, {
+        backgroundColor: habit.done ? theme.accent : 'transparent',
+        borderColor: habit.done ? theme.accent : theme.border,
+      }]}>
+        {habit.done && <Ionicons name="checkmark" size={14} color={theme.accentText} />}
       </View>
 
-      <View style={s.habitRight}>
-        <Text style={[s.pointsText, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-          +{habit.score || 1}
+      {/* Name + impact + streak */}
+      <View style={s.habitInfo}>
+        <Text style={[s.habitName, {
+          color: theme.text,
+          textDecorationLine: habit.done ? 'line-through' : 'none',
+          textDecorationColor: theme.textTertiary,
+          fontFamily: 'Inter_900Black',
+          letterSpacing: 0.3,
+        }]} numberOfLines={1}>
+          {habit.name.toUpperCase()}
         </Text>
-        <TouchableOpacity
-          onPress={onInfo}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={s.infoBtn}
-        >
-          <Ionicons name="stats-chart" size={14} color={theme.textSecondary} />
-        </TouchableOpacity>
+        <View style={s.habitMetaRow}>
+          <Text style={[s.impactText, { color: theme.success, fontFamily: 'Inter_700Bold' }]}>
+            +{impact}% DISCIPLINE
+          </Text>
+          {habit.streak > 0 && (
+            <>
+              <Ionicons name="flame" size={11} color={theme.warning} style={{ marginLeft: 2 }} />
+              <Text style={[s.streakText, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>
+                {habit.streak}
+              </Text>
+            </>
+          )}
+          {habit.done && habit.count != null && (
+            <>
+              <View style={[s.dot, { backgroundColor: theme.textTertiary }]} />
+              <Text style={[s.impactText, { color: isControl ? theme.danger : theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                {habit.count}{habit.count_unit ? ` ${habit.count_unit}` : ''}
+              </Text>
+            </>
+          )}
+        </View>
       </View>
+
+      {/* Big points on the right (green when done, muted otherwise) */}
+      <Text style={[s.pointsText, {
+        color: habit.done ? theme.success : theme.textTertiary,
+        fontFamily: 'Inter_900Black',
+      }]}>
+        +{impact}
+      </Text>
+
+      {/* Stats icon */}
+      <TouchableOpacity
+        onPress={onInfo}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={s.infoBtn}
+      >
+        <Ionicons name="stats-chart" size={14} color={theme.textTertiary} />
+      </TouchableOpacity>
     </TouchableOpacity>
   );
 }
 
 const s = StyleSheet.create({
   safe:     { flex: 1 },
-  topBar:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 6, gap: 10 },
-  datesRow:  { paddingHorizontal: 14, paddingBottom: 8 },
-  topIcon:   { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  modeLabel: { fontSize: 10, letterSpacing: 1.5, lineHeight: 15 },
-  scroll:   { paddingBottom: 120, paddingTop: 0 },
-  tabToggle:  { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, height: 46, borderRadius: 12, overflow: 'hidden', position: 'relative' },
-  tabPill:    { position: 'absolute', top: 0, left: 0, height: 46, borderRadius: 12 },
-  tabBtn:     { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
-  tabBtnText: { fontSize: 11, letterSpacing: 3 },
-  daySelectorWrap: { paddingHorizontal: 16, marginBottom: 4 },
-  fab:      { position: 'absolute', bottom: 20, alignSelf: 'center', width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
+
+  // Warm Coach top bar
+  topBar:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingTop: 8, paddingBottom: 14, gap: 8 },
+  modeEyebrow:   { fontSize: 11, letterSpacing: 1.6, marginBottom: 2 },
+  modeTitle:     { fontSize: 26, letterSpacing: -0.5, lineHeight: 28 },
+  sparkleBtn:    { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  iconBtn:       { width: 40, height: 40, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  // Legacy (still used by other modal styles inline)
+  topIcon:       { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  modeLabel:     { fontSize: 10, letterSpacing: 1.5, lineHeight: 15 },
+
+  datesRow:      { paddingHorizontal: 14, paddingBottom: 8 },
+  scroll:        { paddingBottom: 120, paddingTop: 0 },
+
+  // Gauge
+  gaugeLabel:    { position: 'absolute', top: 30, left: 0, right: 0, alignItems: 'center' },
+  gaugeNum:      { fontSize: 60, letterSpacing: -2.5, lineHeight: 60 },
+  gaugeCap:      { fontSize: 10, letterSpacing: 1.8, marginTop: 4 },
+
+  // Momentum pill
+  momentumWrap:     { alignItems: 'center', marginTop: 6, marginBottom: 16 },
+  momentumPill:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  momentumPillText: { fontSize: 10, letterSpacing: 1.2 },
+
+  // BUILD / CONTROL segmented control
+  segmented:     { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, padding: 4, borderRadius: 14, height: 46, position: 'relative' },
+  segmentedPill: { position: 'absolute', top: 4, left: 4, bottom: 4, borderRadius: 10 },
+  segmentedBtn:  { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+  segmentedText: { fontSize: 12, letterSpacing: 2 },
+
+  // Stats row above habit list
+  statRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 22, paddingTop: 14, paddingBottom: 10 },
+  statLeft:      { fontSize: 11, letterSpacing: 1.5 },
+  statRight:     { fontSize: 11, letterSpacing: 1.5 },
+
+  fab:           { position: 'absolute', bottom: 20, alignSelf: 'center', width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 24, marginBottom: 12 },
-  sectionTitle: { fontSize: 9, letterSpacing: 3 },
-  sectionCount: { fontSize: 9 },
-  empty:    { alignItems: 'center', paddingVertical: 40 },
-  emptyText: { fontSize: 13, textAlign: 'center', lineHeight: 20, opacity: 0.5 },
-  habitCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginHorizontal: 16, paddingHorizontal: 16, paddingVertical: 18,
-    borderWidth: 1, marginBottom: 10, overflow: 'hidden',
+  sectionTitle:  { fontSize: 9, letterSpacing: 3 },
+  sectionCount:  { fontSize: 9 },
+  empty:         { alignItems: 'center', paddingVertical: 40 },
+  emptyText:     { fontSize: 13, textAlign: 'center', lineHeight: 20, opacity: 0.5 },
+
+  // Habit card — Warm Coach style
+  habitCard:     {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: 16, paddingHorizontal: 14, paddingVertical: 14,
+    borderWidth: 1, marginBottom: 8, gap: 12, borderRadius: 14,
   },
-  habitGradient: { ...StyleSheet.absoluteFillObject },
-  habitLeft:  { flexDirection: 'row', alignItems: 'center', gap: 16, flex: 1 },
-  checkbox:   { width: 20, height: 20, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', borderRadius: 0 },
-  habitInfo:  { flex: 1, gap: 3 },
-  habitNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  habitName:  { fontSize: 12, letterSpacing: 0.5 },
-  dot:        { width: 3, height: 3, borderRadius: 2 },
-  streakText: { fontSize: 8, letterSpacing: 1 },
-  habitMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  impactText: { fontSize: 9, letterSpacing: 1 },
+  habitCheck:    { width: 28, height: 28, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
+  habitInfo:     { flex: 1, gap: 4, minWidth: 0 },
+  habitName:     { fontSize: 14 },
+  habitMetaRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  impactText:    { fontSize: 10.5, letterSpacing: 0.6 },
+  streakText:    { fontSize: 10.5, letterSpacing: 0.5 },
+  dot:           { width: 3, height: 3, borderRadius: 2 },
+  pointsText:    { fontSize: 18, letterSpacing: -0.5 },
+  // Legacy checkbox style (still referenced by the add-habit modal trackToggle)
+  checkbox:      { width: 20, height: 20, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', borderRadius: 0 },
   // Add-habit modal extras
   presetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   presetChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderRadius: 10 },
@@ -866,9 +969,7 @@ const s = StyleSheet.create({
   trackCheckbox: { width: 18, height: 18, borderWidth: 1.5, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   trackLabel: { fontSize: 10, letterSpacing: 2 },
   trackHint: { flex: 1, fontSize: 9, letterSpacing: 0.3, fontStyle: 'italic', textAlign: 'right' },
-  habitRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   infoBtn:    { padding: 4, opacity: 0.6 },
-  pointsText: { fontSize: 13 },
   modal:      { flex: 1, paddingTop: 8 },
   modalHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 14, borderBottomWidth: 1 },
