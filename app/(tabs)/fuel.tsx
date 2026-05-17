@@ -143,6 +143,21 @@ export default function FuelScreen() {
     } catch (err: any) { Alert.alert('Error', err.message); }
   }
 
+  async function updateItem(item: FoodItem, patch: { calories?: number; protein?: number; fat?: number; carbs?: number }) {
+    if (!token) return;
+    try {
+      await fuel.deleteItem(token, item.id);
+      await fuel.addItem(token, {
+        date: selectedDate, name: item.name, mealTime: item.mealTime,
+        calories: patch.calories ?? item.calories ?? undefined,
+        protein:  patch.protein  ?? item.protein  ?? undefined,
+        fat:      patch.fat      ?? item.fat      ?? undefined,
+        carbs:    patch.carbs    ?? item.carbs     ?? undefined,
+      });
+      await load(selectedDate);
+    } catch (err: any) { Alert.alert('Error', err.message); }
+  }
+
   useEffect(() => { load(selectedDate).finally(() => setLoading(false)); }, [token, selectedDate]);
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(selectedDate); setRefreshing(false); }, [token, selectedDate]);
 
@@ -164,7 +179,10 @@ export default function FuelScreen() {
     <DarkBackground><SafeAreaView style={s.safe} edges={['top']}>
       {/* Header */}
       <View style={s.topBar}>
-        <Text style={[s.modeLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>FUEL MODE</Text>
+        <View>
+          <Text style={[s.modeLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>FUEL MODE</Text>
+          <Text style={[s.eatClean, { color: theme.text, fontFamily: 'Inter_900Black' }]}>EAT CLEAN</Text>
+        </View>
         <View style={{ flex: 1 }} />
         <TouchableOpacity style={[s.topIcon, { borderColor: theme.border }]} onPress={() => router.push('/(tabs)/ai')}>
           <Ionicons name="sparkles" size={15} color="#34C759" />
@@ -181,76 +199,79 @@ export default function FuelScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}>
         <FuelScoreCard score={todayScore} history={history} selectedDate={selectedDate} theme={theme} />
 
-        {mode === 'detailed' && <MacroTracker items={foodItems} theme={theme} />}
-
-        {/* QUICK / DETAILED toggle */}
+        {/* QUICK / DETAILED toggle — directly under score card */}
         <View
-          style={[s.tabToggle, { backgroundColor: theme.isDark ? '#000000' : theme.overlay }]}
+          style={[s.tabToggle, { backgroundColor: theme.surface }]}
           onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
         >
           {tabContainerW > 0 && (
             <Animated.View style={[s.tabPill, {
-              backgroundColor: theme.inverse,
-              width: tabContainerW / 2,
-              transform: [{ translateX: tabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, tabContainerW / 2] }) }],
+              backgroundColor: theme.card,
+              width: (tabContainerW - 8) / 2,
+              transform: [{ translateX: tabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, (tabContainerW - 8) / 2] }) }],
             }]} />
           )}
           <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('quick')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, { color: mode === 'quick' ? theme.inverseText : theme.textMuted, fontFamily: 'Inter_900Black' }]}>QUICK</Text>
+            <Text style={[s.tabBtnText, { color: mode === 'quick' ? theme.text : theme.textSecondary, fontFamily: 'Inter_900Black' }]}>QUICK</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('detailed')} activeOpacity={0.8}>
-            <Text style={[s.tabBtnText, { color: mode === 'detailed' ? theme.inverseText : theme.textMuted, fontFamily: 'Inter_900Black' }]}>DETAILED</Text>
+            <Text style={[s.tabBtnText, { color: mode === 'detailed' ? theme.text : theme.textSecondary, fontFamily: 'Inter_900Black' }]}>DETAILED</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Macro tracker — editable, always visible under the toggle */}
+        <MacroTracker items={foodItems} theme={theme} onQuickLog={isToday ? async (macros) => {
+          if (!token) return;
+          try {
+            await fuel.addItem(token, { date: selectedDate, name: 'Quick entry', mealTime: 'lunch', ...macros });
+            await load(selectedDate);
+          } catch (err: any) { Alert.alert('Error', err.message); }
+        } : undefined} />
 
         {/* QUICK */}
         {mode === 'quick' && isToday && (
           <>
-            <QuestionCard
-              icon="🍽️"
-              label="STUCK TO YOUR DIET?"
-              sub="Did you follow your planned meals today?"
-              state={stuckToMeal}
-              onAnswer={setStuckToMeal}
-              yesColor="#34C759"
-              noColor="#FF453A"
-              theme={theme}
-            />
-            <QuestionCard
-              icon="🍔"
-              label="HAD JUNK FOOD?"
-              sub="Any processed or unhealthy food?"
-              state={hadJunk}
-              onAnswer={setHadJunk}
-              yesColor="#FF453A"
-              noColor="#34C759"
-              theme={theme}
-            />
+            {/* Hairline question rows */}
+            <View style={[qcs.group, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
+              <QuestionCard
+                icon="🍽️"
+                label="STUCK TO YOUR DIET?"
+                sub="Did you follow your planned meals today?"
+                state={stuckToMeal}
+                onAnswer={setStuckToMeal}
+                yesColor="#34C759"
+                noColor="#FF453A"
+                theme={theme}
+              />
+              <View style={[qcs.hairline, { backgroundColor: theme.border }]} />
+              <QuestionCard
+                icon="🍔"
+                label="HAD JUNK FOOD?"
+                sub="Any processed or unhealthy food?"
+                state={hadJunk}
+                onAnswer={setHadJunk}
+                yesColor="#FF453A"
+                noColor="#34C759"
+                theme={theme}
+              />
+              <View style={[qcs.hairline, { backgroundColor: theme.border }]} />
 
-            {/* Food Quality card */}
-            <TouchableOpacity
-              style={[qcs.card, { borderColor: theme.border }]}
-              onPress={() => setShowQPicker(true)}
-              activeOpacity={0.85}
-            >
-              <View style={qcs.header}>
+              {/* Food Quality row */}
+              <TouchableOpacity style={qcs.row} onPress={() => setShowQPicker(true)} activeOpacity={0.75}>
                 <Text style={qcs.icon}>⭐</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>FOOD QUALITY</Text>
                   <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                    {QUALITY_LABELS[foodQuality]} · Tap to adjust
+                    {QUALITY_LABELS[foodQuality]}
                   </Text>
                 </View>
-                <Text style={[qcs.qualityValue, { color: '#34C759', fontFamily: 'SpaceGrotesk_700Bold' }]}>
-                  {foodQuality}/10
-                </Text>
-              </View>
-              <View style={qcs.qualityBars}>
-                {Array.from({ length: 10 }).map((_, i) => (
-                  <View key={i} style={[qcs.qualityBar, { backgroundColor: i < foodQuality ? '#34C759' : theme.overlay }]} />
-                ))}
-              </View>
-            </TouchableOpacity>
+                <View style={qcs.qualityScore}>
+                  <Text style={[qcs.qualityNum, { color: '#34C759', fontFamily: 'SpaceGrotesk_700Bold' }]}>{foodQuality}</Text>
+                  <Text style={[qcs.qualityDenom, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>/10</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={14} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
 
             {/* Quality bottom-sheet modal */}
             <Modal visible={showQPicker} transparent animationType="slide">
@@ -279,7 +300,7 @@ export default function FuelScreen() {
             {/* Snap row */}
             <View style={s.snapRow}>
               <TouchableOpacity
-                style={[s.snapBtn, { borderColor: theme.border, opacity: scanning ? 0.6 : 1 }]}
+                style={[s.snapBtn, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF', opacity: scanning ? 0.6 : 1 }]}
                 onPress={() => handleSnapTrack('camera')}
                 disabled={scanning}
                 activeOpacity={0.7}
@@ -293,7 +314,7 @@ export default function FuelScreen() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.snapBtnSm, { borderColor: theme.border }]}
+                style={[s.snapBtnSm, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}
                 onPress={() => handleSnapTrack('gallery')}
                 disabled={scanning}
                 activeOpacity={0.7}
@@ -309,7 +330,7 @@ export default function FuelScreen() {
             </View>
 
             {/* Food name */}
-            <View style={[s.foodNameBox, { borderColor: theme.border }]}>
+            <View style={[s.foodNameBox, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
               <Ionicons name="fast-food-outline" size={16} color={theme.textSecondary} style={{ marginRight: 8 }} />
               <TextInput
                 style={[s.foodNameInput, { color: theme.text, fontFamily: 'Inter_700Bold' }]}
@@ -328,7 +349,7 @@ export default function FuelScreen() {
                 <TouchableOpacity
                   key={mt}
                   style={[s.mealChip, {
-                    backgroundColor: itemMealTime === mt ? theme.text : 'transparent',
+                    backgroundColor: itemMealTime === mt ? theme.text : (theme.isDark ? '#1E1E1E' : '#FFFFFF'),
                     borderColor: itemMealTime === mt ? theme.text : theme.border,
                   }]}
                   onPress={() => setItemMealTime(mt)}
@@ -343,36 +364,10 @@ export default function FuelScreen() {
               ))}
             </ScrollView>
 
-            {/* Macros 2×2 */}
-            <Text style={[s.detailFieldLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>MACROS</Text>
-            <View style={s.macroGrid}>
-              {([
-                { label: 'CALORIES', value: itemCalories, setter: setItemCalories, placeholder: '', icon: '🔥' },
-                { label: 'PROTEIN',  value: itemProtein,  setter: setItemProtein,  placeholder: '', icon: '💪' },
-                { label: 'CARBS',    value: itemCarbs,    setter: setItemCarbs,    placeholder: '', icon: '🌾' },
-                { label: 'FATS',     value: itemFat,      setter: setItemFat,      placeholder: '', icon: '🥑' },
-              ] as Array<{ label: string; value: string; setter: (v: string) => void; placeholder: string; icon: string }>).map(f => (
-                <View key={f.label} style={[s.macroBox, { borderColor: theme.border }]}>
-                  <View style={s.macroBoxHeader}>
-                    <Text style={s.macroBoxIcon}>{f.icon}</Text>
-                    <Text style={[s.macroBoxLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{f.label}</Text>
-                  </View>
-                  <TextInput
-                    style={[s.macroBoxInput, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}
-                    value={f.value}
-                    onChangeText={f.setter}
-                    placeholder={f.placeholder}
-                    placeholderTextColor={theme.textSecondary}
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-              ))}
-            </View>
-
             <TouchableOpacity
-              style={[s.submitBtn, { backgroundColor: theme.tabActiveBg, opacity: addingItem ? 0.4 : 1 }]}
+              style={[s.submitBtn, { backgroundColor: theme.tabActiveBg, opacity: (!itemName.trim() || addingItem) ? 0.4 : 1 }]}
               onPress={submitDetailedItem}
-              disabled={addingItem}
+              disabled={!itemName.trim() || addingItem}
             >
               <Text style={[s.submitBtnText, { color: theme.tabActiveText, fontFamily: 'Inter_900Black' }]}>
                 {addingItem ? 'SAVING...' : 'LOG FOOD →'}
@@ -417,6 +412,7 @@ export default function FuelScreen() {
                     item={item}
                     theme={theme}
                     onDelete={isToday ? () => deleteItem(item.id) : undefined}
+                    onUpdate={isToday ? (patch) => updateItem(item, patch) : undefined}
                   />
                 ))}
                 <MacroTotalsBar items={foodItems} theme={theme} />
@@ -428,6 +424,10 @@ export default function FuelScreen() {
       </ScrollView>
     </SafeAreaView></DarkBackground>
   );
+}
+
+function dayLetter(dateStr: string) {
+  return ['M','T','W','T','F','S','S'][(new Date(dateStr + 'T12:00:00').getDay() + 6) % 7];
 }
 
 function FuelScoreCard({ score, history, selectedDate, theme }: {
@@ -446,74 +446,76 @@ function FuelScoreCard({ score, history, selectedDate, theme }: {
     return days;
   }, [history]);
 
-  const trend = React.useMemo(() => {
+  const { trend, delta } = React.useMemo(() => {
+    const prev = last7.slice(0, 6).filter(d => d.score != null).map(d => d.score as number);
+    const avg = prev.length ? Math.round(prev.reduce((a, b) => a + b, 0) / prev.length) : null;
+    const diff = avg != null ? score - avg : null;
     const scored = last7.filter(d => d.score != null).map(d => d.score as number);
-    if (scored.length < 3) return null;
+    if (scored.length < 3) return { trend: { label: 'SHOWING UP', color: '#0A84FF', icon: '·' }, delta: diff };
     const half = Math.floor(scored.length / 2);
-    const early = scored.slice(0, half).reduce((a, b) => a + b, 0) / half;
+    const early  = scored.slice(0, half).reduce((a, b) => a + b, 0) / half;
     const recent = scored.slice(-half).reduce((a, b) => a + b, 0) / half;
-    const diff = recent - early;
-    if (diff > 8)  return { label: 'IMPROVING',  color: '#34C759', icon: '↑' };
-    if (diff < -8) return { label: 'DECLINING',   color: '#FF453A', icon: '↓' };
-    return { label: 'CONSISTENT', color: '#0A84FF', icon: '→' };
-  }, [last7]);
+    const d = recent - early;
+    if (d > 8)  return { trend: { label: 'GETTING BETTER', color: '#34C759', icon: '↑' }, delta: diff };
+    if (d < -8) return { trend: { label: 'DECLINING',      color: '#FF453A', icon: '↓' }, delta: diff };
+    return { trend: { label: 'CONSISTENT', color: '#0A84FF', icon: '→' }, delta: diff };
+  }, [last7, score]);
 
-  const streak = React.useMemo(() => {
-    let count = 0;
-    for (let i = last7.length - 1; i >= 0; i--) {
-      if (last7[i].score != null) count++;
-      else break;
-    }
-    return count;
-  }, [last7]);
-
-  const scoreColor = score >= 80 ? '#34C759' : score >= 50 ? '#FF9500' : '#FF453A';
+  const scoreColor = score >= 70 ? '#22A664' : score >= 50 ? '#F0A12E' : '#E84A4A';
   const isToday = selectedDate === today();
 
   return (
-    <View style={[sc.card, { backgroundColor: theme.isDark ? '#1E1E1E' : '#ECECEC', borderColor: theme.borderStrong, borderTopColor: scoreColor }]}>
+    <View style={[sc.card, { backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF', borderColor: scoreColor }]}>
+      {/* Top row: score left, trend+delta right */}
       <View style={sc.top}>
-        <View style={sc.scoreBlock}>
-          <Text style={[sc.scoreNum, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
-          <Text style={[sc.scoreLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-            {isToday ? "TODAY'S FUEL SCORE" : 'FUEL SCORE'}
+        <View style={sc.left}>
+          <Text style={[sc.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+            {isToday ? "TODAY'S FUEL" : 'FUEL SCORE'}
           </Text>
+          <Text style={[sc.scoreNum, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
         </View>
+
         <View style={sc.right}>
           {trend && (
-            <View style={[sc.trendBadge, { backgroundColor: trend.color + '22', borderColor: trend.color + '55' }]}>
-              <Text style={[sc.trendIcon, { color: trend.color }]}>{trend.icon}</Text>
-              <Text style={[sc.trendLabel, { color: trend.color, fontFamily: 'Inter_900Black' }]}>{trend.label}</Text>
+            <View style={[sc.trendPill, { backgroundColor: trend.color + '25' }]}>
+              <Text style={[sc.trendText, { color: trend.color, fontFamily: 'Inter_900Black' }]}>
+                {trend.icon}  {trend.label}
+              </Text>
             </View>
           )}
-          {streak > 0 && (
-            <Text style={[sc.streakText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-              {streak} day{streak !== 1 ? 's' : ''} logged
+          {delta != null && (
+            <Text style={[sc.deltaText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+              {delta > 0 ? '+' : ''}{delta} vs last 7 days
             </Text>
           )}
         </View>
       </View>
 
+      {/* Divider */}
       <View style={[sc.divider, { backgroundColor: theme.border }]} />
 
-      <View style={sc.dotsRow}>
-        {last7.map((day, i) => {
-          const isSelected = day.date === selectedDate;
+      {/* 7-day coloured squares */}
+      <View style={sc.gridRow}>
+        {last7.map((day) => {
           const s = day.score;
-          const dotColor = s == null ? theme.overlay : s >= 80 ? '#34C759' : s >= 50 ? '#FF9500' : '#FF453A';
-          const label = ['M','T','W','T','F','S','S'][new Date(day.date + 'T12:00:00').getDay() === 0 ? 6 : new Date(day.date + 'T12:00:00').getDay() - 1];
+          const isSelected = day.date === selectedDate;
+          const bg = s == null
+            ? (theme.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)')
+            : s >= 70 ? '#22A664' : s >= 50 ? '#F0A12E' : '#E84A4A';
+          const textColor = s == null ? theme.textSecondary : '#FFFFFF';
           return (
-            <View key={day.date} style={sc.dotCol}>
-              <View style={[sc.dot, {
-                backgroundColor: dotColor,
-                borderWidth: isSelected ? 2 : 0,
-                borderColor: theme.text,
-                opacity: s == null ? 0.25 : 1,
-              }]} />
-              {s != null && (
-                <Text style={[sc.dotScore, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{s}</Text>
-              )}
-              <Text style={[sc.dotDay, { color: isSelected ? theme.text : theme.textSecondary, fontFamily: isSelected ? 'Inter_700Bold' : 'Inter_500Medium' }]}>{label}</Text>
+            <View key={day.date} style={[sc.square, {
+              backgroundColor: bg,
+              borderWidth: isSelected ? 2 : 0,
+              borderColor: theme.text,
+              opacity: s == null ? 0.5 : 1,
+            }]}>
+              <Text style={[sc.squareNum, { color: textColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                {s ?? '·'}
+              </Text>
+              <Text style={[sc.squareDay, { color: textColor, fontFamily: 'Inter_700Bold' }]}>
+                {dayLetter(day.date)}
+              </Text>
             </View>
           );
         })}
@@ -523,22 +525,20 @@ function FuelScoreCard({ score, history, selectedDate, theme }: {
 }
 
 const sc = StyleSheet.create({
-  card:       { marginHorizontal: 16, marginBottom: 14, borderWidth: 1, borderRadius: 16, padding: 16, borderTopWidth: 3 },
-  top:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  scoreBlock: { gap: 2 },
-  scoreNum:   { fontSize: 52, lineHeight: 56 },
-  scoreLabel: { fontSize: 8, letterSpacing: 2.5 },
-  right:      { alignItems: 'flex-end', gap: 8 },
-  trendBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
-  trendIcon:  { fontSize: 13, fontWeight: '800' },
-  trendLabel: { fontSize: 9, letterSpacing: 2 },
-  streakText: { fontSize: 9, letterSpacing: 1 },
-  divider:    { height: 1, marginBottom: 14 },
-  dotsRow:    { flexDirection: 'row', justifyContent: 'space-between' },
-  dotCol:     { alignItems: 'center', gap: 4, flex: 1 },
-  dot:        { width: 10, height: 10, borderRadius: 5 },
-  dotScore:   { fontSize: 8 },
-  dotDay:     { fontSize: 8, letterSpacing: 0.5 },
+  card:       { marginHorizontal: 16, marginBottom: 14, borderWidth: 1.5, borderRadius: 18, overflow: 'hidden' },
+  top:        { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', padding: 16, paddingBottom: 14 },
+  left:       { gap: 2 },
+  eyebrow:    { fontSize: 10, letterSpacing: 2 },
+  scoreNum:   { fontSize: 64, lineHeight: 68, letterSpacing: -2 },
+  right:      { alignItems: 'flex-end', gap: 6, paddingTop: 2 },
+  trendPill:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  trendText:  { fontSize: 10, letterSpacing: 1.5 },
+  deltaText:  { fontSize: 11 },
+  divider:    { height: 1, marginHorizontal: 0 },
+  gridRow:    { flexDirection: 'row', padding: 12, gap: 6 },
+  square:     { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: 'center', gap: 3 },
+  squareNum:  { fontSize: 13, lineHeight: 15 },
+  squareDay:  { fontSize: 9, letterSpacing: 0.5 },
 });
 
 const ITEM_W = 56;
@@ -605,7 +605,11 @@ const qs = StyleSheet.create({
 const MACRO_TARGETS = { calories: 2000, protein: 150, fat: 65, carbs: 250 };
 const MACRO_COLORS  = { calories: '#FF9500', protein: '#0A84FF', fat: '#FFD60A', carbs: '#34C759' };
 
-function MacroTracker({ items, theme }: { items: FoodItem[]; theme: any }) {
+function MacroTracker({ items, theme, onQuickLog }: {
+  items: FoodItem[];
+  theme: any;
+  onQuickLog?: (macros: { calories?: number; protein?: number; fat?: number; carbs?: number }) => void;
+}) {
   const totals = items.reduce(
     (a, i) => ({
       calories: a.calories + (i.calories ?? 0),
@@ -616,77 +620,183 @@ function MacroTracker({ items, theme }: { items: FoodItem[]; theme: any }) {
     { calories: 0, protein: 0, fat: 0, carbs: 0 }
   );
 
-  const rows: { key: keyof typeof MACRO_TARGETS; label: string; unit: string }[] = [
-    { key: 'calories', label: 'CALORIES', unit: 'kcal' },
-    { key: 'protein',  label: 'PROTEIN',  unit: 'g' },
-    { key: 'carbs',    label: 'CARBS',    unit: 'g' },
-    { key: 'fat',      label: 'FAT',      unit: 'g' },
-  ];
+  const [inputCal,  setInputCal]  = React.useState('');
+  const [inputPro,  setInputPro]  = React.useState('');
+  const [inputCarb, setInputCarb] = React.useState('');
+  const [inputFat,  setInputFat]  = React.useState('');
+  const [focused, setFocused] = React.useState<string | null>(null);
+  const [saving, setSaving]   = React.useState(false);
+
+  const calRef  = React.useRef<TextInput>(null);
+  const proRef  = React.useRef<TextInput>(null);
+  const carbRef = React.useRef<TextInput>(null);
+  const fatRef  = React.useRef<TextInput>(null);
+
+  const hasInput = !!(inputCal || inputPro || inputCarb || inputFat);
+
+  async function handleLog() {
+    if (!onQuickLog || saving) return;
+    setSaving(true);
+    await onQuickLog({
+      calories: inputCal  ? Number(inputCal)  : undefined,
+      protein:  inputPro  ? Number(inputPro)  : undefined,
+      carbs:    inputCarb ? Number(inputCarb) : undefined,
+      fat:      inputFat  ? Number(inputFat)  : undefined,
+    });
+    setInputCal(''); setInputPro(''); setInputCarb(''); setInputFat('');
+    setSaving(false);
+  }
+
+  const cells = [
+    { key: 'calories', label: 'Calories', unit: 'kcal', icon: '🔥', color: MACRO_COLORS.calories,
+      total: totals.calories, input: inputCal, setInput: setInputCal, ref: calRef },
+    { key: 'protein',  label: 'Protein',  unit: 'g',    icon: '💪', color: MACRO_COLORS.protein,
+      total: totals.protein,  input: inputPro, setInput: setInputPro, ref: proRef },
+    { key: 'carbs',    label: 'Carbs',    unit: 'g',    icon: '🌾', color: MACRO_COLORS.carbs,
+      total: totals.carbs,    input: inputCarb, setInput: setInputCarb, ref: carbRef },
+    { key: 'fat',      label: 'Fat',      unit: 'g',    icon: '🥑', color: MACRO_COLORS.fat,
+      total: totals.fat,      input: inputFat, setInput: setInputFat, ref: fatRef },
+  ] as const;
 
   return (
-    <View style={[mt.card, { borderColor: theme.border }]}>
-      {rows.map((row, idx) => {
-        const val    = Math.round(totals[row.key]);
-        const target = MACRO_TARGETS[row.key];
-        const pct    = Math.min(val / target, 1);
-        const color  = MACRO_COLORS[row.key];
-        const over   = val > target;
-        return (
-          <View key={row.key}>
-            {idx > 0 && <View style={[mt.sep, { backgroundColor: theme.border }]} />}
-            <View style={mt.row}>
-              <View style={mt.left}>
-                <Text style={[mt.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{row.label}</Text>
-                <View style={mt.valRow}>
-                  <Text style={[mt.val, { color: over ? color : theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-                    {val.toLocaleString()}
-                  </Text>
-                  <Text style={[mt.unit, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                    {row.unit}
-                  </Text>
-                </View>
-              </View>
-              <View style={mt.barWrap}>
-                <View style={[mt.barTrack, { backgroundColor: theme.overlay }]}>
-                  <View style={[mt.barFill, { width: `${pct * 100}%` as any, backgroundColor: color }]} />
-                </View>
-                <Text style={[mt.target, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                  / {target.toLocaleString()}{row.unit}
+    <View style={[mt.card, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
+      <View style={mt.grid}>
+        {cells.map((cell, idx) => {
+          const val    = Math.round(cell.total);
+          const target = MACRO_TARGETS[cell.key as keyof typeof MACRO_TARGETS];
+          const pct    = Math.min((val + (Number(cell.input) || 0)) / target, 1);
+          const isFocused = focused === cell.key;
+          const displayVal = cell.input || (val > 0 ? String(val) : '');
+          const isRight  = idx % 2 === 1;
+          const isBottom = idx >= 2;
+
+          return (
+            <TouchableOpacity
+              key={cell.key}
+              style={[mt.cell,
+                isRight  && { borderLeftColor: theme.border, borderLeftWidth: 1 },
+                isBottom && { borderTopColor: theme.border, borderTopWidth: 1 },
+                isFocused && { backgroundColor: cell.color + '12' },
+              ]}
+              onPress={() => (cell.ref as React.RefObject<TextInput>).current?.focus()}
+              activeOpacity={0.75}
+            >
+              <View style={mt.cellHeader}>
+                <Text style={mt.cellIcon}>{cell.icon}</Text>
+                <Text style={[mt.cellLabel, { color: isFocused ? cell.color : theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                  {cell.label}
                 </Text>
               </View>
-            </View>
-          </View>
-        );
-      })}
+              <View style={mt.cellValRow}>
+                <TextInput
+                  ref={cell.ref as React.RefObject<TextInput>}
+                  style={[mt.cellInput, { color: displayVal ? cell.color : theme.textTertiary, fontFamily: 'SpaceGrotesk_700Bold' }]}
+                  value={cell.input}
+                  onChangeText={cell.setInput as (v: string) => void}
+                  onFocus={() => setFocused(cell.key)}
+                  onBlur={() => setFocused(null)}
+                  placeholder={val > 0 ? String(val) : '—'}
+                  placeholderTextColor={val > 0 ? cell.color : theme.textTertiary}
+                  keyboardType="decimal-pad"
+                />
+                <Text style={[mt.cellUnit, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>{cell.unit}</Text>
+              </View>
+              <View style={[mt.barTrack, { backgroundColor: theme.surfaceStrong }]}>
+                <View style={[mt.barFill, { width: `${pct * 100}%` as any, backgroundColor: cell.color }]} />
+              </View>
+              <Text style={[mt.cellTarget, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+                / {target.toLocaleString()} {cell.unit}
+              </Text>
+              {isFocused && <View style={[mt.focusLine, { backgroundColor: cell.color }]} />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {hasInput && onQuickLog && (
+        <>
+          <View style={[mt.divider, { backgroundColor: theme.border }]} />
+          <TouchableOpacity style={[mt.logBtn, { opacity: saving ? 0.5 : 1 }]} onPress={handleLog} disabled={saving} activeOpacity={0.85}>
+            <Text style={[mt.logBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
+              {saving ? 'SAVING...' : 'LOG MACROS →'}
+            </Text>
+          </TouchableOpacity>
+        </>
+      )}
     </View>
   );
 }
 
 const mt = StyleSheet.create({
-  card:    { marginHorizontal: 16, marginBottom: 10, borderWidth: 1, borderRadius: 14, paddingVertical: 4 },
-  sep:     { height: 1, marginHorizontal: 16 },
-  row:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 11, gap: 14 },
-  left:    { width: 80, gap: 2 },
-  label:   { fontSize: 7, letterSpacing: 2 },
-  valRow:  { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
-  val:     { fontSize: 17 },
-  unit:    { fontSize: 9 },
-  barWrap: { flex: 1, gap: 4 },
-  barTrack:{ height: 5, borderRadius: 3, overflow: 'hidden' },
-  barFill: { height: '100%', borderRadius: 3 },
-  target:  { fontSize: 8, letterSpacing: 0.5 },
+  card:       { marginHorizontal: 16, marginBottom: 10, borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
+  grid:       { flexDirection: 'row', flexWrap: 'wrap' },
+  cell:       { width: '50%', padding: 14, gap: 6, position: 'relative' },
+  cellHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  cellIcon:   { fontSize: 14 },
+  cellLabel:  { fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase' },
+  cellValRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
+  cellInput:  { fontSize: 26, letterSpacing: -0.5, lineHeight: 30, minWidth: 50, paddingVertical: 0 },
+  cellUnit:   { fontSize: 10 },
+  barTrack:   { height: 4, borderRadius: 2, overflow: 'hidden' },
+  barFill:    { height: '100%', borderRadius: 2 },
+  cellTarget: { fontSize: 10 },
+  focusLine:  { position: 'absolute', bottom: 0, left: 14, right: 14, height: 2, borderRadius: 1 },
+  divider:    { height: 1 },
+  logBtn:     { paddingVertical: 13, alignItems: 'center' },
+  logBtnText: { fontSize: 11, letterSpacing: 3 },
 });
 
 const MEAL_TIME_ICONS: Record<string, string> = {
   morning: '🌅', brunch: '☕', lunch: '🥗', evening: '🌆', dinner: '🍽️', snacks: '🍎',
 };
 
-function FoodItemCard({ item, theme, onDelete }: { item: FoodItem; theme: any; onDelete?: () => void }) {
-  const hasMacros = item.calories != null || item.protein != null || item.fat != null || item.carbs != null;
+function FoodItemCard({ item, theme, onDelete, onUpdate }: {
+  item: FoodItem; theme: any;
+  onDelete?: () => void;
+  onUpdate?: (patch: { calories?: number; protein?: number; fat?: number; carbs?: number }) => void;
+}) {
+  const [cal,  setCal]  = React.useState(item.calories != null ? String(Math.round(item.calories)) : '');
+  const [pro,  setPro]  = React.useState(item.protein  != null ? String(Math.round(item.protein))  : '');
+  const [carb, setCarb] = React.useState(item.carbs    != null ? String(Math.round(item.carbs))    : '');
+  const [fat,  setFat]  = React.useState(item.fat      != null ? String(Math.round(item.fat))      : '');
+  const [focused, setFocused] = React.useState<string | null>(null);
+  const [saving, setSaving]   = React.useState(false);
+
+  const calRef  = React.useRef<TextInput>(null);
+  const proRef  = React.useRef<TextInput>(null);
+  const carbRef = React.useRef<TextInput>(null);
+  const fatRef  = React.useRef<TextInput>(null);
+
+  const origCal  = item.calories != null ? String(Math.round(item.calories)) : '';
+  const origPro  = item.protein  != null ? String(Math.round(item.protein))  : '';
+  const origCarb = item.carbs    != null ? String(Math.round(item.carbs))    : '';
+  const origFat  = item.fat      != null ? String(Math.round(item.fat))      : '';
+  const isDirty  = cal !== origCal || pro !== origPro || carb !== origCarb || fat !== origFat;
+
+  async function handleSave() {
+    if (!onUpdate || saving) return;
+    setSaving(true);
+    await onUpdate({
+      calories: cal  ? Number(cal)  : undefined,
+      protein:  pro  ? Number(pro)  : undefined,
+      carbs:    carb ? Number(carb) : undefined,
+      fat:      fat  ? Number(fat)  : undefined,
+    });
+    setSaving(false);
+  }
+
+  const macroFields = [
+    { key: 'cal',  label: 'CAL',   val: cal,  setVal: setCal,  ref: calRef,  unit: 'kcal', color: MACRO_COLORS.calories, icon: '🔥' },
+    { key: 'pro',  label: 'PRO',   val: pro,  setVal: setPro,  ref: proRef,  unit: 'g',    color: MACRO_COLORS.protein,  icon: '💪' },
+    { key: 'carb', label: 'CARBS', val: carb, setVal: setCarb, ref: carbRef, unit: 'g',    color: MACRO_COLORS.carbs,    icon: '🌾' },
+    { key: 'fat',  label: 'FAT',   val: fat,  setVal: setFat,  ref: fatRef,  unit: 'g',    color: MACRO_COLORS.fat,      icon: '🥑' },
+  ];
+
   return (
-    <View style={[fi.itemCard, { borderColor: theme.border }]}>
+    <View style={[fi.itemCard, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
+      {/* Header */}
       <View style={fi.itemHeader}>
-        <View style={[fi.mealTimeBadge, { backgroundColor: theme.overlay }]}>
+        <View style={[fi.mealTimeBadge, { backgroundColor: theme.surface }]}>
           <Text style={fi.mealTimeEmoji}>{MEAL_TIME_ICONS[item.mealTime]}</Text>
           <Text style={[fi.mealTimeText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
             {item.mealTime.toUpperCase()}
@@ -699,26 +809,68 @@ function FoodItemCard({ item, theme, onDelete }: { item: FoodItem; theme: any; o
           </TouchableOpacity>
         )}
       </View>
-      {hasMacros && (
+
+      <View style={[fi.itemDivider, { backgroundColor: theme.border }]} />
+
+      {/* Tappable macro grid */}
+      <View style={fi.macroGrid}>
+        {macroFields.map((f, i) => {
+          const isFocused = focused === f.key;
+          return (
+            <TouchableOpacity
+              key={f.key}
+              style={[fi.macroCell,
+                i % 2 === 1 && { borderLeftColor: theme.border, borderLeftWidth: 1 },
+                i >= 2      && { borderTopColor: theme.border, borderTopWidth: 1 },
+                isFocused   && { backgroundColor: f.color + '12' },
+              ]}
+              onPress={() => f.ref.current?.focus()}
+              activeOpacity={0.75}
+            >
+              <View style={fi.macroCellTop}>
+                <Text style={fi.macroCellIcon}>{f.icon}</Text>
+                <Text style={[fi.macroCellLabel, { color: isFocused ? f.color : theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                  {f.label}
+                </Text>
+              </View>
+              <View style={fi.macroCellInputRow}>
+                <TextInput
+                  ref={f.ref}
+                  style={[fi.macroCellInput, { color: f.val ? f.color : theme.textTertiary, fontFamily: 'SpaceGrotesk_700Bold' }]}
+                  value={f.val}
+                  onChangeText={f.setVal}
+                  onFocus={() => setFocused(f.key)}
+                  onBlur={() => setFocused(null)}
+                  placeholder="—"
+                  placeholderTextColor={theme.textTertiary}
+                  keyboardType="decimal-pad"
+                />
+                <Text style={[fi.macroCellUnit, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>{f.unit}</Text>
+              </View>
+              {isFocused && (
+                <View style={[fi.macroCellLine, { backgroundColor: f.color }]} />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Save button */}
+      {isDirty && onUpdate && (
         <>
           <View style={[fi.itemDivider, { backgroundColor: theme.border }]} />
-          <View style={fi.macroRow}>
-            {item.calories != null && <MacroChip label="CAL" value={Math.round(item.calories)} theme={theme} />}
-            {item.protein  != null && <MacroChip label="PRO" value={Math.round(item.protein)} unit="g" theme={theme} />}
-            {item.fat      != null && <MacroChip label="FAT" value={Math.round(item.fat)} unit="g" theme={theme} />}
-            {item.carbs    != null && <MacroChip label="CARBS" value={Math.round(item.carbs)} unit="g" theme={theme} />}
-          </View>
+          <TouchableOpacity
+            style={[fi.saveBtn, { opacity: saving ? 0.5 : 1 }]}
+            onPress={handleSave}
+            disabled={saving}
+            activeOpacity={0.85}
+          >
+            <Text style={[fi.saveBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
+              {saving ? 'SAVING...' : 'SAVE CHANGES →'}
+            </Text>
+          </TouchableOpacity>
         </>
       )}
-    </View>
-  );
-}
-
-function MacroChip({ label, value, unit = '', theme }: { label: string; value: number; unit?: string; theme: any }) {
-  return (
-    <View style={fi.macroChip}>
-      <Text style={[fi.macroChipVal, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>{value}{unit}</Text>
-      <Text style={[fi.macroChipLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{label}</Text>
     </View>
   );
 }
@@ -737,18 +889,20 @@ function MacroTotalsBar({ items, theme }: { items: FoodItem[]; theme: any }) {
   const hasAny = items.some(i => i.calories != null || i.protein != null || i.fat != null || i.carbs != null);
   if (!hasAny) return null;
 
+  const cols = [
+    { label: 'CAL',   value: Math.round(totals.calories), unit: '',  color: MACRO_COLORS.calories },
+    { label: 'PRO',   value: Math.round(totals.protein),  unit: 'g', color: MACRO_COLORS.protein },
+    { label: 'CARBS', value: Math.round(totals.carbs),    unit: 'g', color: MACRO_COLORS.carbs },
+    { label: 'FAT',   value: Math.round(totals.fat),      unit: 'g', color: MACRO_COLORS.fat },
+  ];
+
   return (
-    <View style={[fi.totalsBar, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+    <View style={[fi.totalsBar, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
       <Text style={[fi.totalsLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>DAILY TOTAL</Text>
       <View style={fi.totalsRow}>
-        {[
-          { label: 'CAL',   value: Math.round(totals.calories), unit: '' },
-          { label: 'PRO',   value: Math.round(totals.protein),  unit: 'g' },
-          { label: 'FAT',   value: Math.round(totals.fat),      unit: 'g' },
-          { label: 'CARBS', value: Math.round(totals.carbs),    unit: 'g' },
-        ].map(t => (
-          <View key={t.label} style={fi.totalCell}>
-            <Text style={[fi.totalVal, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+        {cols.map((t, i) => (
+          <View key={t.label} style={[fi.totalCell, i < cols.length - 1 && { borderRightColor: theme.border, borderRightWidth: 1 }]}>
+            <Text style={[fi.totalVal, { color: t.color, fontFamily: 'SpaceGrotesk_700Bold' }]}>
               {t.value}{t.unit}
             </Text>
             <Text style={[fi.totalCellLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{t.label}</Text>
@@ -761,24 +915,31 @@ function MacroTotalsBar({ items, theme }: { items: FoodItem[]; theme: any }) {
 
 const fi = StyleSheet.create({
   // item cards
-  itemCard:       { marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
-  itemHeader:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
-  mealTimeBadge:  { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  mealTimeEmoji:  { fontSize: 12 },
-  mealTimeText:   { fontSize: 8, letterSpacing: 1.5 },
-  itemName:       { flex: 1, fontSize: 13, letterSpacing: 0.3 },
-  itemDivider:    { height: 1 },
-  macroRow:       { flexDirection: 'row', paddingHorizontal: 14, paddingVertical: 10 },
-  macroChip:      { flex: 1, alignItems: 'center', gap: 2 },
-  macroChipVal:   { fontSize: 14 },
-  macroChipLabel: { fontSize: 7, letterSpacing: 1.5 },
+  itemCard:        { marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  itemHeader:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 13, gap: 10 },
+  mealTimeBadge:   { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  mealTimeEmoji:   { fontSize: 13 },
+  mealTimeText:    { fontSize: 8, letterSpacing: 1.5 },
+  itemName:        { flex: 1, fontSize: 14, letterSpacing: 0.2 },
+  itemDivider:     { height: 1 },
+  macroGrid:       { flexDirection: 'row', flexWrap: 'wrap' },
+  macroCell:       { width: '50%', padding: 14, gap: 6, position: 'relative' },
+  macroCellTop:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  macroCellIcon:   { fontSize: 14 },
+  macroCellLabel:  { fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase' },
+  macroCellInputRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
+  macroCellInput:  { fontSize: 24, letterSpacing: -0.5, minWidth: 50, paddingVertical: 0 },
+  macroCellUnit:   { fontSize: 10 },
+  macroCellLine:   { position: 'absolute', bottom: 0, left: 14, right: 14, height: 2, borderRadius: 1 },
+  saveBtn:         { paddingVertical: 12, alignItems: 'center' },
+  saveBtnText:     { fontSize: 10, letterSpacing: 3 },
   // totals bar
-  totalsBar:      { marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 12, padding: 14 },
-  totalsLabel:    { fontSize: 7, letterSpacing: 2.5, marginBottom: 10 },
-  totalsRow:      { flexDirection: 'row' },
-  totalCell:      { flex: 1, alignItems: 'center', gap: 3 },
-  totalVal:       { fontSize: 16 },
-  totalCellLabel: { fontSize: 7, letterSpacing: 1.5 },
+  totalsBar:      { marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  totalsLabel:    { fontSize: 9, letterSpacing: 2.5, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8 },
+  totalsRow:      { flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
+  totalCell:      { flex: 1, alignItems: 'center', paddingVertical: 12, gap: 4 },
+  totalVal:       { fontSize: 18 },
+  totalCellLabel: { fontSize: 8, letterSpacing: 1.5 },
   // add modal
   backdrop:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
   sheet:          { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 44, paddingTop: 12, maxHeight: '90%' },
@@ -812,42 +973,32 @@ function QuestionCard({ icon, label, sub, state, onAnswer, yesColor, noColor, th
   const noActive  = state === false;
 
   return (
-    <View style={[qcs.card, { borderColor: theme.border }]}>
-      <View style={qcs.header}>
-        <Text style={qcs.icon}>{icon}</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{label}</Text>
-          <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{sub}</Text>
-        </View>
+    <View style={qcs.row}>
+      <Text style={qcs.icon}>{icon}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{label}</Text>
+        <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{sub}</Text>
       </View>
-      <View style={qcs.btnRow}>
+      <View style={qcs.toggles}>
         <TouchableOpacity
-          style={[qcs.btn, {
+          style={[qcs.toggle, {
             backgroundColor: yesActive ? yesColor : 'transparent',
-            borderColor:     yesActive ? yesColor : theme.border,
+            borderColor: yesActive ? yesColor : theme.border,
           }]}
           onPress={() => onAnswer(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="checkmark" size={14} color={yesActive ? '#FFFFFF' : yesColor} />
-          <Text style={[qcs.btnText, {
-            color: yesActive ? '#FFFFFF' : yesColor,
-            fontFamily: 'Inter_900Black',
-          }]}>YES</Text>
+          <Text style={[qcs.toggleText, { color: yesActive ? '#FFF' : yesColor, fontFamily: 'Inter_900Black' }]}>Y</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[qcs.btn, {
+          style={[qcs.toggle, {
             backgroundColor: noActive ? noColor : 'transparent',
-            borderColor:     noActive ? noColor : theme.border,
+            borderColor: noActive ? noColor : theme.border,
           }]}
           onPress={() => onAnswer(false)}
           activeOpacity={0.7}
         >
-          <Ionicons name="close" size={14} color={noActive ? '#FFFFFF' : noColor} />
-          <Text style={[qcs.btnText, {
-            color: noActive ? '#FFFFFF' : noColor,
-            fontFamily: 'Inter_900Black',
-          }]}>NO</Text>
+          <Text style={[qcs.toggleText, { color: noActive ? '#FFF' : noColor, fontFamily: 'Inter_900Black' }]}>N</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -855,18 +1006,18 @@ function QuestionCard({ icon, label, sub, state, onAnswer, yesColor, noColor, th
 }
 
 const qcs = StyleSheet.create({
-  card:          { marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 12, padding: 10 },
-  header:        { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
-  icon:          { fontSize: 18 },
-  label:         { fontSize: 11, letterSpacing: 1.5 },
-  sub:           { fontSize: 9, letterSpacing: 0.3, marginTop: 2 },
-  btnRow:        { flexDirection: 'row', gap: 6 },
-  btn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 8, borderWidth: 1.5, borderRadius: 8 },
-  btnText:       { fontSize: 10, letterSpacing: 3 },
-  // Quality card extras
-  qualityValue:  { fontSize: 14 },
-  qualityBars:   { flexDirection: 'row', gap: 3, marginTop: 4 },
-  qualityBar:    { flex: 1, height: 4, borderRadius: 2 },
+  group:        { marginHorizontal: 16, borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
+  hairline:     { height: 1 },
+  row:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 13, gap: 12 },
+  icon:         { fontSize: 18 },
+  label:        { fontSize: 11, letterSpacing: 1.5 },
+  sub:          { fontSize: 9, letterSpacing: 0.3, marginTop: 2 },
+  toggles:      { flexDirection: 'row', gap: 6 },
+  toggle:       { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  toggleText:   { fontSize: 10, letterSpacing: 1 },
+  qualityScore: { flexDirection: 'row', alignItems: 'baseline', gap: 1 },
+  qualityNum:   { fontSize: 18 },
+  qualityDenom: { fontSize: 11 },
 });
 
 function MealRow({ log, theme }: { log: FoodLog; theme: any }) {
@@ -1014,13 +1165,14 @@ const s = StyleSheet.create({
   safe: { flex: 1 },
   topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 6, gap: 10 },
   modeLabel: { fontSize: 10, letterSpacing: 1.5 },
+  eatClean:  { fontSize: 22, letterSpacing: 2, marginTop: 2 },
   topIcon: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   datesRow: { paddingHorizontal: 14, paddingBottom: 8 },
   scroll: { paddingBottom: 120 },
-  tabToggle: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, height: 46, borderRadius: 12, overflow: 'hidden', position: 'relative' },
-  tabPill: { position: 'absolute', top: 0, left: 0, height: 46, borderRadius: 12 },
+  tabToggle: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, padding: 4, borderRadius: 14, height: 46, position: 'relative' },
+  tabPill: { position: 'absolute', top: 4, left: 4, bottom: 4, borderRadius: 10 },
   tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
-  tabBtnText: { fontSize: 11, letterSpacing: 3 },
+  tabBtnText: { fontSize: 12, letterSpacing: 2 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 24, paddingTop: 20, paddingBottom: 0 },
   sectionTitle: { fontSize: 9, letterSpacing: 3 },
   sectionCount: { fontSize: 9 },
@@ -1053,7 +1205,7 @@ const s = StyleSheet.create({
   // detailed form
   detailedWrap:     { paddingBottom: 8 },
   snapRow:          { flexDirection: 'row', marginHorizontal: 16, marginTop: 16, gap: 10 },
-  snapBtn:          { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 14 },
+  snapBtn:          { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 14, backgroundColor: 'transparent' },
   snapBtnText:      { fontSize: 11, letterSpacing: 2 },
   snapBtnSm:        { width: 48, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: 12 },
   orRow:            { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginVertical: 16, gap: 10 },
@@ -1066,10 +1218,12 @@ const s = StyleSheet.create({
   mealChip:         { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderRadius: 10 },
   mealChipEmoji:    { fontSize: 13 },
   mealChipLabel:    { fontSize: 9, letterSpacing: 1.5 },
-  macroGrid:        { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 16, gap: 10, marginBottom: 8 },
-  macroBox:         { width: '47%', borderWidth: 1, borderRadius: 12, padding: 14 },
-  macroBoxHeader:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-  macroBoxIcon:     { fontSize: 13 },
-  macroBoxLabel:    { fontSize: 8, letterSpacing: 2 },
-  macroBoxInput:    { fontSize: 24 },
+  macroGroup:       { marginHorizontal: 16, marginBottom: 8, borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
+  macroHairline:    { height: 1 },
+  macroRow:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, gap: 12 },
+  macroIcon:        { fontSize: 18 },
+  macroLabel:       { flex: 1, fontSize: 14 },
+  macroInputWrap:   { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
+  macroInput:       { fontSize: 20, minWidth: 60, textAlign: 'right' },
+  macroUnit:        { fontSize: 11 },
 });

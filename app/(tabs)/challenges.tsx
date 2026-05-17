@@ -344,7 +344,10 @@ export default function ChallengesScreen() {
     <DarkBackground><SafeAreaView style={s.safe} edges={['top']}>
       {/* Top bar — matches the rest of the app */}
       <View style={s.topBar}>
-        <Text style={[s.modeLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>GRIND MODE</Text>
+        <View>
+          <Text style={[s.modeLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>CHALLENGES</Text>
+          <Text style={[s.modeTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>GRITTT</Text>
+        </View>
         <View style={{ flex: 1 }} />
         <TouchableOpacity
           style={[s.topIcon, { borderColor: theme.text }]}
@@ -371,17 +374,17 @@ export default function ChallengesScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
       >
-        {/* Active — horizontal row, thicker borders mark these out */}
+        {/* Active */}
         {active.length > 0 && (
           <View style={tr.section}>
             <View style={tr.header}>
               <View style={tr.headerLeft}>
-                <View style={[tr.accentDot, { backgroundColor: '#34C759' }]} />
-                <Text style={[tr.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>ACTIVE</Text>
+                <View style={[tr.accentDot, { backgroundColor: '#B8F23A' }]} />
+                <Text style={[tr.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
+                  ACTIVE · {active.length}
+                </Text>
               </View>
-              <Text style={[tr.count, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_500Medium' }]}>
-                {String(active.length).padStart(2, '0')}
-              </Text>
+              <Text style={[tr.hint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>SWIPE →</Text>
             </View>
             <ScrollView
               horizontal
@@ -575,11 +578,11 @@ function ThemeRow({
       <View style={tr.header}>
         <View style={tr.headerLeft}>
           {!!accent && <View style={[tr.accentDot, { backgroundColor: accent }]} />}
-          <Text style={[tr.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{label}</Text>
+          <Text style={[tr.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
+            {label} · {count}
+          </Text>
         </View>
-        <Text style={[tr.count, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_500Medium' }]}>
-          {String(count).padStart(2, '0')}
-        </Text>
+        <Text style={[tr.hint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>SEE ALL</Text>
       </View>
       <ScrollView
         horizontal
@@ -598,36 +601,36 @@ function ThemeRow({
 
 const tr = StyleSheet.create({
   section:    { marginBottom: 8 },
-  header:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 18, paddingBottom: 12 },
+  header:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  accentDot:  { width: 6, height: 6, borderRadius: 3 },
-  label:      { fontSize: 11, letterSpacing: 2 },
-  count:      { fontSize: 10, letterSpacing: 1 },
-  row:        { paddingHorizontal: 16, gap: 12 },
+  accentDot:  { width: 7, height: 7, borderRadius: 4 },
+  label:      { fontSize: 11, letterSpacing: 1.5 },
+  hint:       { fontSize: 11 },
+  row:        { paddingHorizontal: 16, gap: 12, paddingBottom: 4 },
 });
 
 // ── Challenge card (horizontal) ───────────────────────────────────────────────
 
 function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge; theme: any; onPress: () => void }) {
-  const t        = themeForDomain(c.domain);
-  const detail   = detailFor(c);
-  const benefits = detail.benefits.slice(0, 4);
+  const t      = themeForDomain(c.domain);
+  const detail = detailFor(c);
+  const points = detail.benefits.slice(0, 3);
 
   return (
     <TouchableOpacity
-      style={[cc.card, { width: CARD_W, backgroundColor: theme.card, borderColor: theme.text }]}
+      style={[cc.card, { width: CARD_W, backgroundColor: theme.card, borderColor: theme.border }]}
       onPress={onPress}
       activeOpacity={0.85}
     >
-      {/* Top: accent dot + duration */}
+      {/* Top: theme pill + duration badge */}
       <View style={cc.top}>
-        <View style={[cc.dot, { backgroundColor: t.dot }]} />
-        <Text style={[cc.themeLabel, { color: t.dot, fontFamily: 'Inter_900Black' }]}>
-          {t.label}
-        </Text>
+        <View style={[cc.themePill, { backgroundColor: t.dot + '22' }]}>
+          <View style={[cc.themeDot, { backgroundColor: t.dot }]} />
+          <Text style={[cc.themeLabel, { color: t.dot, fontFamily: 'Inter_900Black' }]}>{t.label}</Text>
+        </View>
         <View style={{ flex: 1 }} />
-        <View style={[cc.durationBadge, { borderColor: theme.text }]}>
-          <Text style={[cc.durationText, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+        <View style={[cc.durationBadge, { backgroundColor: theme.surfaceStrong }]}>
+          <Text style={[cc.durationText, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_700Bold' }]}>
             {c.durationDays}D
           </Text>
         </View>
@@ -638,31 +641,26 @@ function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge;
         {c.title.toUpperCase()}
       </Text>
 
-      {/* Benefits — what the user gets */}
-      <View style={cc.benefits}>
-        {benefits.map((b, i) => (
-          <View key={i} style={cc.benefitRow}>
-            <View style={[cc.benefitMarker, { backgroundColor: t.dot, borderColor: theme.text }]} />
-            <Text style={[cc.benefitText, { color: theme.text, fontFamily: 'Inter_700Bold' }]} numberOfLines={1}>
-              {b}
-            </Text>
+      {/* Bullet points */}
+      <View style={cc.points}>
+        {points.map((pt, i) => (
+          <View key={i} style={cc.pointRow}>
+            <View style={[cc.bullet, { backgroundColor: t.dot }]} />
+            <Text style={[cc.pointText, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>{pt}</Text>
           </View>
         ))}
       </View>
 
       <View style={{ flex: 1 }} />
 
-      {/* Footer: tap hint */}
-      <View style={[cc.detailHint, { borderTopColor: theme.text }]}>
-        <Text style={[cc.detailHintText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-          TAP FOR DETAILS
-        </Text>
-        <Ionicons name="chevron-forward" size={13} color={theme.text} />
-      </View>
+      {/* Start button */}
+      <TouchableOpacity style={[cc.startBtn, { backgroundColor: theme.inverse }]} onPress={onPress} activeOpacity={0.85}>
+        <Text style={[cc.startText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>START →</Text>
+      </TouchableOpacity>
 
       {!c.isPreset && (
         <View style={[cc.customBadge, { backgroundColor: t.dot }]}>
-          <Text style={[cc.customText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>CUSTOM</Text>
+          <Text style={[cc.customText, { color: '#FFF', fontFamily: 'Inter_900Black' }]}>CUSTOM</Text>
         </View>
       )}
     </TouchableOpacity>
@@ -679,25 +677,20 @@ function ActiveCard({ challenge: c, theme, width, onPress, onAbandon }: {
   const isComplete = daysLeft === 0;
   const trend      = trendFor(c);
   const percentile = percentileFor(c);
+  const pColor     = percentile >= 60 ? '#22A664' : percentile >= 40 ? '#F0A12E' : '#E84A4A';
 
   return (
     <TouchableOpacity
-      style={[ac.card, {
-        width: width ?? ACTIVE_CARD_W,
-        backgroundColor: theme.card,
-        borderColor: t.dot,
-      }]}
+      style={[ac.card, { width: width ?? ACTIVE_CARD_W, backgroundColor: theme.card, borderColor: t.dot }]}
       onPress={onPress}
       activeOpacity={0.85}
     >
-      {/* Accent stripe down the left */}
-      <View style={[ac.accent, { backgroundColor: t.dot }]} />
-
-      {/* Header row */}
+      {/* Header: theme pill + close */}
       <View style={ac.header}>
-        <View style={[ac.themePill, { backgroundColor: t.dot + '20' }]}>
-          <View style={[ac.themeDot, { backgroundColor: t.dot }]} />
-          <Text style={[ac.themeLabel, { color: t.dot, fontFamily: 'Inter_900Black' }]}>{t.label}</Text>
+        <View style={[ac.themePill, { backgroundColor: t.dot + '22' }]}>
+          <Text style={[ac.themeLabel, { color: t.dot, fontFamily: 'Inter_900Black' }]}>
+            {t.label} · {c.durationDays}D
+          </Text>
         </View>
         <View style={{ flex: 1 }} />
         <TouchableOpacity onPress={onAbandon} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -710,22 +703,18 @@ function ActiveCard({ challenge: c, theme, width, onPress, onAbandon }: {
         {c.title.toUpperCase()}
       </Text>
 
-      {/* Stat grid: days done + days left */}
+      {/* Stat row: days done | days left */}
       <View style={ac.statRow}>
         <View style={ac.statCell}>
-          <Text style={[ac.statBig, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
+          <Text style={[ac.statBig, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
             {c.daysDone}
-            <Text style={[ac.statBigMax, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>
-              /{c.durationDays}
-            </Text>
+            <Text style={[ac.statBigSub, { color: theme.textMuted }]}>/{c.durationDays}</Text>
           </Text>
-          <Text style={[ac.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
-            DAYS DONE
-          </Text>
+          <Text style={[ac.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>DAYS DONE</Text>
         </View>
         <View style={[ac.statSep, { backgroundColor: theme.border }]} />
         <View style={ac.statCell}>
-          <Text style={[ac.statBig, { color: isComplete ? '#34C759' : theme.text, fontFamily: 'Inter_900Black' }]}>
+          <Text style={[ac.statBig, { color: isComplete ? '#22A664' : theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
             {isComplete ? '✓' : daysLeft}
           </Text>
           <Text style={[ac.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
@@ -734,31 +723,33 @@ function ActiveCard({ challenge: c, theme, width, onPress, onAbandon }: {
         </View>
       </View>
 
-      {/* Completion bar */}
-      <View style={ac.barWrap}>
-        <View style={[ac.barTrack, { backgroundColor: theme.border }]}>
-          <View style={[ac.barFill, { backgroundColor: t.dot, width: `${pctLabel}%` }]} />
-        </View>
-        <Text style={[ac.barPct, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-          {pctLabel}%
-        </Text>
-      </View>
-
-      {/* Trend + percentile */}
-      <View style={ac.insightRow}>
-        <View style={[ac.insightChip, { backgroundColor: trend.color + '18' }]}>
-          <Ionicons name={trend.icon} size={12} color={trend.color} />
-          <Text style={[ac.insightChipText, { color: trend.color, fontFamily: 'Inter_900Black' }]}>
+      {/* Progress dot grid */}
+      <View style={ac.progressWrap}>
+        <View style={ac.progressMeta}>
+          <Text style={[ac.progressPct, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+            {pctLabel}% COMPLETE
+          </Text>
+          <Text style={[ac.trendLabel, { color: trend.color, fontFamily: 'Inter_900Black' }]}>
             {trend.label}
           </Text>
         </View>
+        <View style={ac.dotsGrid}>
+          {Array.from({ length: c.durationDays }).map((_, i) => (
+            <View key={i} style={[ac.dot, {
+              backgroundColor: i < c.daysDone
+                ? t.dot
+                : i === c.daysDone
+                  ? t.dot + '55'
+                  : theme.surfaceStrong,
+            }]} />
+          ))}
+        </View>
       </View>
 
+      {/* Percentile */}
       <Text style={[ac.percentileLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
         Better than{' '}
-        <Text style={{ color: percentile >= 60 ? '#34C759' : percentile >= 40 ? '#F59E0B' : '#EF4444', fontFamily: 'Inter_900Black' }}>
-          {percentile}%
-        </Text>
+        <Text style={{ color: pColor, fontFamily: 'Inter_900Black' }}>{percentile}%</Text>
         {' '}of people on this challenge
       </Text>
     </TouchableOpacity>
@@ -766,45 +757,43 @@ function ActiveCard({ challenge: c, theme, width, onPress, onAbandon }: {
 }
 
 const ac = StyleSheet.create({
-  card:           { borderWidth: 2.5, borderRadius: 16, padding: 18, gap: 12, position: 'relative', overflow: 'hidden' },
-  accent:         { position: 'absolute', left: 0, top: 0, bottom: 0, width: 5 },
-  header:         { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  themePill:      { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  themeDot:       { width: 5, height: 5, borderRadius: 3 },
-  themeLabel:     { fontSize: 8, letterSpacing: 1.5 },
-  title:          { fontSize: 17, letterSpacing: 0.3, lineHeight: 21 },
-  statRow:        { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  statCell:       { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 6 },
-  statBig:        { fontSize: 32, letterSpacing: -1, lineHeight: 34 },
-  statBigMax:     { fontSize: 14 },
-  statLabel:      { fontSize: 8, letterSpacing: 2 },
-  statSep:        { width: 1, height: 32 },
-  barWrap:        { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  barTrack:       { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
-  barFill:        { height: '100%', borderRadius: 2 },
-  barPct:         { fontSize: 11, minWidth: 32, textAlign: 'right' },
-  insightRow:     { flexDirection: 'row', gap: 8 },
-  insightChip:    { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 6 },
-  insightChipText:{ fontSize: 9, letterSpacing: 1.5 },
-  percentileLine: { fontSize: 11, lineHeight: 16 },
+  card:          { borderWidth: 1.5, borderRadius: 18, padding: 16, gap: 12 },
+  header:        { flexDirection: 'row', alignItems: 'center' },
+  themePill:     { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  themeLabel:    { fontSize: 9, letterSpacing: 1.5 },
+  title:         { fontSize: 22, letterSpacing: -0.3, lineHeight: 25 },
+  statRow:       { flexDirection: 'row', alignItems: 'center', gap: 0 },
+  statCell:      { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 6 },
+  statBig:       { fontSize: 34, letterSpacing: -1, lineHeight: 36 },
+  statBigSub:    { fontSize: 15 },
+  statLabel:     { fontSize: 8, letterSpacing: 2 },
+  statSep:       { width: 1, height: 36 },
+  progressWrap:  { gap: 8 },
+  progressMeta:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  progressPct:   { fontSize: 9, letterSpacing: 2 },
+  trendLabel:    { fontSize: 9, letterSpacing: 1.5 },
+  dotsGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 3 },
+  dot:           { width: 8, height: 6, borderRadius: 2 },
+  percentileLine:{ fontSize: 11, lineHeight: 16 },
 });
 
 const cc = StyleSheet.create({
-  card:           { borderWidth: 2.5, borderRadius: 14, padding: 16, gap: 10, minHeight: 240, position: 'relative' },
-  top:            { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot:            { width: 8, height: 8, borderRadius: 4 },
-  themeLabel:     { fontSize: 9, letterSpacing: 1.8 },
-  durationBadge:  { paddingHorizontal: 9, paddingVertical: 3, borderWidth: 2, borderRadius: 6 },
-  durationText:   { fontSize: 11, letterSpacing: 0.5 },
-  title:          { fontSize: 17, letterSpacing: 0.5, lineHeight: 21, marginTop: 4 },
-  benefits:       { gap: 8, marginTop: 6 },
-  benefitRow:     { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  benefitMarker:  { width: 9, height: 9, borderWidth: 1.5 },
-  benefitText:    { fontSize: 12, lineHeight: 16, flex: 1, letterSpacing: 0.2 },
-  detailHint:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, borderTopWidth: 2 },
-  detailHintText: { fontSize: 10, letterSpacing: 2 },
-  customBadge:    { position: 'absolute', top: 12, right: 12, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4 },
-  customText:     { fontSize: 8, letterSpacing: 1.5 },
+  card:         { borderWidth: 1, borderRadius: 18, padding: 14, gap: 10, minHeight: 230, position: 'relative' },
+  top:          { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  themePill:    { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999 },
+  themeDot:     { width: 5, height: 5, borderRadius: 3 },
+  themeLabel:   { fontSize: 9, letterSpacing: 1.5 },
+  durationBadge:{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
+  durationText: { fontSize: 10, letterSpacing: 0.5 },
+  title:        { fontSize: 17, letterSpacing: 0.3, lineHeight: 21 },
+  points:       { gap: 6 },
+  pointRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  bullet:       { width: 4, height: 4, borderRadius: 2, flexShrink: 0 },
+  pointText:    { fontSize: 12, lineHeight: 16, flex: 1 },
+  startBtn:     { paddingVertical: 12, borderRadius: 12, alignItems: 'center', marginTop: 4 },
+  startText:    { fontSize: 11, letterSpacing: 3 },
+  customBadge:  { position: 'absolute', top: 12, right: 12, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4 },
+  customText:   { fontSize: 8, letterSpacing: 1.5 },
 });
 
 // ── Field label ───────────────────────────────────────────────────────────────
@@ -826,7 +815,8 @@ const fl = StyleSheet.create({
 const s = StyleSheet.create({
   safe:       { flex: 1 },
   topBar:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10, gap: 10 },
-  modeLabel:  { fontSize: 10, letterSpacing: 1.5 },
+  modeLabel:  { fontSize: 10, letterSpacing: 2 },
+  modeTitle:  { fontSize: 24, letterSpacing: -0.5, lineHeight: 26 },
   topIcon:    { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   scroll:     { paddingBottom: 40 },
   empty:      { alignItems: 'center', paddingVertical: 64, gap: 10 },

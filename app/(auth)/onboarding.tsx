@@ -1,845 +1,700 @@
-// 10-step Warm Coach onboarding flow.
-// Single component, internal step state. Not yet wired to the backend —
-// every "continue" just advances `step`; OB10 "I'M IN" routes to /(tabs).
-//
-// Step order:
-//   0  OB1  Welcome      (dark hero)
-//   1  OB2  Name         (text input)
-//   2  OB3  Body         (age / height / weight steppers)
-//   3  OB4  Why          (multi-select chips)
-//   4  OB5  Baseline     (1-10 slider)
-//   5  OB6  Priority     (mode picker)
-//   6  OB7  Habits       (pick 3+)
-//   7  OB8  Time         (4 time-of-day cards)
-//   8  OB9  Tone         (3 cards + preview)
-//   9  OB10 Commit       (dark pact)
-
 import React, { useState } from 'react';
 import {
-  ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Pressable,
+  Platform, Pressable, ScrollView, StyleSheet, Text,
+  TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../lib/auth';
 
-// ── Warm Coach palette — fixed colors for the onboarding flow ────────────────
-// These are intentionally NOT theme-aware. The onboarding has a designed look
-// (cream canvas, lime hype) that stays consistent regardless of the user's
-// app-wide theme preference.
-const A = {
-  bg:    '#F5F1E8',
-  card:  '#FFFFFF',
-  ink:   '#14110D',
-  ink2:  '#5C544A',
-  ink3:  '#A39B8E',
-  rule:  '#E8E0CE',
-  rest:  '#EFE8D7',
-  hype:  '#B8F23A',
-  good:  '#22A664',
-  warn:  '#F0A12E',
-  bad:   '#E84A4A',
-};
-const DARK = {
-  bg:    '#14110D',
-  card:  'rgba(255,255,255,0.04)',
-  ink:   '#FFFFFF',
-  ink2:  'rgba(255,255,255,0.7)',
-  ink3:  'rgba(255,255,255,0.5)',
-  rule:  'rgba(255,255,255,0.12)',
+// ── Warm Coach design tokens ─────────────────────────────
+const W = {
+  bg:   '#F5F1E8',
+  card: '#FFFFFF',
+  ink:  '#14110D',
+  ink2: '#5C544A',
+  ink3: '#A39B8E',
+  rule: '#E8E0CE',
+  rest: '#EFE8D7',
+  hype: '#B8F23A',
+  good: '#22A664',
+  warn: '#F0A12E',
+  bad:  '#E84A4A',
+  dark: '#14110D',
 };
 
-const TOTAL = 10;
-
-export default function OnboardingScreen() {
-  const router = useRouter();
-  const [step, setStep] = useState(0);
-
-  // Collected answers — held in one object, ready to POST when backend hooks in.
-  const [data, setData] = useState({
-    name: 'Alex',
-    age: 28,
-    heightFt: 5,
-    heightIn: 10,
-    weightLbs: 178,
-    why: new Set<string>(['build', 'strong', 'sharp']),
-    baseline: 4,
-    priority: 'disc' as 'disc' | 'fuel' | 'phys',
-    habits: new Set<string>(['Cold shower', 'No sugar', 'Read 30 min']),
-    time: 2, // 0..3
-    tone: 'bal' as 'soft' | 'bal' | 'hard',
-  });
-  const update = (patch: Partial<typeof data>) => setData(d => ({ ...d, ...patch }));
-
-  const next = () => setStep(s => Math.min(TOTAL - 1, s + 1));
-  const back = () => setStep(s => Math.max(0, s - 1));
-  const done = () => router.replace('/(tabs)');
-
-  switch (step) {
-    case 0: return <OB1_Welcome onNext={next} />;
-    case 1: return <OB2_Name value={data.name} onChange={n => update({ name: n })} step={1} onNext={next} onBack={back} />;
-    case 2: return <OB3_Body data={data} update={update} step={2} onNext={next} onBack={back} />;
-    case 3: return <OB4_Why selected={data.why} toggle={k => {
-      const w = new Set(data.why); w.has(k) ? w.delete(k) : w.add(k); update({ why: w });
-    }} step={3} onNext={next} onBack={back} />;
-    case 4: return <OB5_Baseline value={data.baseline} onChange={v => update({ baseline: v })} step={4} onNext={next} onBack={back} />;
-    case 5: return <OB6_Priority value={data.priority} onChange={p => update({ priority: p })} step={5} onNext={next} onBack={back} />;
-    case 6: return <OB7_Habits selected={data.habits} toggle={k => {
-      const h = new Set(data.habits); h.has(k) ? h.delete(k) : h.add(k); update({ habits: h });
-    }} step={6} onNext={next} onBack={back} />;
-    case 7: return <OB8_Time value={data.time} onChange={t => update({ time: t })} step={7} onNext={next} onBack={back} />;
-    case 8: return <OB9_Tone value={data.tone} onChange={t => update({ tone: t })} step={8} onNext={next} onBack={back} />;
-    case 9: return <OB10_Commit name={data.name} onDone={done} onBack={back} />;
-  }
-  return null;
-}
-
-// ── Shared shell — top progress + body + sticky CTA ──────────────────────────
-
-function OBShell({
-  step, total = TOTAL, children, cta, ctaDisabled, onNext, onBack,
-}: {
-  step: number;
-  total?: number;
-  children: React.ReactNode;
-  cta?: string;
-  ctaDisabled?: boolean;
-  onNext?: () => void;
-  onBack?: () => void;
+// ── Shared Shell ─────────────────────────────────────────
+function Shell({ step, total = 10, children, cta, ctaDisabled, onCta, dark = false }: {
+  step: number; total?: number; children: React.ReactNode;
+  cta?: string; ctaDisabled?: boolean; onCta?: () => void; dark?: boolean;
 }) {
+  const bg = dark ? W.dark : W.bg;
+  const ink = dark ? '#FFFFFF' : W.ink;
+  const ink3c = dark ? 'rgba(255,255,255,0.35)' : W.ink3;
+  const ruleC = dark ? 'rgba(255,255,255,0.12)' : W.rule;
+  const ctaBg = ctaDisabled ? (dark ? 'rgba(255,255,255,0.08)' : W.rest) : (dark ? W.hype : W.ink);
+  const ctaColor = ctaDisabled ? ink3c : (dark ? W.ink : '#FFFFFF');
+
   return (
-    <SafeAreaView style={[sh.safe, { backgroundColor: A.bg }]} edges={['top', 'bottom']}>
-      {/* Top: back + segmented progress + step counter */}
-      <View style={sh.topRow}>
-        {onBack ? (
-          <TouchableOpacity style={[sh.iconBtn, { borderColor: A.rule }]} onPress={onBack} hitSlop={8}>
-            <Ionicons name="chevron-back" size={16} color={A.ink2} />
-          </TouchableOpacity>
-        ) : <View style={sh.iconBtn} />}
-
-        <View style={sh.progressTrack}>
-          {Array.from({ length: total }).map((_, i) => {
-            const done = i < step;
-            const current = i === step;
-            return (
+    <View style={[ss.shell, { backgroundColor: bg }]}>
+      <SafeAreaView edges={['top']} style={{ backgroundColor: bg }}>
+        <View style={ss.progressRow}>
+          <View style={[ss.backBtn, { borderColor: ruleC }]}>
+            <Text style={{ color: dark ? 'rgba(255,255,255,0.5)' : W.ink3, fontSize: 18 }}>‹</Text>
+          </View>
+          <View style={ss.dots}>
+            {Array.from({ length: total }).map((_, i) => (
               <View key={i} style={[
-                sh.progressSeg,
-                done   && { flex: 1, height: 4, backgroundColor: A.ink },
-                current && { width: 6, height: 6, borderRadius: 3, backgroundColor: A.ink },
-                !done && !current && { width: 6, height: 6, borderRadius: 3, backgroundColor: A.rule },
+                ss.dot,
+                i < step
+                  ? { flex: 1, height: 4, backgroundColor: dark ? W.hype : W.ink }
+                  : { width: 6, height: 6, backgroundColor: i === step ? ink : ruleC },
               ]} />
-            );
-          })}
+            ))}
+          </View>
+          <Text style={[ss.stepCount, { color: ink3c, fontFamily: 'SpaceGrotesk_500Medium' }]}>
+            {step}/{total}
+          </Text>
         </View>
+      </SafeAreaView>
 
-        <Text style={[sh.stepCount, { color: A.ink3 }]}>{step}/{total}</Text>
-      </View>
-
-      {/* Body */}
-      <ScrollView
-        contentContainerStyle={sh.body}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={ss.body}
+        showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {children}
       </ScrollView>
 
-      {/* Sticky CTA */}
       {cta && (
-        <View style={sh.ctaWrap}>
-          <TouchableOpacity
-            style={[sh.cta, ctaDisabled ? { backgroundColor: A.rest } : { backgroundColor: A.ink }]}
-            onPress={ctaDisabled ? undefined : onNext}
-            activeOpacity={ctaDisabled ? 1 : 0.85}
-            disabled={ctaDisabled}
-          >
-            <Text style={[sh.ctaText, { color: ctaDisabled ? A.ink3 : '#fff' }]}>{cta}</Text>
-            <Ionicons name="arrow-forward" size={16} color={ctaDisabled ? A.ink3 : '#fff'} />
-          </TouchableOpacity>
-        </View>
+        <SafeAreaView edges={['bottom']} style={{ backgroundColor: bg }}>
+          <View style={ss.ctaWrap}>
+            <TouchableOpacity style={[ss.ctaBtn, { backgroundColor: ctaBg }]}
+              onPress={onCta} disabled={ctaDisabled} activeOpacity={0.85}>
+              <Text style={[ss.ctaText, { color: ctaColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                {cta}  →
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
-function OBTitle({ eyebrow, title, sub }: { eyebrow?: string; title: string; sub?: string }) {
+function Title({ eyebrow, title, sub, dark = false }: {
+  eyebrow?: string; title: string; sub?: string; dark?: boolean;
+}) {
   return (
     <View style={{ marginBottom: 28 }}>
-      {!!eyebrow && (
-        <Text style={[oblTitle.eyebrow, { color: A.ink3 }]}>{eyebrow}</Text>
+      {eyebrow && (
+        <Text style={[tt.eyebrow, { color: dark ? W.hype : W.ink3, fontFamily: 'Inter_700Bold' }]}>
+          {eyebrow}
+        </Text>
       )}
-      <Text style={[oblTitle.title, { color: A.ink }]}>{title}</Text>
-      {!!sub && (
-        <Text style={[oblTitle.sub, { color: A.ink2 }]}>{sub}</Text>
+      <Text style={[tt.title, { color: dark ? '#FFFFFF' : W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+        {title}
+      </Text>
+      {sub && (
+        <Text style={[tt.sub, { color: dark ? 'rgba(255,255,255,0.65)' : W.ink2, fontFamily: 'Inter_400Regular' }]}>
+          {sub}
+        </Text>
       )}
     </View>
   );
 }
 
-const oblTitle = StyleSheet.create({
-  eyebrow: { fontSize: 11, letterSpacing: 1.5, fontFamily: 'Inter_700Bold', marginBottom: 10 },
-  title:   { fontSize: 32, letterSpacing: -0.5, lineHeight: 36, fontFamily: 'Inter_900Black' },
-  sub:     { fontSize: 15, lineHeight: 22, marginTop: 12, fontFamily: 'Inter_400Regular', maxWidth: 320 },
-});
-
-// ── OB1 · Welcome (dark hero) ────────────────────────────────────────────────
-
-function OB1_Welcome({ onNext }: { onNext: () => void }) {
+// ── S1: Welcome ──────────────────────────────────────────
+function S1_Welcome({ onNext }: { onNext: () => void }) {
   return (
-    <SafeAreaView style={[sh.safe, { backgroundColor: DARK.bg }]} edges={['top', 'bottom']}>
-      <View style={ob1.wrap}>
-        {/* Geometric motif */}
-        <View style={[ob1.ring, { borderColor: A.hype }]} />
-        <View style={[ob1.disc, { backgroundColor: A.hype }]} />
-
-        <View style={{ flex: 1 }} />
-
-        <Text style={[ob1.eyebrow, { color: A.hype }]}>WELCOME TO GRITTT</Text>
-        <Text style={[ob1.title, { color: DARK.ink }]}>
-          The day{'\n'}belongs{'\n'}to you.
-        </Text>
-        <Text style={[ob1.sub, { color: DARK.ink2 }]}>
-          One score. Every day. Built from your habits, your fuel, your sweat. Let's set you up in 60 seconds.
-        </Text>
-
-        <View style={{ flex: 1 }} />
-      </View>
-
-      <View style={sh.ctaWrap}>
-        <TouchableOpacity
-          style={[sh.cta, { backgroundColor: A.hype }]}
-          onPress={onNext}
-          activeOpacity={0.85}
-        >
-          <Text style={[sh.ctaText, { color: A.ink }]}>LET'S GO</Text>
-          <Ionicons name="arrow-forward" size={16} color={A.ink} />
-        </TouchableOpacity>
-        <Text style={[ob1.signin, { color: DARK.ink3 }]}>
-          Already signed up?{' '}
-          <Text style={{ color: A.hype, fontFamily: 'Inter_700Bold' }}>Sign in</Text>
-        </Text>
-      </View>
-    </SafeAreaView>
+    <View style={{ flex: 1, backgroundColor: W.dark }}>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={{ flex: 1, paddingHorizontal: 26, paddingTop: 40 }}>
+          <View style={s1.circle1} />
+          <View style={s1.circle2} />
+          <View style={{ flex: 1 }} />
+          <Text style={[s1.eyebrow, { fontFamily: 'Inter_700Bold' }]}>WELCOME TO GRITTT</Text>
+          <Text style={[s1.headline, { fontFamily: 'SpaceGrotesk_700Bold' }]}>
+            {'The day\nbelongs\nto you.'}
+          </Text>
+          <Text style={[s1.sub, { fontFamily: 'Inter_400Regular' }]}>
+            One score. Every day. Built from your habits, your fuel, your sweat. Let's set you up in 60 seconds.
+          </Text>
+          <View style={{ flex: 1 }} />
+          <TouchableOpacity style={s1.cta} onPress={onNext} activeOpacity={0.85}>
+            <Text style={[s1.ctaText, { fontFamily: 'SpaceGrotesk_700Bold' }]}>LET'S GO  →</Text>
+          </TouchableOpacity>
+          <View style={{ height: 16 }} />
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
-const ob1 = StyleSheet.create({
-  wrap:    { flex: 1, paddingHorizontal: 26, paddingTop: 60, position: 'relative' },
-  ring:    { position: 'absolute', top: 70, right: 26, width: 90, height: 90, borderRadius: 45, borderWidth: 1.5 },
-  disc:    { position: 'absolute', top: 110, right: 60, width: 50, height: 50, borderRadius: 25 },
-  eyebrow: { fontSize: 12, letterSpacing: 2, fontFamily: 'Inter_700Bold', marginBottom: 12 },
-  title:   { fontSize: 52, letterSpacing: -1.5, lineHeight: 52, fontFamily: 'Inter_900Black' },
-  sub:     { fontSize: 16, lineHeight: 24, marginTop: 20, fontFamily: 'Inter_400Regular', maxWidth: 300 },
-  signin:  { textAlign: 'center', marginTop: 14, fontSize: 13, fontFamily: 'Inter_500Medium' },
+const s1 = StyleSheet.create({
+  circle1: {
+    position: 'absolute', top: 88, right: 26,
+    width: 90, height: 90, borderRadius: 45,
+    borderWidth: 1.5, borderColor: W.hype,
+  },
+  circle2: {
+    position: 'absolute', top: 130, right: 60,
+    width: 50, height: 50, borderRadius: 25, backgroundColor: W.hype,
+  },
+  eyebrow: { color: W.hype, fontSize: 12, letterSpacing: 2, marginBottom: 12 },
+  headline: { color: '#FFFFFF', fontSize: 50, letterSpacing: -1.5, lineHeight: 52 },
+  sub: { color: 'rgba(255,255,255,0.65)', fontSize: 16, marginTop: 20, lineHeight: 24, maxWidth: 300 },
+  cta: { backgroundColor: W.hype, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
+  ctaText: { color: W.ink, fontSize: 14, letterSpacing: 2 },
 });
 
-// ── OB2 · Name ───────────────────────────────────────────────────────────────
-
-function OB2_Name({ value, onChange, step, onNext, onBack }: {
-  value: string; onChange: (s: string) => void;
-  step: number; onNext: () => void; onBack: () => void;
+// ── S2: Name ─────────────────────────────────────────────
+function S2_Name({ value, onChange, onNext }: {
+  value: string; onChange: (s: string) => void; onNext: () => void;
 }) {
   return (
-    <OBShell step={step} onNext={onNext} onBack={onBack} cta="CONTINUE" ctaDisabled={!value.trim()}>
-      <OBTitle eyebrow="ABOUT YOU · 1 OF 4" title="WHAT SHOULD WE CALL YOU?" sub="Used for your daily coaching nudges." />
-      <View style={[ob2.inputBox, { backgroundColor: A.card, borderColor: A.ink }]}>
-        <TextInput
-          style={[ob2.input, { color: A.ink }]}
-          value={value}
-          onChangeText={onChange}
-          placeholder="Your name"
-          placeholderTextColor={A.ink3}
-          autoCapitalize="words"
-          autoCorrect={false}
-        />
-      </View>
-      <Text style={[ob2.hint, { color: A.ink3 }]}>
+    <Shell step={1} cta="CONTINUE" onCta={onNext} ctaDisabled={!value.trim()}>
+      <Title eyebrow="ABOUT YOU · 1 OF 4" title="What should we call you?" sub="Used for your daily coaching nudges." />
+      <TextInput
+        style={[s2.input, { fontFamily: 'SpaceGrotesk_700Bold' }]}
+        value={value} onChangeText={onChange}
+        placeholder="Your name…" placeholderTextColor={W.ink3}
+        autoFocus returnKeyType="next" onSubmitEditing={onNext}
+      />
+      <Text style={[s2.hint, { color: W.ink3, fontFamily: 'Inter_400Regular' }]}>
         Your real name or a callsign — your choice.
       </Text>
-    </OBShell>
+    </Shell>
   );
 }
 
-const ob2 = StyleSheet.create({
-  inputBox: { borderRadius: 14, borderWidth: 1.5, paddingHorizontal: 18, paddingVertical: 16 },
-  input:    { fontSize: 20, fontFamily: 'Inter_700Bold', padding: 0 },
-  hint:     { fontSize: 12, marginTop: 10, fontFamily: 'Inter_500Medium' },
+const s2 = StyleSheet.create({
+  input: {
+    borderWidth: 1.5, borderColor: W.ink, borderRadius: 14,
+    backgroundColor: W.card, paddingHorizontal: 18, paddingVertical: 16,
+    fontSize: 20, color: W.ink,
+  },
+  hint: { fontSize: 12, marginTop: 10 },
 });
 
-// ── OB3 · Body (age / height / weight) ───────────────────────────────────────
-
-function OB3_Body({ data, update, step, onNext, onBack }: {
-  data: any; update: (p: any) => void;
-  step: number; onNext: () => void; onBack: () => void;
+// ── S3: Body stats ───────────────────────────────────────
+function Stepper({ label, value, unit, onDec, onInc, big }: {
+  label: string; value: number; unit: string;
+  onDec: () => void; onInc: () => void; big?: boolean;
 }) {
   return (
-    <OBShell step={step} onNext={onNext} onBack={onBack} cta="CONTINUE">
-      <OBTitle eyebrow="ABOUT YOU · 2 OF 4" title="THE BASICS." sub="So your fuel and strength scores actually mean something." />
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Stepper
-          label="AGE" unit="years" big
-          value={data.age}
-          onChange={v => update({ age: Math.max(13, Math.min(99, v)) })}
-        />
-        <View style={{ flex: 1, gap: 8 }}>
-          <Stepper
-            label="HEIGHT" unit="in"
-            value={`${data.heightFt}'${data.heightIn}"`}
-            onPlus={() => {
-              let f = data.heightFt, i = data.heightIn + 1;
-              if (i >= 12) { f++; i = 0; }
-              update({ heightFt: f, heightIn: i });
-            }}
-            onMinus={() => {
-              let f = data.heightFt, i = data.heightIn - 1;
-              if (i < 0) { f--; i = 11; }
-              if (f < 3) { f = 3; i = 0; }
-              update({ heightFt: f, heightIn: i });
-            }}
-          />
-          <Stepper
-            label="WEIGHT" unit="lbs"
-            value={data.weightLbs}
-            onChange={v => update({ weightLbs: Math.max(50, Math.min(500, v)) })}
-          />
-        </View>
-      </View>
-
-      <View style={[ob3.info, { backgroundColor: A.rest }]}>
-        <Ionicons name="information-circle-outline" size={16} color={A.ink2} />
-        <Text style={[ob3.infoText, { color: A.ink2 }]}>
-          We never share this. Switch to metric in settings later.
-        </Text>
-      </View>
-    </OBShell>
-  );
-}
-
-function Stepper({ label, unit, value, big, onChange, onPlus, onMinus }: {
-  label: string; unit: string; value: string | number; big?: boolean;
-  onChange?: (v: number) => void; onPlus?: () => void; onMinus?: () => void;
-}) {
-  const plus  = onPlus  ?? (() => typeof value === 'number' && onChange?.(value + 1));
-  const minus = onMinus ?? (() => typeof value === 'number' && onChange?.(value - 1));
-  return (
-    <View style={[ob3.stepper, { backgroundColor: A.card, borderColor: A.rule }]}>
-      <Text style={[ob3.stepLabel, { color: A.ink3 }]}>{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 10 }}>
-        <Text style={[ob3.stepValue, { color: A.ink, fontSize: big ? 44 : 32 }]}>{value}</Text>
-        <Text style={[ob3.stepUnit, { color: A.ink3 }]}>{unit}</Text>
+    <View style={[s3.card, { backgroundColor: W.card, borderColor: W.rule }]}>
+      <Text style={[s3.label, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>{label}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 10 }}>
+        <Text style={[s3.val, { fontSize: big ? 44 : 36, fontFamily: 'SpaceGrotesk_700Bold', color: W.ink }]}>{value}</Text>
+        <Text style={[s3.unit, { color: W.ink3, fontFamily: 'Inter_500Medium' }]}>{unit}</Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 6, marginTop: 14 }}>
-        <TouchableOpacity style={[ob3.stepBtn, { backgroundColor: A.rest }]} onPress={minus} activeOpacity={0.7}>
-          <Text style={[ob3.stepBtnText, { color: A.ink }]}>−</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[ob3.stepBtn, { backgroundColor: A.rest }]} onPress={plus} activeOpacity={0.7}>
-          <Text style={[ob3.stepBtnText, { color: A.ink }]}>+</Text>
-        </TouchableOpacity>
+        {['−', '+'].map((s, i) => (
+          <TouchableOpacity key={s} style={[s3.btn, { backgroundColor: W.rest }]}
+            onPress={i === 0 ? onDec : onInc} activeOpacity={0.7}>
+            <Text style={[s3.btnText, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>{s}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
     </View>
   );
 }
 
-const ob3 = StyleSheet.create({
-  stepper:    { flex: 1, padding: 18, borderRadius: 16, borderWidth: 1 },
-  stepLabel:  { fontSize: 10, letterSpacing: 1.5, fontFamily: 'Inter_700Bold' },
-  stepValue:  { fontFamily: 'Inter_900Black', letterSpacing: -1, lineHeight: 44 },
-  stepUnit:   { fontSize: 12, fontFamily: 'Inter_700Bold' },
-  stepBtn:    { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
-  stepBtnText:{ fontFamily: 'Inter_900Black', fontSize: 18 },
-  info:       { marginTop: 16, padding: 14, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  infoText:   { flex: 1, fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_500Medium' },
-});
-
-// ── OB4 · Why (multi-select chips) ───────────────────────────────────────────
-
-const WHY_OPTS = [
-  { id: 'build',  label: 'Build new habits',        emoji: '🌱' },
-  { id: 'break',  label: 'Break bad habits',        emoji: '✂️' },
-  { id: 'strong', label: 'Get physically stronger', emoji: '💪' },
-  { id: 'fuel',   label: 'Eat cleaner',             emoji: '🥗' },
-  { id: 'lose',   label: 'Lose fat',                emoji: '⚖️' },
-  { id: 'sharp',  label: 'Feel sharper mentally',   emoji: '🧠' },
-  { id: 'sleep',  label: 'Sleep better',            emoji: '😴' },
-  { id: 'else',   label: 'Just feel better',        emoji: '✨' },
-];
-
-function OB4_Why({ selected, toggle, step, onNext, onBack }: {
-  selected: Set<string>; toggle: (id: string) => void;
-  step: number; onNext: () => void; onBack: () => void;
+function S3_Body({ age, height, weight, onAge, onHeight, onWeight, onNext }: {
+  age: number; height: number; weight: number;
+  onAge: (n: number) => void; onHeight: (n: number) => void; onWeight: (n: number) => void;
+  onNext: () => void;
 }) {
   return (
-    <OBShell step={step} onNext={onNext} onBack={onBack} cta="CONTINUE" ctaDisabled={selected.size === 0}>
-      <OBTitle eyebrow="ABOUT YOU · 3 OF 4" title="WHY ARE YOU HERE?" sub="Pick all that apply. Shapes your coaching." />
-      <View style={ob4.grid}>
+    <Shell step={2} cta="CONTINUE" onCta={onNext}>
+      <Title eyebrow="ABOUT YOU · 2 OF 4" title="The basics." sub="So your fuel and strength scores actually mean something." />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Stepper label="AGE" value={age} unit="yrs"
+            onDec={() => onAge(Math.max(10, age - 1))} onInc={() => onAge(Math.min(99, age + 1))} big />
+        </View>
+        <View style={{ flex: 1, gap: 8 }}>
+          <Stepper label="HEIGHT" value={height} unit="cm"
+            onDec={() => onHeight(Math.max(100, height - 1))} onInc={() => onHeight(Math.min(250, height + 1))} />
+          <Stepper label="WEIGHT" value={weight} unit="kg"
+            onDec={() => onWeight(Math.max(30, weight - 1))} onInc={() => onWeight(Math.min(300, weight + 1))} />
+        </View>
+      </View>
+      <View style={[s3.notice, { backgroundColor: W.rest }]}>
+        <Text style={[{ color: W.ink2, fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_400Regular' }]}>
+          We never share this. Switch units in settings any time.
+        </Text>
+      </View>
+    </Shell>
+  );
+}
+
+const s3 = StyleSheet.create({
+  card: { borderWidth: 1, borderRadius: 16, padding: 16 },
+  label: { fontSize: 9, letterSpacing: 2 },
+  val: { lineHeight: 44 },
+  unit: { fontSize: 12 },
+  btn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
+  btnText: { fontSize: 18 },
+  notice: { marginTop: 16, padding: 14, borderRadius: 12 },
+});
+
+// ── S4: Why ──────────────────────────────────────────────
+const WHY_OPTS = [
+  { id: 'build',   label: 'Build new habits',        emoji: '🌱' },
+  { id: 'break',   label: 'Break bad habits',        emoji: '✂️' },
+  { id: 'strong',  label: 'Get physically stronger', emoji: '💪' },
+  { id: 'fuel',    label: 'Eat cleaner',             emoji: '🥗' },
+  { id: 'lose',    label: 'Lose fat',                emoji: '⚖️' },
+  { id: 'sharp',   label: 'Feel sharper mentally',   emoji: '🧠' },
+  { id: 'sleep',   label: 'Sleep better',            emoji: '😴' },
+  { id: 'better',  label: 'Just feel better',        emoji: '✨' },
+];
+
+function S4_Why({ selected, onToggle, onNext }: {
+  selected: string[]; onToggle: (id: string) => void; onNext: () => void;
+}) {
+  return (
+    <Shell step={3} cta="CONTINUE" onCta={onNext} ctaDisabled={selected.length === 0}>
+      <Title eyebrow="ABOUT YOU · 3 OF 4" title="Why are you here?" sub="Pick all that apply. Shapes your coaching." />
+      <View style={s4.grid}>
         {WHY_OPTS.map(o => {
-          const on = selected.has(o.id);
+          const on = selected.includes(o.id);
           return (
-            <TouchableOpacity
-              key={o.id}
-              style={[ob4.chip, {
-                backgroundColor: on ? A.ink : A.card,
-                borderColor: on ? A.ink : A.rule,
-              }]}
-              onPress={() => toggle(o.id)}
-              activeOpacity={0.85}
-            >
-              <Text style={ob4.chipEmoji}>{o.emoji}</Text>
-              <Text style={[ob4.chipText, { color: on ? '#fff' : A.ink }]} numberOfLines={2}>
+            <TouchableOpacity key={o.id}
+              style={[s4.option, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.ink : W.card }]}
+              onPress={() => onToggle(o.id)} activeOpacity={0.8}>
+              <Text style={{ fontSize: 18 }}>{o.emoji}</Text>
+              <Text style={[s4.optLabel, { color: on ? '#FFFFFF' : W.ink, fontFamily: 'Inter_500Medium' }]}>
                 {o.label}
               </Text>
               {on && (
-                <View style={[ob4.tick, { backgroundColor: A.hype }]}>
-                  <Ionicons name="checkmark" size={9} color={A.ink} />
+                <View style={s4.check}>
+                  <Text style={{ color: W.ink, fontSize: 9, fontWeight: '900' }}>✓</Text>
                 </View>
               )}
             </TouchableOpacity>
           );
         })}
       </View>
-    </OBShell>
+    </Shell>
   );
 }
 
-const ob4 = StyleSheet.create({
-  grid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip:    {
-    width: '48%', minHeight: 64, borderWidth: 1.5, borderRadius: 14,
-    paddingHorizontal: 12, paddingVertical: 14,
-    flexDirection: 'row', alignItems: 'center', gap: 8, position: 'relative',
-  },
-  chipEmoji: { fontSize: 18 },
-  chipText:  { flex: 1, fontSize: 13, fontFamily: 'Inter_700Bold', lineHeight: 16 },
-  tick:    { position: 'absolute', top: 8, right: 8, width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+const s4 = StyleSheet.create({
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  option: { width: '48%', padding: 14, borderRadius: 14, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  optLabel: { fontSize: 13, flex: 1, lineHeight: 18 },
+  check: { position: 'absolute', top: 8, right: 8, width: 16, height: 16, borderRadius: 8, backgroundColor: W.hype, alignItems: 'center', justifyContent: 'center' },
 });
 
-// ── OB5 · Baseline (1-10 picker) ─────────────────────────────────────────────
-
-function OB5_Baseline({ value, onChange, step, onNext, onBack }: {
-  value: number; onChange: (v: number) => void;
-  step: number; onNext: () => void; onBack: () => void;
+// ── S5: Baseline ─────────────────────────────────────────
+function S5_Baseline({ value, onChange, onNext }: {
+  value: number; onChange: (n: number) => void; onNext: () => void;
 }) {
-  const pillFor = (v: number) => {
-    if (v <= 3)  return { label: 'ROCK BOTTOM — TIME TO RESET', bg: '#FCE6E6', fg: A.bad };
-    if (v <= 5)  return { label: 'DRIFTING — TIME TO RESET',    bg: '#FFF1DC', fg: A.warn };
-    if (v <= 7)  return { label: 'BUILDING — KEEP STACKING',    bg: '#FFF7DC', fg: '#B8901A' };
-    return         { label: 'DIALED IN — STAY SHARP',           bg: '#E2F7EC', fg: A.good };
-  };
-  const pill = pillFor(value);
+  const cfg = value <= 4
+    ? { label: value <= 2 ? 'ROCK BOTTOM' : 'DRIFTING — TIME TO RESET', color: W.bad, bg: '#FCE6E6' }
+    : value <= 6
+      ? { label: 'AVERAGE — ROOM TO GROW', color: W.warn, bg: '#FFF1DC' }
+      : { label: 'BUILDING MOMENTUM', color: W.good, bg: '#E2F7EC' };
 
   return (
-    <OBShell step={step} onNext={onNext} onBack={onBack} cta="CONTINUE">
-      <OBTitle eyebrow="ABOUT YOU · 4 OF 4" title="BE HONEST." sub="Where are you right now? 1 is rock bottom, 10 is dialed. No judgment." />
-
-      <View style={ob5.numberWrap}>
-        <Text style={[ob5.number, { color: A.ink }]}>
-          {value}
-          <Text style={[ob5.numberMax, { color: A.ink3 }]}>/10</Text>
+    <Shell step={4} cta="CONTINUE" onCta={onNext}>
+      <Title eyebrow="ABOUT YOU · 4 OF 4" title="Be honest." sub="Where are you right now? 1 is rock bottom, 10 is dialed. No judgment." />
+      <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+        <Text style={[s5.bigNum, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+          {value}<Text style={{ fontSize: 32, color: W.ink3 }}>/10</Text>
         </Text>
-        <View style={[ob5.statePill, { backgroundColor: pill.bg }]}>
-          <Text style={[ob5.statePillText, { color: pill.fg }]}>{pill.label}</Text>
+        <View style={[s5.pill, { backgroundColor: cfg.bg }]}>
+          <Text style={[s5.pillText, { color: cfg.color, fontFamily: 'Inter_700Bold' }]}>{cfg.label}</Text>
         </View>
       </View>
-
-      <View style={{ marginTop: 30 }}>
-        <View style={[ob5.scale, { backgroundColor: A.rest }]}>
-          {Array.from({ length: 10 }).map((_, i) => {
-            const n = i + 1;
-            const on = n <= value;
-            const color = n <= 3 ? A.bad : n <= 6 ? A.warn : A.good;
-            return (
-              <TouchableOpacity
-                key={n}
-                style={[ob5.scaleCell, on && { backgroundColor: color }]}
-                onPress={() => onChange(n)}
-                activeOpacity={0.7}
-              >
-                <Text style={[ob5.scaleNum, { color: on ? '#fff' : A.ink3 }]}>{n}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-        <View style={ob5.scaleLabels}>
-          <Text style={[ob5.scaleLabel, { color: A.ink3 }]}>ROCK BOTTOM</Text>
-          <Text style={[ob5.scaleLabel, { color: A.ink3 }]}>DIALED IN</Text>
-        </View>
+      <View style={s5.ratingRow}>
+        {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
+          <TouchableOpacity key={n}
+            style={[s5.ratingBtn, { backgroundColor: n <= value ? W.ink : W.rest, borderWidth: n === value ? 2 : 0, borderColor: W.hype }]}
+            onPress={() => onChange(n)} activeOpacity={0.7}>
+            <Text style={[s5.ratingNum, { color: n <= value ? '#FFFFFF' : W.ink3, fontFamily: 'SpaceGrotesk_700Bold' }]}>{n}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
-    </OBShell>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
+        <Text style={[s5.rangeLabel, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>ROCK BOTTOM</Text>
+        <Text style={[s5.rangeLabel, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>DIALED IN</Text>
+      </View>
+    </Shell>
   );
 }
 
-const ob5 = StyleSheet.create({
-  numberWrap:    { alignItems: 'center', paddingVertical: 12 },
-  number:        { fontSize: 100, lineHeight: 100, letterSpacing: -3, fontFamily: 'Inter_900Black' },
-  numberMax:     { fontSize: 28, fontFamily: 'Inter_700Bold' },
-  statePill:     { marginTop: 10, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
-  statePillText: { fontSize: 10, letterSpacing: 1.5, fontFamily: 'Inter_900Black' },
-  scale:         { flexDirection: 'row', padding: 4, borderRadius: 14, gap: 4 },
-  scaleCell:     { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 10 },
-  scaleNum:      { fontSize: 13, fontFamily: 'Inter_900Black' },
-  scaleLabels:   { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
-  scaleLabel:    { fontSize: 10, letterSpacing: 1.5, fontFamily: 'Inter_700Bold' },
+const s5 = StyleSheet.create({
+  bigNum: { fontSize: 96, lineHeight: 96, letterSpacing: -4 },
+  pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, marginTop: 10 },
+  pillText: { fontSize: 11, letterSpacing: 1.5 },
+  ratingRow: { flexDirection: 'row', gap: 5, marginTop: 20 },
+  ratingBtn: { flex: 1, aspectRatio: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  ratingNum: { fontSize: 13 },
+  rangeLabel: { fontSize: 9, letterSpacing: 1.5 },
 });
 
-// ── OB6 · Priority mode ──────────────────────────────────────────────────────
-
-const PRIORITY_MODES = [
+// ── S6: Priority mode ────────────────────────────────────
+const MODES = [
   { id: 'disc', name: 'DISCIPLINE', sub: 'Build a bulletproof daily routine.' },
   { id: 'fuel', name: 'FUEL',       sub: 'Lock in clean eating. Body comp follows.' },
   { id: 'phys', name: 'STRENGTH',   sub: 'Move every day. Get visibly stronger.' },
-] as const;
+];
 
-function OB6_Priority({ value, onChange, step, onNext, onBack }: {
-  value: 'disc' | 'fuel' | 'phys'; onChange: (v: 'disc' | 'fuel' | 'phys') => void;
-  step: number; onNext: () => void; onBack: () => void;
+function S6_Priority({ selected, onSelect, onNext }: {
+  selected: string; onSelect: (id: string) => void; onNext: () => void;
 }) {
   return (
-    <OBShell step={step} onNext={onNext} onBack={onBack} cta="CONTINUE">
-      <OBTitle eyebrow="YOUR FOCUS" title="WHAT MATTERS MOST RIGHT NOW?" sub="We'll surface this mode first on your dashboard. Change anytime." />
+    <Shell step={5} cta="CONTINUE" onCta={onNext}>
+      <Title eyebrow="YOUR FOCUS" title="What matters most right now?" sub="We'll surface this mode first on your dashboard. Change anytime." />
       <View style={{ gap: 10 }}>
-        {PRIORITY_MODES.map(m => {
-          const on = value === m.id;
+        {MODES.map(m => {
+          const on = selected === m.id;
           return (
-            <TouchableOpacity
-              key={m.id}
-              style={[ob6.card, {
-                backgroundColor: on ? A.ink : A.card,
-                borderColor: on ? A.ink : A.rule,
-              }]}
-              onPress={() => onChange(m.id)}
-              activeOpacity={0.85}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={[ob6.name, { color: on ? '#fff' : A.ink }]}>{m.name}</Text>
-                <Text style={[ob6.sub, { color: on ? 'rgba(255,255,255,0.7)' : A.ink2 }]}>{m.sub}</Text>
-              </View>
-              <View style={[ob6.tick, {
-                borderColor: on ? A.hype : A.rule,
-                backgroundColor: on ? A.hype : 'transparent',
-              }]}>
-                {on && <Ionicons name="checkmark" size={12} color={A.ink} />}
+            <TouchableOpacity key={m.id}
+              style={[s6.card, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.ink : W.card }]}
+              onPress={() => onSelect(m.id)} activeOpacity={0.8}>
+              <Text style={[s6.modeName, { color: on ? '#FFFFFF' : W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>{m.name}</Text>
+              <Text style={[s6.modeSub, { color: on ? 'rgba(255,255,255,0.7)' : W.ink2, fontFamily: 'Inter_400Regular' }]}>{m.sub}</Text>
+              <View style={[s6.radio, { borderColor: on ? W.hype : W.rule, backgroundColor: on ? W.hype : 'transparent' }]}>
+                {on && <Text style={{ color: W.ink, fontSize: 10, fontWeight: '900' }}>✓</Text>}
               </View>
             </TouchableOpacity>
           );
         })}
       </View>
-    </OBShell>
+    </Shell>
   );
 }
 
-const ob6 = StyleSheet.create({
-  card: { padding: 18, borderRadius: 18, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  name: { fontFamily: 'Inter_900Black', fontSize: 24, letterSpacing: -0.5, lineHeight: 24 },
-  sub:  { fontFamily: 'Inter_500Medium', fontSize: 13, marginTop: 6, lineHeight: 18 },
-  tick: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+const s6 = StyleSheet.create({
+  card: { padding: 18, borderRadius: 18, borderWidth: 1.5 },
+  modeName: { fontSize: 26, letterSpacing: -0.5, lineHeight: 28 },
+  modeSub: { fontSize: 13, marginTop: 6, lineHeight: 18 },
+  radio: { position: 'absolute', top: 18, right: 18, width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
 });
 
-// ── OB7 · Habits (multi-select with min 3 hint) ──────────────────────────────
-
-const HABIT_OPTS = [
-  { name: 'Cold shower',      mins: '3 min' },
-  { name: 'No sugar',         mins: 'all day' },
-  { name: 'Walk 8,000 steps', mins: '60 min' },
-  { name: 'Read 30 min',      mins: '30 min' },
-  { name: 'No phone in bed',  mins: '—' },
-  { name: 'Journal 1 page',   mins: '5 min' },
-  { name: 'Meditate 10 min',  mins: '10 min' },
-  { name: 'Strength workout', mins: '45 min' },
+// ── S7: Starter habits ───────────────────────────────────
+const ALL_HABITS = [
+  { id: 'cold',    name: 'Cold shower',       dur: '3 min' },
+  { id: 'sugar',   name: 'No sugar',          dur: 'all day' },
+  { id: 'walk',    name: 'Walk 8,000 steps',  dur: '60 min' },
+  { id: 'read',    name: 'Read 30 min',       dur: '30 min' },
+  { id: 'phone',   name: 'No phone in bed',   dur: '—' },
+  { id: 'journal', name: 'Journal 1 page',    dur: '5 min' },
+  { id: 'med',     name: 'Meditate 10 min',   dur: '10 min' },
+  { id: 'workout', name: 'Strength workout',  dur: '45 min' },
 ];
 
-function OB7_Habits({ selected, toggle, step, onNext, onBack }: {
-  selected: Set<string>; toggle: (k: string) => void;
-  step: number; onNext: () => void; onBack: () => void;
+function S7_Habits({ selected, onToggle, onNext }: {
+  selected: string[]; onToggle: (id: string) => void; onNext: () => void;
 }) {
-  const cta = selected.size >= 3 ? `START WITH THESE ${selected.size}` : 'PICK AT LEAST 3';
+  const atMax = selected.length >= 3;
   return (
-    <OBShell step={step} onNext={onNext} onBack={onBack} cta={cta} ctaDisabled={selected.size < 3}>
-      <OBTitle eyebrow="DISCIPLINE · STARTERS" title="PICK YOUR STARTER HABITS." sub="Small wins compound. You can add more once these stick." />
+    <Shell step={6} cta="START WITH THESE" onCta={onNext} ctaDisabled={selected.length === 0}>
+      <Title eyebrow="DISCIPLINE · STARTERS" title="Pick 3 habits to build." sub="Small wins compound. Add more once these stick." />
       <View style={{ gap: 8 }}>
-        {HABIT_OPTS.map(h => {
-          const on = selected.has(h.name);
+        {ALL_HABITS.map(h => {
+          const on = selected.includes(h.id);
+          const disabled = !on && atMax;
           return (
-            <TouchableOpacity
-              key={h.name}
-              style={[ob7.row, {
-                backgroundColor: A.card,
-                borderColor: on ? A.ink : A.rule,
-              }]}
-              onPress={() => toggle(h.name)}
-              activeOpacity={0.85}
-            >
-              <View style={[ob7.box, {
-                borderColor: on ? A.ink : A.rule,
-                backgroundColor: on ? A.hype : 'transparent',
-              }]}>
-                {on && <Ionicons name="checkmark" size={12} color={A.ink} />}
+            <TouchableOpacity key={h.id}
+              style={[s7.row, { borderColor: on ? W.ink : W.rule, backgroundColor: W.card, opacity: disabled ? 0.4 : 1 }]}
+              onPress={() => !disabled && onToggle(h.id)} activeOpacity={0.8}>
+              <View style={[s7.checkbox, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.hype : 'transparent' }]}>
+                {on && <Text style={{ color: W.ink, fontSize: 11, fontWeight: '900' }}>✓</Text>}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[ob7.name, { color: A.ink }]}>{h.name}</Text>
-                <Text style={[ob7.mins, { color: A.ink3 }]}>{h.mins}</Text>
+                <Text style={[s7.habitName, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>{h.name}</Text>
+                <Text style={[s7.habitDur, { color: W.ink3, fontFamily: 'Inter_500Medium' }]}>{h.dur}</Text>
               </View>
-              <Text style={[ob7.pts, { color: on ? A.good : A.ink3 }]}>+5 PT</Text>
+              <Text style={[s7.pts, { color: on ? W.good : W.ink3, fontFamily: 'SpaceGrotesk_700Bold' }]}>+5 PT</Text>
             </TouchableOpacity>
           );
         })}
-        <View style={[ob7.row, ob7.addRow, { borderColor: A.ink3 }]}>
-          <Text style={[ob7.addText, { color: A.ink2 }]}>+ Add your own</Text>
+        <View style={s7.addRow}>
+          <Text style={[s7.addText, { color: W.ink2, fontFamily: 'Inter_500Medium' }]}>+ Add your own</Text>
         </View>
       </View>
-    </OBShell>
+    </Shell>
   );
 }
 
-const ob7 = StyleSheet.create({
-  row:     { padding: 14, borderRadius: 14, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  box:     { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  name:    { fontFamily: 'Inter_700Bold', fontSize: 15 },
-  mins:    { fontFamily: 'Inter_700Bold', fontSize: 11.5, marginTop: 2 },
-  pts:     { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 11, letterSpacing: 0.5 },
-  addRow:  { borderStyle: 'dashed', justifyContent: 'center' },
-  addText: { fontFamily: 'Inter_700Bold', fontSize: 13 },
+const s7 = StyleSheet.create({
+  row: { padding: 14, borderRadius: 14, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  habitName: { fontSize: 15, letterSpacing: 0.3 },
+  habitDur: { fontSize: 11.5, marginTop: 2 },
+  pts: { fontSize: 11, letterSpacing: 1 },
+  addRow: { padding: 12, borderRadius: 14, borderWidth: 1.5, borderColor: W.ink3, borderStyle: 'dashed', alignItems: 'center' },
+  addText: { fontSize: 13 },
 });
 
-// ── OB8 · Time (4 cards) ─────────────────────────────────────────────────────
-
-const TIME_OPTS = [
-  { label: 'Morning',    emoji: '🌅', sub: '6–10 am' },
-  { label: 'Midday',     emoji: '☀️', sub: '11 am–2 pm' },
-  { label: 'Evening',    emoji: '🌆', sub: '5–8 pm' },
-  { label: 'Before bed', emoji: '🌙', sub: '9–11 pm' },
+// ── S8: Log time ─────────────────────────────────────────
+const TIMES = [
+  { id: 'morning', label: 'Morning',    emoji: '🌅', sub: '6–10 am' },
+  { id: 'midday',  label: 'Midday',     emoji: '☀️',  sub: '11 am–2 pm' },
+  { id: 'evening', label: 'Evening',    emoji: '🌆', sub: '5–8 pm' },
+  { id: 'bed',     label: 'Before bed', emoji: '🌙', sub: '9–11 pm' },
 ];
 
-function OB8_Time({ value, onChange, step, onNext, onBack }: {
-  value: number; onChange: (n: number) => void;
-  step: number; onNext: () => void; onBack: () => void;
+function S8_Time({ selected, onSelect, onNext }: {
+  selected: string; onSelect: (id: string) => void; onNext: () => void;
 }) {
   return (
-    <OBShell step={step} onNext={onNext} onBack={onBack} cta="CONTINUE">
-      <OBTitle eyebrow="DAILY RHYTHM" title="WHEN CAN YOU SPARE 60 SECONDS?" sub="That's when we'll nudge you to log. Be realistic." />
-      <View style={ob8.grid}>
-        {TIME_OPTS.map((t, i) => {
-          const on = value === i;
+    <Shell step={7} cta="CONTINUE" onCta={onNext}>
+      <Title eyebrow="DAILY RHYTHM" title="When can you spare 60 seconds?" sub="That's when we'll nudge you to log. Be realistic." />
+      <View style={s8.grid}>
+        {TIMES.map(t => {
+          const on = selected === t.id;
           return (
-            <TouchableOpacity
-              key={t.label}
-              style={[ob8.cell, {
-                backgroundColor: on ? A.ink : A.card,
-                borderColor: on ? A.ink : A.rule,
-              }]}
-              onPress={() => onChange(i)}
-              activeOpacity={0.85}
-            >
-              <Text style={ob8.emoji}>{t.emoji}</Text>
-              <View>
-                <Text style={[ob8.name, { color: on ? '#fff' : A.ink }]}>{t.label}</Text>
-                <Text style={[ob8.sub, { color: on ? 'rgba(255,255,255,0.6)' : A.ink3 }]}>{t.sub}</Text>
-              </View>
+            <TouchableOpacity key={t.id}
+              style={[s8.card, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.ink : W.card }]}
+              onPress={() => onSelect(t.id)} activeOpacity={0.8}>
+              <Text style={{ fontSize: 28 }}>{t.emoji}</Text>
+              <Text style={[s8.timeLabel, { color: on ? '#FFFFFF' : W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>{t.label}</Text>
+              <Text style={[s8.timeSub, { color: on ? 'rgba(255,255,255,0.6)' : W.ink3, fontFamily: 'Inter_500Medium' }]}>{t.sub}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
-      <View style={[ob8.note, { backgroundColor: A.rest }]}>
-        <Text style={[ob8.noteText, { color: A.ink2 }]}>
+      <View style={[s8.note, { backgroundColor: W.rest }]}>
+        <Text style={{ color: W.ink2, fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_400Regular' }}>
           We'll remind you once. Miss it? No big deal — log when you can. The streak only cares that you logged.
         </Text>
       </View>
-    </OBShell>
+    </Shell>
   );
 }
 
-const ob8 = StyleSheet.create({
-  grid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  cell:    { width: '48%', minHeight: 110, padding: 18, borderRadius: 16, borderWidth: 1.5, justifyContent: 'space-between' },
-  emoji:   { fontSize: 28 },
-  name:    { fontFamily: 'Inter_900Black', fontSize: 17 },
-  sub:     { fontFamily: 'Inter_700Bold', fontSize: 11.5, marginTop: 2 },
-  note:    { marginTop: 16, padding: 14, borderRadius: 12 },
-  noteText:{ fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_500Medium' },
+const s8 = StyleSheet.create({
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  card: { width: '48%', padding: 18, borderRadius: 16, borderWidth: 1.5, minHeight: 110, justifyContent: 'space-between' },
+  timeLabel: { fontSize: 17, marginTop: 8 },
+  timeSub: { fontSize: 11.5, marginTop: 2 },
+  note: { marginTop: 16, padding: 14, borderRadius: 12 },
 });
 
-// ── OB9 · Tone (3 cards + preview nudge) ─────────────────────────────────────
+// ── S9: Coaching tone ────────────────────────────────────
+const TONES = [
+  { id: 'soft', label: 'Encouraging', sub: 'A gentle push. Cheer the wins.', icon: '🤗' },
+  { id: 'bal',  label: 'Balanced',    sub: 'Honest. Hype the wins, name the misses.', icon: '⚖️' },
+  { id: 'hard', label: 'No mercy',    sub: 'Goggins energy. Call out every slip.', icon: '🔥' },
+];
 
-const TONE_OPTS = [
-  { id: 'soft', label: 'Encouraging', sub: 'A gentle push. Cheer the wins.', emoji: '🤗', sample: '"Nice work logging today. Tomorrow we go again — you got this."' },
-  { id: 'bal',  label: 'Balanced',    sub: 'Honest. Hype the wins, name the misses.', emoji: '⚖️', sample: '"Two days clean on cold showers. Don\'t break it now — same time tomorrow."' },
-  { id: 'hard', label: 'No mercy',    sub: 'Goggins energy. Call out every slip.', emoji: '🔥', sample: '"You said you\'d show up. You didn\'t. Excuses don\'t build identity — discipline does."' },
-] as const;
-
-function OB9_Tone({ value, onChange, step, onNext, onBack }: {
-  value: 'soft' | 'bal' | 'hard'; onChange: (v: 'soft' | 'bal' | 'hard') => void;
-  step: number; onNext: () => void; onBack: () => void;
+function S9_Tone({ selected, onSelect, onNext }: {
+  selected: string; onSelect: (id: string) => void; onNext: () => void;
 }) {
-  const sample = TONE_OPTS.find(t => t.id === value)?.sample ?? '';
   return (
-    <OBShell step={step} onNext={onNext} onBack={onBack} cta="CONTINUE">
-      <OBTitle eyebrow="COACHING" title="HOW SHOULD WE TALK TO YOU?" sub="Change anytime in settings." />
+    <Shell step={8} cta="CONTINUE" onCta={onNext}>
+      <Title eyebrow="COACHING" title="How should we talk to you?" sub="Change anytime in settings." />
       <View style={{ gap: 10 }}>
-        {TONE_OPTS.map(t => {
-          const on = value === t.id;
+        {TONES.map(t => {
+          const on = selected === t.id;
           return (
-            <TouchableOpacity
-              key={t.id}
-              style={[ob9.card, {
-                backgroundColor: on ? '#FFFBEC' : A.card,
-                borderColor: on ? A.ink : A.rule,
-              }]}
-              onPress={() => onChange(t.id)}
-              activeOpacity={0.85}
-            >
-              <View style={[ob9.iconWrap, { backgroundColor: A.rest }]}>
-                <Text style={ob9.emoji}>{t.emoji}</Text>
+            <TouchableOpacity key={t.id}
+              style={[s9.row, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? '#FFFBEC' : W.card }]}
+              onPress={() => onSelect(t.id)} activeOpacity={0.8}>
+              <View style={[s9.iconBox, { backgroundColor: W.rest }]}>
+                <Text style={{ fontSize: 22 }}>{t.icon}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[ob9.label, { color: A.ink }]}>{t.label}</Text>
-                <Text style={[ob9.sub, { color: A.ink2 }]}>{t.sub}</Text>
+                <Text style={[s9.toneName, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>{t.label}</Text>
+                <Text style={[s9.toneSub, { color: W.ink2, fontFamily: 'Inter_400Regular' }]}>{t.sub}</Text>
               </View>
-              <View style={[ob9.radio, { borderColor: on ? A.ink : A.rule, backgroundColor: on ? A.ink : 'transparent' }]}>
-                {on && <View style={[ob9.radioDot, { backgroundColor: A.hype }]} />}
+              <View style={[s9.radio, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.ink : 'transparent' }]}>
+                {on && <View style={s9.radioDot} />}
               </View>
             </TouchableOpacity>
           );
         })}
       </View>
-
-      {/* Sample nudge preview */}
-      <View style={[ob9.preview, { backgroundColor: A.ink }]}>
-        <Text style={[ob9.previewEyebrow, { color: A.hype }]}>SAMPLE NUDGE</Text>
-        <Text style={[ob9.previewBody, { color: '#fff' }]}>{sample}</Text>
+      <View style={[s9.sample, { backgroundColor: W.ink }]}>
+        <Text style={[s9.sampleEyebrow, { color: W.hype, fontFamily: 'Inter_700Bold' }]}>SAMPLE NUDGE</Text>
+        <Text style={[s9.sampleText, { color: '#FFFFFF', fontFamily: 'SpaceGrotesk_700Bold' }]}>
+          "Two days clean on cold showers. Don't break it now — same time tomorrow."
+        </Text>
       </View>
-    </OBShell>
+    </Shell>
   );
 }
 
-const ob9 = StyleSheet.create({
-  card:    { padding: 16, borderRadius: 16, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 14 },
-  iconWrap:{ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  emoji:   { fontSize: 22 },
-  label:   { fontFamily: 'Inter_900Black', fontSize: 17 },
-  sub:     { fontFamily: 'Inter_500Medium', fontSize: 12.5, marginTop: 2, lineHeight: 18 },
-  radio:   { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  radioDot:{ width: 8, height: 8, borderRadius: 4 },
-  preview: { marginTop: 16, padding: 16, borderRadius: 14 },
-  previewEyebrow: { fontSize: 10, letterSpacing: 1.5, fontFamily: 'Inter_700Bold' },
-  previewBody:    { fontFamily: 'Inter_900Black', fontSize: 16, marginTop: 8, lineHeight: 22 },
+const s9 = StyleSheet.create({
+  row: { padding: 16, borderRadius: 16, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 14 },
+  iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  toneName: { fontSize: 17, letterSpacing: 0.3 },
+  toneSub: { fontSize: 12.5, marginTop: 2, lineHeight: 18 },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: W.hype },
+  sample: { marginTop: 16, padding: 16, borderRadius: 14 },
+  sampleEyebrow: { fontSize: 10, letterSpacing: 2, marginBottom: 8 },
+  sampleText: { fontSize: 15, lineHeight: 22, textTransform: 'uppercase' },
 });
 
-// ── OB10 · Commit (dark pact) ────────────────────────────────────────────────
-
-function OB10_Commit({ name, onDone, onBack }: {
-  name: string; onDone: () => void; onBack: () => void;
-}) {
-  const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase();
-  const [notif, setNotif] = useState(true);
-
+// ── S10: Commit ──────────────────────────────────────────
+function S10_Commit({ name, onCommit }: { name: string; onCommit: () => void }) {
+  const today = new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
   return (
-    <SafeAreaView style={[sh.safe, { backgroundColor: DARK.bg }]} edges={['top', 'bottom']}>
-      {/* Top: back + full lime progress + 10/10 */}
-      <View style={sh.topRow}>
-        <TouchableOpacity style={[sh.iconBtn, { borderColor: DARK.rule }]} onPress={onBack} hitSlop={8}>
-          <Ionicons name="chevron-back" size={16} color={DARK.ink2} />
-        </TouchableOpacity>
-        <View style={[ob10.progressFull, { backgroundColor: A.hype }]} />
-        <Text style={[sh.stepCount, { color: DARK.ink3 }]}>10/10</Text>
-      </View>
+    <View style={{ flex: 1, backgroundColor: W.dark }}>
+      <SafeAreaView edges={['top']} style={{ backgroundColor: W.dark }}>
+        <View style={s10.topRow}>
+          <View style={[s10.backBtn, { borderColor: 'rgba(255,255,255,0.15)' }]}>
+            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 18 }}>‹</Text>
+          </View>
+          <View style={[s10.fullBar, { backgroundColor: W.hype }]} />
+          <Text style={[s10.stepNum, { color: 'rgba(255,255,255,0.5)', fontFamily: 'SpaceGrotesk_500Medium' }]}>10/10</Text>
+        </View>
+      </SafeAreaView>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 22, paddingTop: 8, paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
-        <Text style={[ob10.eyebrow, { color: A.hype }]}>SIGN THE PACT</Text>
-        <Text style={[ob10.title, { color: '#fff' }]}>
-          Today.{'\n'}Tomorrow.{'\n'}
-          <Text style={{ color: A.hype }}>Every day.</Text>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={s10.body} showsVerticalScrollIndicator={false}>
+        <Text style={[s10.eyebrow, { color: W.hype, fontFamily: 'Inter_700Bold' }]}>SIGN THE PACT</Text>
+        <Text style={[s10.headline, { color: '#FFFFFF', fontFamily: 'SpaceGrotesk_700Bold' }]}>
+          {'Today.\nTomorrow.\n'}
+          <Text style={{ color: W.hype }}>Every day.</Text>
         </Text>
-        <Text style={[ob10.sub, { color: DARK.ink2 }]}>
+        <Text style={[s10.sub, { color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter_400Regular' }]}>
           You'll get one daily nudge. Log in under a minute. Watch your score build.
         </Text>
 
-        {/* Pact */}
-        <View style={[ob10.pact, { borderColor: DARK.rule, backgroundColor: DARK.card }]}>
-          <Text style={[ob10.pactEyebrow, { color: DARK.ink3 }]}>
-            I, {name.toUpperCase()}, COMMIT TO:
+        <View style={s10.pact}>
+          <Text style={[s10.pactEyebrow, { color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' }]}>
+            I, {(name || 'YOU').toUpperCase()}, COMMIT TO:
           </Text>
-          <View style={{ marginTop: 12, gap: 10 }}>
-            {[
-              'Logging every day for 30 days.',
-              'Building 3 daily habits.',
-              'Being honest about my food and effort.',
-            ].map((t, i) => (
-              <View key={i} style={ob10.pactRow}>
-                <View style={[ob10.pactTick, { backgroundColor: A.hype }]}>
-                  <Ionicons name="checkmark" size={11} color={A.ink} />
-                </View>
-                <Text style={[ob10.pactItem, { color: '#fff' }]}>{t}</Text>
+          {[
+            'Logging every day for 30 days.',
+            'Building 3 daily habits.',
+            'Being honest about my food and effort.',
+          ].map((t, i) => (
+            <View key={i} style={s10.commitRow}>
+              <View style={s10.commitCheck}>
+                <Text style={{ color: W.ink, fontSize: 11, fontWeight: '900' }}>✓</Text>
               </View>
-            ))}
-          </View>
-
-          {/* Signature line */}
-          <View style={[ob10.sigDivider, { borderTopColor: 'rgba(255,255,255,0.2)' }]}>
-            <Text style={[ob10.sig, { color: A.hype }]}>{name}</Text>
-            <Text style={[ob10.sigCap, { color: DARK.ink3 }]}>
+              <Text style={[s10.commitText, { color: '#FFFFFF', fontFamily: 'Inter_400Regular' }]}>{t}</Text>
+            </View>
+          ))}
+          <View style={s10.sigLine}>
+            <Text style={[s10.sigName, { color: W.hype, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+              {name || 'Your name'}
+            </Text>
+            <Text style={[s10.sigDate, { color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_700Bold' }]}>
               SIGNATURE · {today}
             </Text>
           </View>
         </View>
 
-        {/* Notification toggle */}
-        <Pressable
-          style={[ob10.notif, { backgroundColor: DARK.card }]}
-          onPress={() => setNotif(n => !n)}
-        >
-          <Ionicons name="notifications-outline" size={18} color={A.hype} />
-          <Text style={[ob10.notifText, { color: 'rgba(255,255,255,0.8)' }]}>Daily nudge at 6 PM.</Text>
-          <View style={[ob10.switch, { backgroundColor: notif ? A.hype : DARK.rule }]}>
-            <View style={[ob10.switchKnob, {
-              backgroundColor: notif ? A.ink : 'rgba(255,255,255,0.4)',
-              alignSelf: notif ? 'flex-end' : 'flex-start',
-            }]} />
+        <View style={s10.notifRow}>
+          <Text style={{ fontSize: 18 }}>🔔</Text>
+          <Text style={[{ flex: 1, fontSize: 12.5, color: 'rgba(255,255,255,0.8)', fontFamily: 'Inter_400Regular' }]}>
+            Daily nudge enabled.
+          </Text>
+          <View style={s10.toggle}>
+            <View style={s10.toggleThumb} />
           </View>
-        </Pressable>
+        </View>
       </ScrollView>
 
-      <View style={sh.ctaWrap}>
-        <TouchableOpacity
-          style={[sh.cta, { backgroundColor: A.hype }]}
-          onPress={onDone}
-          activeOpacity={0.85}
-        >
-          <Text style={[sh.ctaText, { color: A.ink }]}>I'M IN</Text>
-          <Ionicons name="arrow-forward" size={16} color={A.ink} />
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+      <SafeAreaView edges={['bottom']} style={{ backgroundColor: W.dark }}>
+        <View style={{ paddingHorizontal: 22, paddingBottom: 16 }}>
+          <TouchableOpacity style={s10.cta} onPress={onCommit} activeOpacity={0.85}>
+            <Text style={[s10.ctaText, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>I'M IN  →</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
-const ob10 = StyleSheet.create({
-  progressFull: { flex: 1, height: 4, borderRadius: 2 },
-  eyebrow:      { fontSize: 12, letterSpacing: 2, fontFamily: 'Inter_700Bold', marginBottom: 12, marginTop: 16 },
-  title:        { fontSize: 42, letterSpacing: -1.5, lineHeight: 44, fontFamily: 'Inter_900Black' },
-  sub:          { fontSize: 15, lineHeight: 22, marginTop: 14, fontFamily: 'Inter_400Regular' },
-  pact:         { marginTop: 26, padding: 20, borderRadius: 16, borderWidth: 1 },
-  pactEyebrow:  { fontSize: 10, letterSpacing: 1.5, fontFamily: 'Inter_700Bold' },
-  pactRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  pactTick:     { width: 20, height: 20, borderRadius: 5, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  pactItem:     { flex: 1, fontSize: 14, lineHeight: 20, fontFamily: 'Inter_500Medium' },
-  sigDivider:   { marginTop: 18, borderTopWidth: 1, borderStyle: 'dashed', paddingTop: 12 },
-  sig:          { fontSize: 32, fontFamily: 'Inter_900Black', fontStyle: 'italic', letterSpacing: 0.5 },
-  sigCap:       { fontSize: 11, letterSpacing: 1.5, fontFamily: 'Inter_700Bold', marginTop: 4 },
-  notif:        { marginTop: 14, padding: 14, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  notifText:    { flex: 1, fontSize: 12.5, fontFamily: 'Inter_500Medium' },
-  switch:       { width: 38, height: 22, borderRadius: 11, padding: 2, justifyContent: 'center' },
-  switchKnob:   { width: 18, height: 18, borderRadius: 9 },
+const s10 = StyleSheet.create({
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 22, paddingVertical: 16 },
+  backBtn: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  fullBar: { flex: 1, height: 4, borderRadius: 2 },
+  stepNum: { fontSize: 11 },
+  body: { paddingHorizontal: 22, paddingTop: 8, paddingBottom: 24, gap: 0 },
+  eyebrow: { fontSize: 12, letterSpacing: 2, marginBottom: 12 },
+  headline: { fontSize: 42, letterSpacing: -1.5, lineHeight: 44 },
+  sub: { fontSize: 15, marginTop: 14, lineHeight: 22, maxWidth: 300 },
+  pact: {
+    marginTop: 26, padding: 20, borderRadius: 16,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)', gap: 10,
+  },
+  pactEyebrow: { fontSize: 10, letterSpacing: 2, marginBottom: 2 },
+  commitRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  commitCheck: { width: 20, height: 20, borderRadius: 5, backgroundColor: W.hype, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  commitText: { flex: 1, fontSize: 14, lineHeight: 20 },
+  sigLine: { marginTop: 18, paddingTop: 12, borderTopWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.2)', gap: 4 },
+  sigName: { fontSize: 28 },
+  sigDate: { fontSize: 11, letterSpacing: 1.5 },
+  notifRow: { marginTop: 14, padding: 14, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.04)', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  toggle: { width: 38, height: 22, borderRadius: 11, backgroundColor: W.hype, justifyContent: 'center', alignItems: 'flex-end', paddingRight: 2 },
+  toggleThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: W.ink },
+  cta: { backgroundColor: W.hype, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
+  ctaText: { fontSize: 14, letterSpacing: 2 },
 });
 
-// ── Shared shell styles ──────────────────────────────────────────────────────
-
-const sh = StyleSheet.create({
-  safe:         { flex: 1 },
-  topRow:       { paddingHorizontal: 22, paddingTop: 4, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 14 },
-  iconBtn:      { width: 36, height: 36, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  progressTrack:{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  progressSeg:  { borderRadius: 3 },
-  stepCount:    { width: 36, textAlign: 'right', fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold' },
-  body:         { paddingHorizontal: 22, paddingBottom: 24 },
-  ctaWrap:      { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 8 },
-  cta:          { paddingVertical: 17, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  ctaText:      { fontSize: 14, letterSpacing: 2.5, fontFamily: 'Inter_900Black' },
+// ── Shell styles ─────────────────────────────────────────
+const ss = StyleSheet.create({
+  shell: { flex: 1 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 22, paddingVertical: 14 },
+  backBtn: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  dots: { flex: 1, flexDirection: 'row', gap: 4, alignItems: 'center' },
+  dot: { borderRadius: 3 },
+  stepCount: { fontSize: 11, width: 36, textAlign: 'right' },
+  body: { paddingHorizontal: 22, paddingBottom: 24 },
+  ctaWrap: { paddingHorizontal: 22, paddingBottom: 16, paddingTop: 14 },
+  ctaBtn: { borderRadius: 16, paddingVertical: 17, alignItems: 'center' },
+  ctaText: { fontSize: 14, letterSpacing: 2 },
 });
+
+const tt = StyleSheet.create({
+  eyebrow: { fontSize: 11, letterSpacing: 2, marginBottom: 10 },
+  title: { fontSize: 34, letterSpacing: -1, lineHeight: 36, textTransform: 'uppercase' },
+  sub: { fontSize: 15, marginTop: 12, lineHeight: 22 },
+});
+
+// ── Main export ──────────────────────────────────────────
+export default function OnboardingScreen() {
+  const { completeOnboarding, user } = useAuth();
+  const router = useRouter();
+  const [step, setStep] = useState(0);
+  const [name, setName] = useState(user?.name ?? '');
+  const [age, setAge] = useState(25);
+  const [height, setHeight] = useState(175);
+  const [weight, setWeight] = useState(75);
+  const [whySelected, setWhySelected] = useState<string[]>([]);
+  const [baseline, setBaseline] = useState(5);
+  const [priority, setPriority] = useState('disc');
+  const [habits, setHabits] = useState<string[]>([]);
+  const [logTime, setLogTime] = useState('evening');
+  const [tone, setTone] = useState('bal');
+
+  const next = () => setStep(s => s + 1);
+
+  function toggleWhy(id: string) {
+    setWhySelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  }
+  function toggleHabit(id: string) {
+    setHabits(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  }
+
+  async function finish() {
+    await completeOnboarding();
+    router.replace('/(tabs)');
+  }
+
+  const screens = [
+    <S1_Welcome key="ob1" onNext={next} />,
+    <S2_Name key="ob2" value={name} onChange={setName} onNext={next} />,
+    <S3_Body key="ob3" age={age} height={height} weight={weight}
+      onAge={setAge} onHeight={setHeight} onWeight={setWeight} onNext={next} />,
+    <S4_Why key="ob4" selected={whySelected} onToggle={toggleWhy} onNext={next} />,
+    <S5_Baseline key="ob5" value={baseline} onChange={setBaseline} onNext={next} />,
+    <S6_Priority key="ob6" selected={priority} onSelect={setPriority} onNext={next} />,
+    <S7_Habits key="ob7" selected={habits} onToggle={toggleHabit} onNext={next} />,
+    <S8_Time key="ob8" selected={logTime} onSelect={setLogTime} onNext={next} />,
+    <S9_Tone key="ob9" selected={tone} onSelect={setTone} onNext={next} />,
+    <S10_Commit key="ob10" name={name} onCommit={finish} />,
+  ];
+
+  return screens[step];
+}

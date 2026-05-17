@@ -303,7 +303,8 @@ export default function StrengthScreen() {
                     key={tt.key}
                     style={[s.trainingCard, {
                       borderColor: active ? theme.text : theme.border,
-                      backgroundColor: active ? theme.overlay : 'transparent',
+                      backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF',
+                      borderWidth: active ? 2 : 1,
                     }]}
                     onPress={() => setTrainingType(active ? null : tt.key)}
                     activeOpacity={0.7}
@@ -324,7 +325,7 @@ export default function StrengthScreen() {
                   {BODY_PARTS.filter(b => b.key !== 'cardio').map(bp => (
                     <TouchableOpacity
                       key={bp.key}
-                      style={[s.bodyCard, { borderColor: theme.border }]}
+                      style={[s.bodyCard, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}
                       onPress={() => openBodyPart(bp.key)}
                       activeOpacity={0.7}
                     >
@@ -338,7 +339,7 @@ export default function StrengthScreen() {
 
             {/* SPORTS inline form */}
             {trainingType === 'sports' && (
-              <View style={s.inlineForm}>
+              <View style={[s.inlineForm, { backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF', borderColor: theme.border }]}>
                 <Text style={[s.formLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>SPORT</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
                   {SPORTS_SUGGESTIONS.map(sp => (
@@ -359,7 +360,7 @@ export default function StrengthScreen() {
                   ))}
                 </ScrollView>
                 <TextInput
-                  style={[s.input, { color: theme.text, borderColor: theme.border, fontFamily: 'Inter_700Bold' }]}
+                  style={[s.input, { color: theme.text, borderColor: theme.border, fontFamily: 'Inter_700Bold', backgroundColor: theme.isDark ? '#2A2A2A' : '#F5F5F5' }]}
                   value={sportName} onChangeText={setSportName}
                   placeholder="Or type your sport..."
                   placeholderTextColor={theme.textSecondary}
@@ -382,7 +383,7 @@ export default function StrengthScreen() {
 
             {/* CARDIO inline form */}
             {trainingType === 'cardio' && (
-              <View style={s.inlineForm}>
+              <View style={[s.inlineForm, { backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF', borderColor: theme.border }]}>
                 <Text style={[s.formLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>ACTIVITY</Text>
                 <View style={s.dualRow}>
                   {(['Running', 'Walking'] as const).map(a => (
@@ -460,7 +461,7 @@ export default function StrengthScreen() {
                 {suggestions.map(sg => (
                   <TouchableOpacity
                     key={sg}
-                    style={[ef.suggestChip, { borderColor: theme.border, backgroundColor: exName === sg ? theme.text : 'transparent' }]}
+                    style={[ef.suggestChip, { borderColor: exName === sg ? theme.text : theme.border, backgroundColor: exName === sg ? theme.text : (theme.isDark ? '#2A2A2A' : '#FFFFFF') }]}
                     onPress={() => setExName(sg)}
                     activeOpacity={0.7}
                   >
@@ -472,7 +473,7 @@ export default function StrengthScreen() {
                 ))}
               </ScrollView>
               <TextInput
-                style={[ef.nameInput, { color: theme.text, borderColor: theme.border, fontFamily: 'Inter_700Bold' }]}
+                style={[ef.nameInput, { color: theme.text, borderColor: theme.border, fontFamily: 'Inter_700Bold', backgroundColor: theme.isDark ? '#2A2A2A' : '#FFFFFF' }]}
                 value={exName} onChangeText={setExName}
                 placeholder="Or type the exercise..."
                 placeholderTextColor={theme.textSecondary}
@@ -486,7 +487,7 @@ export default function StrengthScreen() {
                     SETS — {exSets.length} added
                   </Text>
                   {exSets.map((st, i) => (
-                    <View key={i} style={[ef.setRow, { borderColor: theme.border }]}>
+                    <View key={i} style={[ef.setRow, { borderColor: theme.border, backgroundColor: theme.isDark ? '#2A2A2A' : '#FFFFFF' }]}>
                       <Text style={[ef.setIdx, { color: theme.textSecondary, fontFamily: 'Inter_900Black' }]}>{i + 1}</Text>
                       <Text style={[ef.setMeta, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
                         {st.reps} reps{st.weight > 0 ? ` · ${st.weight} kg` : ''}
@@ -611,7 +612,7 @@ const bs = StyleSheet.create({
 // ── Numeric field ────────────────────────────────────────────────────────────
 function NumField({ label, value, onChange, unit, theme }: { label: string; value: string; onChange: (v: string) => void; unit?: string; theme: any }) {
   return (
-    <View style={[ef.numField, { borderColor: theme.border }]}>
+    <View style={[ef.numField, { borderColor: theme.border, backgroundColor: theme.isDark ? '#2A2A2A' : '#F5F5F5' }]}>
       <Text style={[ef.numLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
         {label}{unit ? ` (${unit})` : ''}
       </Text>
@@ -745,7 +746,7 @@ const s = StyleSheet.create({
   bodyLabel:      { fontSize: 9, letterSpacing: 1.5 },
 
   // Inline forms for sports / cardio
-  inlineForm:     { marginHorizontal: 16, marginTop: 12, gap: 10 },
+  inlineForm:     { marginHorizontal: 16, marginTop: 12, gap: 10, borderWidth: 1, borderRadius: 16, padding: 16 },
   formLabel:      { fontSize: 8, letterSpacing: 2.5, marginTop: 4 },
   chipRow:        { gap: 8, paddingVertical: 2 },
   chip:           { paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderRadius: 10 },
@@ -766,14 +767,16 @@ const s = StyleSheet.create({
   emptyText:      { fontSize: 9, letterSpacing: 3 },
 });
 
-// ── Hero score card — mirrors the food page's FuelScoreCard ──
+function sscDayLetter(dateStr: string) {
+  return ['M','T','W','T','F','S','S'][(new Date(dateStr + 'T12:00:00').getDay() + 6) % 7];
+}
+
 function StrengthScoreCard({ score, history, selectedDate, theme }: {
   score: number;
   history: Record<string, WorkoutLog[]>;
   selectedDate: string;
   theme: any;
 }) {
-  // Last 7 days as { date, score } where score is the day's best session score.
   const last7 = React.useMemo(() => {
     const days: { date: string; score: number | null }[] = [];
     const todayStr = today();
@@ -786,75 +789,73 @@ function StrengthScoreCard({ score, history, selectedDate, theme }: {
     return days;
   }, [history]);
 
-  const trend = React.useMemo(() => {
+  const { trend, delta } = React.useMemo(() => {
+    const prev = last7.slice(0, 6).filter(d => d.score != null).map(d => d.score as number);
+    const avg  = prev.length ? Math.round(prev.reduce((a, b) => a + b, 0) / prev.length) : null;
+    const diff = avg != null ? score - avg : null;
     const scored = last7.filter(d => d.score != null).map(d => d.score as number);
-    if (scored.length < 3) return null;
+    if (scored.length < 3) return { trend: { label: 'SHOWING UP', color: '#0A84FF', icon: '·' }, delta: diff };
     const half   = Math.floor(scored.length / 2);
     const early  = scored.slice(0, half).reduce((a, b) => a + b, 0) / half;
     const recent = scored.slice(-half).reduce((a, b) => a + b, 0) / half;
-    const diff   = recent - early;
-    if (diff > 8)  return { label: 'IMPROVING',  color: '#34C759', icon: '↑' };
-    if (diff < -8) return { label: 'DECLINING',  color: '#FF453A', icon: '↓' };
-    return            { label: 'CONSISTENT', color: '#0A84FF', icon: '→' };
-  }, [last7]);
+    const d      = recent - early;
+    if (d > 8)  return { trend: { label: 'GETTING BETTER', color: '#34C759', icon: '↑' }, delta: diff };
+    if (d < -8) return { trend: { label: 'DECLINING',      color: '#FF453A', icon: '↓' }, delta: diff };
+    return            { trend: { label: 'CONSISTENT',      color: '#0A84FF', icon: '→' }, delta: diff };
+  }, [last7, score]);
 
-  const streak = React.useMemo(() => {
-    let count = 0;
-    for (let i = last7.length - 1; i >= 0; i--) {
-      if (last7[i].score != null) count++;
-      else break;
-    }
-    return count;
-  }, [last7]);
-
-  const scoreColor = score >= 80 ? '#34C759' : score >= 50 ? '#FF9500' : score > 0 ? '#FF453A' : theme.textMuted;
+  const scoreColor = score >= 70 ? '#22A664' : score >= 50 ? '#F0A12E' : score > 0 ? '#E84A4A' : theme.textMuted;
   const isToday    = selectedDate === today();
 
   return (
-    <View style={[ssc.card, { backgroundColor: theme.isDark ? '#1E1E1E' : '#ECECEC', borderColor: theme.borderStrong, borderTopColor: scoreColor }]}>
+    <View style={[ssc.card, { backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF', borderColor: scoreColor }]}>
+      {/* Top row: score left, trend + delta right */}
       <View style={ssc.top}>
-        <View style={ssc.scoreBlock}>
-          <Text style={[ssc.scoreNum, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
-          <Text style={[ssc.scoreLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-            {isToday ? "TODAY'S STRENGTH SCORE" : 'STRENGTH SCORE'}
+        <View style={ssc.left}>
+          <Text style={[ssc.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+            {isToday ? "TODAY'S STRENGTH" : 'STRENGTH SCORE'}
           </Text>
+          <Text style={[ssc.scoreNum, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
         </View>
         <View style={ssc.right}>
-          {trend && (
-            <View style={[ssc.trendBadge, { backgroundColor: trend.color + '22', borderColor: trend.color + '55' }]}>
-              <Text style={[ssc.trendIcon, { color: trend.color }]}>{trend.icon}</Text>
-              <Text style={[ssc.trendLabel, { color: trend.color, fontFamily: 'Inter_900Black' }]}>{trend.label}</Text>
-            </View>
-          )}
-          {streak > 0 && (
-            <Text style={[ssc.streakText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-              {streak} day{streak !== 1 ? 's' : ''} logged
+          <View style={[ssc.trendPill, { backgroundColor: trend.color + '25' }]}>
+            <Text style={[ssc.trendText, { color: trend.color, fontFamily: 'Inter_900Black' }]}>
+              {trend.icon}  {trend.label}
+            </Text>
+          </View>
+          {delta != null && (
+            <Text style={[ssc.deltaText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+              {delta > 0 ? '+' : ''}{delta} vs last 7 days
             </Text>
           )}
         </View>
       </View>
 
+      {/* Divider */}
       <View style={[ssc.divider, { backgroundColor: theme.border }]} />
 
-      <View style={ssc.dotsRow}>
+      {/* 7-day coloured squares */}
+      <View style={ssc.gridRow}>
         {last7.map(day => {
+          const s          = day.score;
           const isSelected = day.date === selectedDate;
-          const sv = day.score;
-          const dotColor = sv == null ? theme.overlay : sv >= 80 ? '#34C759' : sv >= 50 ? '#FF9500' : '#FF453A';
-          const dow = new Date(day.date + 'T12:00:00').getDay();
-          const label = ['M','T','W','T','F','S','S'][dow === 0 ? 6 : dow - 1];
+          const bg = s == null
+            ? (theme.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)')
+            : s >= 70 ? '#22A664' : s >= 50 ? '#F0A12E' : '#E84A4A';
+          const textColor = s == null ? theme.textSecondary : '#FFFFFF';
           return (
-            <View key={day.date} style={ssc.dotCol}>
-              <View style={[ssc.dot, {
-                backgroundColor: dotColor,
-                borderWidth: isSelected ? 2 : 0,
-                borderColor: theme.text,
-                opacity: sv == null ? 0.25 : 1,
-              }]} />
-              {sv != null && (
-                <Text style={[ssc.dotScore, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{sv}</Text>
-              )}
-              <Text style={[ssc.dotDay, { color: isSelected ? theme.text : theme.textSecondary, fontFamily: isSelected ? 'Inter_700Bold' : 'Inter_500Medium' }]}>{label}</Text>
+            <View key={day.date} style={[ssc.square, {
+              backgroundColor: bg,
+              borderWidth: isSelected ? 2 : 0,
+              borderColor: theme.text,
+              opacity: s == null ? 0.5 : 1,
+            }]}>
+              <Text style={[ssc.squareNum, { color: textColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                {s ?? '·'}
+              </Text>
+              <Text style={[ssc.squareDay, { color: textColor, fontFamily: 'Inter_700Bold' }]}>
+                {sscDayLetter(day.date)}
+              </Text>
             </View>
           );
         })}
@@ -864,22 +865,20 @@ function StrengthScoreCard({ score, history, selectedDate, theme }: {
 }
 
 const ssc = StyleSheet.create({
-  card:       { marginHorizontal: 16, marginBottom: 14, borderWidth: 1, borderRadius: 16, padding: 16, borderTopWidth: 3 },
-  top:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  scoreBlock: { gap: 2 },
-  scoreNum:   { fontSize: 52, lineHeight: 56 },
-  scoreLabel: { fontSize: 8, letterSpacing: 2.5 },
-  right:      { alignItems: 'flex-end', gap: 8 },
-  trendBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
-  trendIcon:  { fontSize: 13, fontWeight: '800' },
-  trendLabel: { fontSize: 9, letterSpacing: 2 },
-  streakText: { fontSize: 9, letterSpacing: 1 },
-  divider:    { height: 1, marginBottom: 14 },
-  dotsRow:    { flexDirection: 'row', justifyContent: 'space-between' },
-  dotCol:     { alignItems: 'center', gap: 4, flex: 1 },
-  dot:        { width: 10, height: 10, borderRadius: 5 },
-  dotScore:   { fontSize: 8 },
-  dotDay:     { fontSize: 8, letterSpacing: 0.5 },
+  card:      { marginHorizontal: 16, marginBottom: 14, borderWidth: 1.5, borderRadius: 18, overflow: 'hidden' },
+  top:       { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', padding: 16, paddingBottom: 14 },
+  left:      { gap: 2 },
+  eyebrow:   { fontSize: 10, letterSpacing: 2 },
+  scoreNum:  { fontSize: 64, lineHeight: 68, letterSpacing: -2 },
+  right:     { alignItems: 'flex-end', gap: 6, paddingTop: 2 },
+  trendPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  trendText: { fontSize: 10, letterSpacing: 1.5 },
+  deltaText: { fontSize: 11 },
+  divider:   { height: 1 },
+  gridRow:   { flexDirection: 'row', padding: 12, gap: 6 },
+  square:    { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: 'center', gap: 3 },
+  squareNum: { fontSize: 13, lineHeight: 15 },
+  squareDay: { fontSize: 9, letterSpacing: 0.5 },
 });
 
 // Exercise form modal styles

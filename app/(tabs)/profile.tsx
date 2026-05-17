@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 import { habits, strength, fuel, today } from '../../lib/api';
 import { HawkEyeModal } from '../../components/HawkEye';
+import { Gauge } from '../../components/Gauge';
 import { useTheme } from '../../components/ThemeContext';
 
 const SCREEN_W = Dimensions.get('window').width;
@@ -339,8 +340,10 @@ export default function ProfileScreen() {
   return (
     <DarkBackground><SafeAreaView style={s.safe} edges={['top']}>
       <View style={s.topBar}>
-        <Text style={[s.nameLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{firstName}</Text>
-        <View style={{ flex: 1 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={[s.nameLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{firstName}</Text>
+          <Text style={[s.modeEyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>Dashboard</Text>
+        </View>
         <TouchableOpacity style={[s.topIcon, { borderColor: '#34C759' }]} onPress={() => router.push('/(tabs)/ai')}>
           <Ionicons name="sparkles" size={15} color="#34C759" />
         </TouchableOpacity>
@@ -352,116 +355,265 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}>
 
-        {/* Sliding day cards */}
-        <FlatList
-          ref={flatRef}
-          data={cardData}
-          keyExtractor={item => item.date}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.cardList}
-          snapToInterval={CARD_W + 12}
-          decelerationRate="fast"
-          renderItem={({ item }) => <DayCard item={item} theme={theme} />}
-          ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-        />
-
-        {/* Hawk Eye — centred, popped */}
-        <TouchableOpacity
-          style={[s.hawkBtn, { backgroundColor: theme.inverse, shadowColor: theme.inverse }]}
-          onPress={() => setHawkEye(true)}
-          activeOpacity={0.85}
-        >
-          <Text style={[s.hawkTitle, { color: theme.inverseText, fontFamily: 'SpaceGrotesk_700Bold' }]}>HAWK EYE</Text>
-        </TouchableOpacity>
+        {/* ── D_Dashboard design ── */}
+        {cardData.length >= 2 && <DashSection cardData={cardData} theme={theme} onHawkEye={() => setHawkEye(true)} />}
         <HawkEyeModal visible={hawkEye} onClose={() => setHawkEye(false)} token={token!} />
 
-        {/* Chart — scrollable with filter */}
-        <View style={[s.chartCard, { borderColor: theme.border }]}>
-          <ScrollableChart allData={cardData} theme={theme} />
-        </View>
 
-        {/* Food trend */}
-        <TrendCard
-          icon="nutrition-outline"
-          label="FOOD"
-          data={cardData.map(d => d.food)}
-          theme={theme}
-        />
-
-        {/* Physical trend */}
-        <TrendCard
-          icon="barbell-outline"
-          label="PHYSICAL ACTIVITY"
-          data={cardData.map(d => d.physical)}
-          theme={theme}
-        />
-
-        {/* Shields */}
-        {shields && (
-          <TouchableOpacity style={[s.actionRow, { borderColor: theme.border }]} onPress={() => {
-            if (!shields.remaining) return;
-            Alert.alert('LOG BAD DAY', 'Use a shield to protect your streaks today?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Use Shield', onPress: async () => { try { await habits.badDay(token!, today()); load(); } catch {} } },
-            ]);
-          }}>
-            <Text style={s.actionEmoji}>🛡️</Text>
-            <View style={s.actionInfo}>
-              <Text style={[s.actionTitle, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>STREAK SHIELDS</Text>
-              <Text style={[s.actionSub, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>{shields.remaining}/{shields.max} remaining · Resets monthly</Text>
-            </View>
-            <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', fontSize: 10, color: shields.remaining > 0 ? '#34C759' : theme.textSecondary }}>
-              {shields.remaining > 0 ? 'USE →' : 'NONE LEFT'}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Appearance / theme toggle */}
-        <View style={[s.actionRow, { borderColor: theme.border }]}>
-          <Ionicons
-            name={theme.isDark ? 'moon' : 'sunny'}
-            size={22}
-            color={theme.text}
-            style={{ width: 22 }}
-          />
-          <View style={s.actionInfo}>
-            <Text style={[s.actionTitle, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>APPEARANCE</Text>
-            <Text style={[s.actionSub, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-              Currently {theme.isDark ? 'Dark' : 'Light'} mode
-            </Text>
-          </View>
+        {/* Appearance toggle */}
+        <View style={[s.appearanceRow, { borderColor: theme.border }]}>
+          <Ionicons name={theme.isDark ? 'moon' : 'sunny'} size={18} color={theme.text} />
+          <Text style={[s.appearanceLabel, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>Appearance</Text>
+          <View style={{ flex: 1 }} />
           <View style={[s.themeToggle, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <TouchableOpacity
-              style={[s.themeOpt, !theme.isDark && { backgroundColor: theme.inverse }]}
-              onPress={() => setMode('light')}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={[s.themeOpt, !theme.isDark && { backgroundColor: theme.inverse }]}
+              onPress={() => setMode('light')} activeOpacity={0.7}>
               <Ionicons name="sunny" size={13} color={!theme.isDark ? theme.inverseText : theme.textSecondary} />
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.themeOpt, theme.isDark && { backgroundColor: theme.inverse }]}
-              onPress={() => setMode('dark')}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={[s.themeOpt, theme.isDark && { backgroundColor: theme.inverse }]}
+              onPress={() => setMode('dark')} activeOpacity={0.7}>
               <Ionicons name="moon" size={13} color={theme.isDark ? theme.inverseText : theme.textSecondary} />
             </TouchableOpacity>
           </View>
         </View>
-
-        <TouchableOpacity style={s.signOut} onPress={handleLogout}>
-          <Text style={[s.signOutText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>SIGN OUT</Text>
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView></DarkBackground>
   );
 }
 
+// ── Warm Coach Dashboard section ──────────────────────────────────────────────
+
+const WC = {
+  good:  '#22A664',
+  warn:  '#F0A12E',
+  bad:   '#E84A4A',
+  hype:  '#B8F23A',
+};
+
+function StatusPill({ tone, children, theme }: { tone: 'good'|'warn'|'bad'; children: string; theme: any }) {
+  const map = {
+    good: { bg: '#E2F7EC', fg: WC.good },
+    warn: { bg: '#FFF1DC', fg: WC.warn },
+    bad:  { bg: '#FCE6E6', fg: WC.bad  },
+  }[tone];
+  return (
+    <View style={[dd.pill, { backgroundColor: theme.isDark ? map.fg + '25' : map.bg }]}>
+      <Text style={[dd.pillText, { color: map.fg, fontFamily: 'Inter_900Black' }]}>{children}</Text>
+    </View>
+  );
+}
+
+function DashSection({ cardData, theme, onHawkEye }: { cardData: { date: string; discipline: number; food: number; physical: number }[]; theme: any; onHawkEye: () => void }) {
+  const [chartTab, setChartTab] = React.useState<'HABITS'|'FOOD'|'PHYS'>('HABITS');
+  const yesterday = cardData[cardData.length - 2];
+  const todayData = cardData[cardData.length - 1];
+  const overall   = yesterday.discipline;
+  const avg7disc  = Math.round(cardData.reduce((a, d) => a + d.discipline, 0) / cardData.length);
+  const GOOD = WC.good; const BAD = WC.bad;
+
+  const streak = (() => {
+    let n = 0;
+    for (let i = cardData.length - 2; i >= 0; i--) {
+      if (cardData[i].discipline > 0) n++; else break;
+    }
+    return n;
+  })();
+
+  const statusTone: 'good'|'warn'|'bad' = overall >= 70 ? 'good' : overall >= 40 ? 'warn' : 'bad';
+  const statusLabel = overall >= 70 ? 'BUILDING' : overall >= 40 ? 'WAVERING' : 'BELOW POTENTIAL';
+  const gaugeColor  = overall >= 70 ? GOOD : overall >= 40 ? WC.warn : BAD;
+
+  const chartScores = chartTab === 'FOOD' ? cardData.map(d => d.food)
+                    : chartTab === 'PHYS' ? cardData.map(d => d.physical)
+                    : cardData.map(d => d.discipline);
+  const chartAvg = Math.round(chartScores.reduce((a, b) => a + b, 0) / chartScores.length);
+  const days = ['M','T','W','T','F','S','S'];
+
+  const breakdown = [
+    { k: 'DISCIPLINE', v: yesterday.discipline, color: yesterday.discipline >= 70 ? GOOD : yesterday.discipline >= 40 ? WC.warn : BAD },
+    { k: 'FOOD',       v: yesterday.food,       color: yesterday.food >= 70 ? GOOD : yesterday.food >= 40 ? WC.warn : BAD },
+    { k: 'PHYSICAL',   v: yesterday.physical,   color: yesterday.physical >= 70 ? GOOD : yesterday.physical >= 40 ? WC.warn : BAD },
+  ];
+
+  const insights = [
+    { mode: 'FOOD', avg: todayData.food, tone: todayData.food >= 70 ? 'good' : todayData.food >= 40 ? 'warn' : 'bad' as 'good'|'warn'|'bad',
+      state: todayData.food >= 70 ? 'BUILDING' : todayData.food > 0 ? 'SLIPPING' : 'UNLOGGED',
+      copy: todayData.food >= 70 ? 'Clean eating today. Fuel is dialled.' : todayData.food > 0 ? 'Logged. Check junk food and quality.' : 'No food log yet — takes 30 seconds.',
+      delta: todayData.food - avg7disc },
+    { mode: 'PHYSICAL', avg: todayData.physical, tone: todayData.physical >= 50 ? 'good' : 'bad' as 'good'|'warn'|'bad',
+      state: todayData.physical >= 70 ? 'BUILDING' : todayData.physical > 0 ? 'WAVERING' : 'UNLOGGED',
+      copy: todayData.physical >= 70 ? 'Strong session. Recovery matters too.' : todayData.physical > 0 ? 'Session logged. Push harder tomorrow.' : 'No workout logged yet today.',
+      delta: todayData.physical - avg7disc },
+    { mode: 'DISCIPLINE', avg: todayData.discipline, tone: todayData.discipline >= 70 ? 'good' : todayData.discipline >= 40 ? 'warn' : 'bad' as 'good'|'warn'|'bad',
+      state: todayData.discipline >= 70 ? 'BUILDING' : todayData.discipline >= 40 ? 'WAVERING' : todayData.discipline > 0 ? 'SLIPPING' : 'UNLOGGED',
+      copy: todayData.discipline >= 70 ? 'Habits locked in. Keep stacking.' : todayData.discipline >= 40 ? 'Making progress. Finish today\'s habits.' : 'Below potential. Mark one habit done now.',
+      delta: todayData.discipline - avg7disc },
+  ];
+
+  return (
+    <View>
+      {/* ── Hero card ── */}
+      <View style={[dd.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        {/* Top: YESTERDAY + status | STREAK */}
+        <View style={dd.heroTop}>
+          <View style={dd.heroLeft}>
+            <Text style={[dd.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>YESTERDAY</Text>
+            <View style={{ marginTop: 6 }}>
+              <StatusPill tone={statusTone} theme={theme}>{statusLabel}</StatusPill>
+            </View>
+          </View>
+          {streak > 0 && (
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[dd.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>STREAK</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                <Text>🔥</Text>
+                <Text style={[dd.streakVal, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>{streak} DAYS</Text>
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Gauge centered */}
+        <View style={{ alignItems: 'center', marginTop: 4 }}>
+          <Gauge value={overall} max={100} label="Overall Score" />
+        </View>
+
+        {/* Mode breakdown */}
+        <View style={[dd.breakdown, { borderTopColor: theme.border }]}>
+          {breakdown.map((m, i) => (
+            <View key={m.k} style={[dd.breakCell, i < 2 && { borderRightColor: theme.border, borderRightWidth: 1 }]}>
+              <Text style={[dd.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold', fontSize: 9 }]}>{m.k}</Text>
+              <Text style={[dd.breakNum, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>{m.v}</Text>
+              <View style={[dd.breakTrack, { backgroundColor: theme.surfaceStrong }]}>
+                <View style={[dd.breakFill, { width: `${Math.min(m.v, 100)}%` as any, backgroundColor: m.color }]} />
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* ── Hawk Eye button ── */}
+      <TouchableOpacity
+        style={[dd.hawkCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+        onPress={onHawkEye}
+        activeOpacity={0.85}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={[dd.hawkTitle, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>Hawk Eye</Text>
+          <Text style={[dd.hawkSub, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+            Full history · Calendar · Countdown
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+      </TouchableOpacity>
+
+      {/* ── 7-day chart card ── */}
+      <View style={[dd.card, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 12 }]}>
+        <View style={dd.chartTop}>
+          <View>
+            <Text style={[dd.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>7-DAY SCORE</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2, marginTop: 2 }}>
+              <Text style={[dd.chartAvg, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>AVG {chartAvg}</Text>
+              <Text style={[{ color: theme.textSecondary, fontFamily: 'Inter_400Regular', fontSize: 13 }]}> / 100</Text>
+            </View>
+          </View>
+          <View style={[dd.tabRow, { backgroundColor: theme.surface }]}>
+            {(['HABITS','FOOD','PHYS'] as const).map(t => (
+              <TouchableOpacity key={t} style={[dd.tabBtn, chartTab === t && { backgroundColor: theme.inverse }]}
+                onPress={() => setChartTab(t)} activeOpacity={0.8}>
+                <Text style={[dd.tabText, { color: chartTab === t ? theme.inverseText : theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{t}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* MiniBars */}
+        <View style={dd.barsRow}>
+          {chartScores.map((v, i) => {
+            const isToday = i === chartScores.length - 1;
+            const h = Math.max(4, (v / 100) * 56);
+            const bg = v === 0 ? theme.surfaceStrong : isToday ? WC.hype : theme.text + 'B0';
+            const dow = (new Date(cardData[i].date + 'T12:00:00').getDay() + 6) % 7;
+            return (
+              <View key={i} style={dd.barCol}>
+                <View style={[dd.barWrap, { height: 56 }]}>
+                  <View style={[dd.bar, { height: h, backgroundColor: bg, borderRadius: 4,
+                    borderWidth: isToday ? 1.5 : 0, borderColor: theme.text }]} />
+                </View>
+                <Text style={[dd.barDay, { color: isToday ? theme.text : theme.textSecondary,
+                  fontFamily: isToday ? 'Inter_700Bold' : 'Inter_500Medium' }]}>{days[dow]}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* ── Insight rows ── */}
+      {insights.map(row => (
+        <View key={row.mode} style={[dd.card, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 10, padding: 16 }]}>
+          <View style={dd.insightRow}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={[dd.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{row.mode}</Text>
+                <StatusPill tone={row.tone} theme={theme}>{row.state}</StatusPill>
+              </View>
+              <Text style={[dd.insightCopy, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>{row.copy}</Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[dd.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>AVG</Text>
+              <Text style={[dd.insightScore, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>{row.avg}</Text>
+              <Text style={[dd.insightDelta, { color: row.delta >= 0 ? GOOD : BAD, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                {row.delta >= 0 ? '+' : ''}{row.delta}
+              </Text>
+            </View>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const dd = StyleSheet.create({
+  card:        { marginHorizontal: 16, borderWidth: 1, borderRadius: 20, overflow: 'hidden', padding: 0 },
+  hawkCard:    { marginHorizontal: 16, marginTop: 12, borderWidth: 1, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 },
+  hawkEmoji:   { fontSize: 28 },
+  hawkTitle:   { fontSize: 18, letterSpacing: -0.3 },
+  hawkSub:     { fontSize: 12, marginTop: 2 },
+  eyebrow:     { fontSize: 10, letterSpacing: 2, textTransform: 'uppercase' },
+  pill:        { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  pillText:    { fontSize: 10, letterSpacing: 1.5 },
+  // Hero card
+  heroTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 16, paddingBottom: 4 },
+  heroLeft:    { gap: 6 },
+  streakVal:   { fontSize: 17 },
+  breakdown:   { flexDirection: 'row', borderTopWidth: 1 },
+  breakCell:   { flex: 1, alignItems: 'center', paddingVertical: 14, paddingHorizontal: 8, gap: 6 },
+  breakNum:    { fontSize: 24, lineHeight: 26 },
+  breakTrack:  { width: '80%', height: 4, borderRadius: 2, overflow: 'hidden' },
+  breakFill:   { height: '100%', borderRadius: 2 },
+  // Chart card
+  chartTop:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 14 },
+  chartAvg:    { fontSize: 22 },
+  tabRow:      { flexDirection: 'row', gap: 3, padding: 3, borderRadius: 999 },
+  tabBtn:      { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999 },
+  tabText:     { fontSize: 10, letterSpacing: 1 },
+  barsRow:     { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingBottom: 16 },
+  barCol:      { flex: 1, alignItems: 'center', gap: 6 },
+  barWrap:     { justifyContent: 'flex-end', width: '100%' },
+  bar:         { width: '100%' },
+  barDay:      { fontSize: 10 },
+  // Insight rows
+  insightRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  insightCopy: { fontSize: 13, lineHeight: 18, maxWidth: 240, marginTop: 2 },
+  insightScore:{ fontSize: 22, lineHeight: 24 },
+  insightDelta:{ fontSize: 11, letterSpacing: 0.5 },
+});
+
 const s = StyleSheet.create({
   safe:      { flex: 1 },
-  topBar:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10, gap: 10 },
-  nameLabel: { fontSize: 22, letterSpacing: -1 },
+  topBar:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10, gap: 10 },
+  modeEyebrow:{ fontSize: 11, letterSpacing: 1.5, marginTop: 2 },
+  nameLabel:  { fontSize: 24, letterSpacing: -0.5 },
   topIcon:   { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   scroll:    { paddingBottom: 60, gap: 12 },
   cardList:  { paddingHorizontal: 16, paddingVertical: 4 },
@@ -482,13 +634,8 @@ const s = StyleSheet.create({
   lvlFill:   { height: '100%', borderRadius: 1 },
   levelNext: { fontSize: 8, letterSpacing: 2 },
   divider:   { height: 1, marginVertical: 4 },
-  actionRow: { marginHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, padding: 16 },
-  actionEmoji: { fontSize: 22 },
-  actionInfo: { flex: 1, gap: 3 },
-  actionTitle: { fontSize: 12, letterSpacing: 1 },
-  actionSub: { fontSize: 10 },
+  appearanceRow: { marginHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 14, padding: 14 },
+  appearanceLabel: { fontSize: 14 },
   themeToggle: { flexDirection: 'row', borderWidth: 1, borderRadius: 8, padding: 2, gap: 2 },
   themeOpt: { width: 32, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 6 },
-  signOut:   { alignItems: 'center', paddingVertical: 20 },
-  signOutText: { fontSize: 9, letterSpacing: 4 },
 });

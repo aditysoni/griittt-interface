@@ -20,7 +20,7 @@ import { ThemeProvider, useTheme } from '../components/ThemeContext';
 import { LoadingScreen } from '../components/LoadingScreen';
 
 function InitialLayout() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, onboardingDone } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
   const segments = useSegments();
@@ -28,9 +28,20 @@ function InitialLayout() {
   useEffect(() => {
     if (isLoading) return;
     const inAuth = segments[0] === '(auth)';
-    if (!user && !inAuth) router.replace('/(auth)/login');
-    else if (user && inAuth) router.replace('/(tabs)');
-  }, [user, isLoading, segments]);
+    const onOnboarding = segments[1] === 'onboarding';
+
+    if (!user) {
+      if (!inAuth) router.replace('/(auth)/login');
+      return;
+    }
+    // user is logged in
+    if (!onboardingDone) {
+      if (!onOnboarding) router.replace('/(auth)/onboarding');
+      return;
+    }
+    // user + onboarding done
+    if (inAuth) router.replace('/(tabs)');
+  }, [user, isLoading, onboardingDone, segments]);
 
   if (isLoading) return <LoadingScreen />;
   return (

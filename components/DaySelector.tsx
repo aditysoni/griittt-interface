@@ -55,9 +55,9 @@ export function DaySelector({ selectedDate, onSelect }: Props) {
             key={d.full}
             style={[
               s.cell,
-              { backgroundColor: theme.overlay },
+              { backgroundColor: '#FFFFFF' },
               active && { backgroundColor: theme.inverse },
-              isFuture && !active && { backgroundColor: theme.surface, opacity: 0.6 },
+              isFuture && !active && { backgroundColor: '#FFFFFF', opacity: 0.4 },
             ]}
             onPress={() => onSelect(d.full)}
             activeOpacity={0.7}
