@@ -1,11 +1,43 @@
 const BASE_URL = `${process.env.EXPO_PUBLIC_API_BASE ?? 'http://192.168.1.9:3001'}/api`;
 
+export type MacroTargets = { calories: number; protein: number; fat: number; carbs: number };
+
 export type User = {
   id: string;
   email: string;
   name: string;
   avatar_url: string | null;
   created_at: string;
+  age?: number | null;
+  heightCm?: number | null;
+  weightKg?: number | null;
+  goals?: string[];
+  baselineSelfRating?: number | null;
+  priorityMode?: 'disc' | 'fuel' | 'phys' | null;
+  dailyNudgeTime?: 'morning' | 'midday' | 'evening' | 'before_bed' | null;
+  coachingTone?: 'soft' | 'bal' | 'hard' | null;
+  notificationsEnabled?: boolean | null;
+  onboardingDone?: boolean;
+  macroTargets?: MacroTargets | null;
+};
+
+export type OnboardingPayload = {
+  name?: string;
+  age: number;
+  heightFt?: number;
+  heightIn?: number;
+  heightCm?: number;
+  weightLbs?: number;
+  weightKg?: number;
+  goals: string[];
+  baselineSelfRating: number;
+  priorityMode: 'disc' | 'fuel' | 'phys';
+  starterHabits: string[];
+  /** Preset challenge titles the user wants to auto-join (e.g. ["Cold shower", "No sugar"]). */
+  starterChallenges?: string[];
+  dailyNudgeTime: 'morning' | 'midday' | 'evening' | 'before_bed';
+  coachingTone: 'soft' | 'bal' | 'hard';
+  notificationsEnabled: boolean;
 };
 
 export type Task = {
@@ -143,6 +175,86 @@ export const auth = {
     request<User>('/auth/me', {}, token),
 };
 
+// Users / profile
+export const users = {
+  me: (token: string) =>
+    request<User>('/users/me', {}, token),
+
+  patch: (token: string, data: Partial<{
+    name: string;
+    age: number | null;
+    heightCm: number | null;
+    weightKg: number | null;
+    goals: string[];
+    baselineSelfRating: number | null;
+    priorityMode: 'disc' | 'fuel' | 'phys' | null;
+    dailyNudgeTime: 'morning' | 'midday' | 'evening' | 'before_bed' | null;
+    coachingTone: 'soft' | 'bal' | 'hard' | null;
+    notificationsEnabled: boolean | null;
+    macroTargets: MacroTargets | null;
+  }>) =>
+    request<User>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }, token),
+
+  onboarding: (token: string, data: OnboardingPayload) =>
+    request<{ user: User; onboardingDone: true }>('/users/onboarding', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, token),
+
+  macroTargets: (token: string) =>
+    request<MacroTargets>('/users/macro-targets', {}, token),
+};
+
+// ── Onboarding (Q&A schema) ──────────────────────────────────────────────────
+export type OnboardingQuestion = {
+  id: string;
+  order: number;
+  prompt: string;
+  subtitle: string | null;
+  type: 'text' | 'compound' | 'multi_select' | 'single_select';
+  options: any;            // shape depends on `type` — see server schema
+  minSelect: number | null;
+  maxSelect: number | null;
+  required: boolean;
+};
+
+export type OnboardingRecommendation = {
+  habits: Array<{
+    name: string;
+    category: 'build' | 'control';
+    reason: string;
+    score: number;
+    trackCount?: boolean;
+    unit?: string;
+  }>;
+  challenges: Array<{
+    id: string;
+    title: string;
+    durationDays: number;
+    theme: string;
+    reason: string;
+    score: number;
+  }>;
+};
+
+export const onboarding = {
+  questions: (token: string) =>
+    request<OnboardingQuestion[]>('/onboarding/questions', {}, token),
+
+  answers: (token: string) =>
+    request<Record<string, any>>('/onboarding/answers', {}, token),
+
+  submit: (token: string, answers: Record<string, any>) =>
+    request<{ user: User; recommendations: OnboardingRecommendation }>(
+      '/onboarding/submit',
+      { method: 'POST', body: JSON.stringify({ answers }) },
+      token
+    ),
+
+  recommendations: (token: string) =>
+    request<OnboardingRecommendation>('/onboarding/recommendations', {}, token),
+};
+
 // Tasks / Habits
 export const tasks = {
   list: (token: string) =>
@@ -247,6 +359,18 @@ export const habits = {
       controlDone: number;
       controlTotal: number;
     }>(`/habits/discipline/day?date=${date}`, {}, token),
+
+  disciplineRange: (token: string, from: string, to: string) =>
+    request<Array<{
+      date: string;
+      buildScore: number;
+      controlScore: number;
+      overallScore: number;
+      buildDone: number;
+      buildTotal: number;
+      controlDone: number;
+      controlTotal: number;
+    }>>(`/habits/discipline/range?from=${from}&to=${to}`, {}, token),
 };
 
 export type BodyPart =
@@ -349,6 +473,9 @@ export const strength = {
 
   leaderboard: (token: string, date: string) =>
     request<{ date: string; leaderboard: LeaderboardEntry[] }>(`/strength/leaderboard?date=${date}`, {}, token),
+
+  history: (token: string, from: string, to: string) =>
+    request<Array<{ date: string; score: number }>>(`/strength/history?from=${from}&to=${to}`, {}, token),
 };
 
 export type FoodLog = {
@@ -434,6 +561,13 @@ export const fuel = {
 
   deleteItem: (token: string, id: string) =>
     request<null>(`/fuel/items/${id}`, { method: 'DELETE' }, token),
+
+  editItem: (token: string, id: string, data: Partial<{
+    name: string; mealTime: MealTime;
+    calories: number | null; protein: number | null;
+    fat: number | null; carbs: number | null;
+  }>) =>
+    request<FoodItem>(`/fuel/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }, token),
 };
 
 // AI
@@ -515,6 +649,11 @@ export const challenges = {
 
   durationStats: (token: string, id: string) =>
     request<DurationStats>(`/challenges/${id}/duration-stats`, {}, token),
+
+  percentile: (token: string, id: string) =>
+    request<{ challengeId: string; pace: number; percentile: number | null; totalOthers: number }>(
+      `/challenges/${id}/percentile`, {}, token
+    ),
 };
 
 export function today(): string {

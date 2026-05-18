@@ -20,7 +20,7 @@ import { ThemeProvider, useTheme } from '../components/ThemeContext';
 import { LoadingScreen } from '../components/LoadingScreen';
 
 function InitialLayout() {
-  const { user, isLoading, onboardingDone } = useAuth();
+  const { user, isLoading } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
   const segments = useSegments();
@@ -31,17 +31,22 @@ function InitialLayout() {
     const onOnboarding = segments[1] === 'onboarding';
 
     if (!user) {
-      if (!inAuth) router.replace('/(auth)/login');
+      // Not logged in — start them in onboarding (which has a "Sign in" link
+      // for returning users). Allow them to be on login/signup if they
+      // navigated there manually.
+      if (!inAuth) router.replace('/(auth)/onboarding' as any);
       return;
     }
-    // user is logged in
-    if (!onboardingDone) {
-      if (!onOnboarding) router.replace('/(auth)/onboarding');
+
+    // Logged in but onboarding not finished → force them through it.
+    if (!user.onboardingDone) {
+      if (!onOnboarding) router.replace('/(auth)/onboarding' as any);
       return;
     }
-    // user + onboarding done
+
+    // Logged in and onboarded → bounce out of any auth screen into the app.
     if (inAuth) router.replace('/(tabs)');
-  }, [user, isLoading, onboardingDone, segments]);
+  }, [user, isLoading, segments]);
 
   if (isLoading) return <LoadingScreen />;
   return (

@@ -398,6 +398,7 @@ export default function ChallengesScreen() {
                   key={c.id}
                   challenge={c}
                   theme={theme}
+                  token={token}
                   width={ACTIVE_CARD_W}
                   onPress={() => setDetail(c)}
                   onAbandon={() => handleAbandon(c)}
@@ -667,8 +668,9 @@ function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge;
   );
 }
 
-function ActiveCard({ challenge: c, theme, width, onPress, onAbandon }: {
-  challenge: Challenge; theme: any; width?: number; onPress?: () => void; onAbandon: () => void;
+function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon }: {
+  challenge: Challenge; theme: any; token: string | null;
+  width?: number; onPress?: () => void; onAbandon: () => void;
 }) {
   const t          = themeForDomain(c.domain);
   const pct        = Math.min(c.daysDone / c.durationDays, 1);
@@ -676,7 +678,22 @@ function ActiveCard({ challenge: c, theme, width, onPress, onAbandon }: {
   const daysLeft   = Math.max(c.durationDays - c.daysDone, 0);
   const isComplete = daysLeft === 0;
   const trend      = trendFor(c);
-  const percentile = percentileFor(c);
+
+  // Try the real /challenges/:id/percentile endpoint. Falls back to the
+  // synthetic pace-bucket value when there aren't enough comparators yet
+  // (server returns percentile: null in that case).
+  const [serverPct, setServerPct] = useState<number | null>(null);
+  const [hasOthers, setHasOthers] = useState<boolean>(false);
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    challenges.percentile(token, c.id)
+      .then(r => { if (alive) { setServerPct(r.percentile); setHasOthers(r.totalOthers > 0); } })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [token, c.id]);
+
+  const percentile = serverPct ?? percentileFor(c);
   const pColor     = percentile >= 60 ? '#22A664' : percentile >= 40 ? '#F0A12E' : '#E84A4A';
 
   return (
@@ -746,11 +763,15 @@ function ActiveCard({ challenge: c, theme, width, onPress, onAbandon }: {
         </View>
       </View>
 
-      {/* Percentile */}
+      {/* Percentile — uses real server data when there are other participants,
+          falls back to the local pace-bucket estimate otherwise. */}
       <Text style={[ac.percentileLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-        Better than{' '}
-        <Text style={{ color: pColor, fontFamily: 'Inter_900Black' }}>{percentile}%</Text>
-        {' '}of people on this challenge
+        {serverPct == null && !hasOthers
+          ? <>You're the <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>first one in</Text> — set the pace.</>
+          : <>Better than{' '}
+              <Text style={{ color: pColor, fontFamily: 'Inter_900Black' }}>{percentile}%</Text>
+              {' '}of people on this challenge</>
+        }
       </Text>
     </TouchableOpacity>
   );

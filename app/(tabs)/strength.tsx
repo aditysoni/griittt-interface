@@ -37,7 +37,8 @@ export default function StrengthScreen() {
 
   const [selectedDate, setSelectedDate] = useState(today());
   const [logs, setLogs]                 = useState<WorkoutLog[]>([]);
-  const [history, setHistory]           = useState<Record<string, WorkoutLog[]>>({});
+  // date → max strength score for that day (null when no session logged)
+  const [history, setHistory]           = useState<Record<string, number | null>>({});
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
   const [submitting, setSubmitting]     = useState(false);
@@ -75,14 +76,15 @@ export default function StrengthScreen() {
     const dayLogs = await strength.logs(token, date).catch(() => []);
     setLogs(dayLogs);
 
-    // 14-day history for the trend/comparison card. Runs in the background
-    // so a slow strength endpoint can never block the main screen render.
+    // 14-day history via the bulk endpoint — one round-trip instead of the
+    // 14 parallel /strength/logs calls we used before. Backgrounded so the
+    // main screen render is never blocked.
     const todayStr = today();
-    const dates    = Array.from({ length: 14 }, (_, i) => shiftDateStr(todayStr, -i));
-    Promise.all(dates.map(d => strength.logs(token, d).catch(() => [])))
-      .then(results => {
-        const map: Record<string, WorkoutLog[]> = {};
-        dates.forEach((d, i) => { map[d] = results[i]; });
+    const from = shiftDateStr(todayStr, -13);
+    strength.history(token, from, todayStr)
+      .then(rows => {
+        const map: Record<string, number | null> = {};
+        rows.forEach(r => { map[r.date] = r.score; });
         setHistory(map);
       })
       .catch(() => {});
@@ -773,7 +775,7 @@ function sscDayLetter(dateStr: string) {
 
 function StrengthScoreCard({ score, history, selectedDate, theme }: {
   score: number;
-  history: Record<string, WorkoutLog[]>;
+  history: Record<string, number | null>;
   selectedDate: string;
   theme: any;
 }) {
@@ -782,9 +784,7 @@ function StrengthScoreCard({ score, history, selectedDate, theme }: {
     const todayStr = today();
     for (let i = 6; i >= 0; i--) {
       const d = shiftDateStr(todayStr, -i);
-      const list = history[d];
-      const dayScore = list && list.length > 0 ? Math.max(...list.map(l => l.score ?? 0)) : null;
-      days.push({ date: d, score: dayScore });
+      days.push({ date: d, score: history[d] ?? null });
     }
     return days;
   }, [history]);

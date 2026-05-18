@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
   Alert, Dimensions, FlatList, RefreshControl,
   ScrollView, StyleSheet, Text, TouchableOpacity, View,
@@ -294,26 +294,31 @@ export default function ProfileScreen() {
 
   async function load() {
     if (!token) return;
-    const [discResults, fuelResults, strResults, s, f, sh] = await Promise.all([
-      Promise.all(DAYS.map(d => habits.disciplineDay(token, d).catch(() => null))),
-      Promise.all(DAYS.map(d => fuel.logs(token, d).catch(() => []))),
-      Promise.all(DAYS.map(d => strength.logs(token, d).catch(() => []))),
+    const from = DAYS[0];
+    const to   = DAYS[DAYS.length - 1];
+    // Three bulk range fetches instead of 21 parallel per-day calls.
+    const [discRange, fuelRange, strRange, s, f, sh] = await Promise.all([
+      habits.disciplineRange(token, from, to).catch(() => []),
+      fuel.history(token, from, to).catch(() => []),
+      strength.history(token, from, to).catch(() => []),
       strength.identity(token).catch(() => null),
       fuel.identity(token).catch(() => null),
       habits.shields(token).catch(() => null),
     ]);
 
-    const cards: DayData[] = DAYS.map((d, i) => {
-      const disc = discResults[i]?.overallScore ?? 0;
-      const foodLogs = fuelResults[i] as any[];
-      const strLogs  = strResults[i]  as any[];
-      const foodScore = foodLogs.length > 0 ? Math.max(...foodLogs.map((l: any) => l.score ?? 0)) : 0;
-      const physScore = strLogs.length  > 0 ? Math.max(...strLogs.map((l: any)  => l.score ?? 0)) : 0;
-      return { date: d, discipline: disc, food: foodScore, physical: physScore };
-    });
+    const discByDate = new Map(discRange.map(r => [r.date, r]));
+    const fuelByDate = new Map(fuelRange.map(r => [r.date, r.score ?? 0]));
+    const strByDate  = new Map(strRange.map(r => [r.date, r.score ?? 0]));
+
+    const cards: DayData[] = DAYS.map(d => ({
+      date: d,
+      discipline: discByDate.get(d)?.overallScore ?? 0,
+      food:       fuelByDate.get(d) ?? 0,
+      physical:   strByDate.get(d)  ?? 0,
+    }));
 
     setCardData(cards);
-    setChartData(DAYS.map((d, i) => ({ date: d, value: discResults[i]?.overallScore ?? 0 })));
+    setChartData(DAYS.map(d => ({ date: d, value: discByDate.get(d)?.overallScore ?? 0 })));
     setStrengthId(s); setFuelId(f); setShields(sh);
   }
 
@@ -323,6 +328,12 @@ export default function ProfileScreen() {
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 120);
     });
   }, [token]);
+
+  // Re-fetch whenever this tab regains focus — so ticks on the Discipline
+  // tab show up here immediately when the user switches back.
+  useFocusEffect(
+    useCallback(() => { load(); }, [token])
+  );
 
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(); setRefreshing(false); }, [token]);
 
@@ -405,10 +416,26 @@ function StatusPill({ tone, children, theme }: { tone: 'good'|'warn'|'bad'; chil
 
 function DashSection({ cardData, theme, onHawkEye }: { cardData: { date: string; discipline: number; food: number; physical: number }[]; theme: any; onHawkEye: () => void }) {
   const [chartTab, setChartTab] = React.useState<'HABITS'|'FOOD'|'PHYS'>('HABITS');
-  const yesterday = cardData[cardData.length - 2];
-  const todayData = cardData[cardData.length - 1];
-  const overall   = yesterday.discipline;
-  const avg7disc  = Math.round(cardData.reduce((a, d) => a + d.discipline, 0) / cardData.length);
+
+  // The hero card highlights one day at a time. Default to today (last index)
+  // so ticks on the Discipline tab show up here immediately on focus.
+  const todayIdx     = cardData.length - 1;
+  const yesterdayIdx = cardData.length - 2;
+  const [selectedIdx, setSelectedIdx] = React.useState(todayIdx);
+  // Keep the pointer pinned to today when the underlying date window shifts
+  // (refresh, day rollover) UNLESS the user has scrolled to a different day.
+  const lastTodayIdxRef = React.useRef(todayIdx);
+  React.useEffect(() => {
+    if (lastTodayIdxRef.current === selectedIdx) {
+      setSelectedIdx(todayIdx);
+    }
+    lastTodayIdxRef.current = todayIdx;
+  }, [todayIdx]);
+
+  const selectedDay = cardData[selectedIdx];
+  const todayData   = cardData[todayIdx];
+  const overall     = selectedDay.discipline;
+  const avg7disc    = Math.round(cardData.reduce((a, d) => a + d.discipline, 0) / cardData.length);
   const GOOD = WC.good; const BAD = WC.bad;
 
   const streak = (() => {
@@ -420,8 +447,18 @@ function DashSection({ cardData, theme, onHawkEye }: { cardData: { date: string;
   })();
 
   const statusTone: 'good'|'warn'|'bad' = overall >= 70 ? 'good' : overall >= 40 ? 'warn' : 'bad';
-  const statusLabel = overall >= 70 ? 'BUILDING' : overall >= 40 ? 'WAVERING' : 'BELOW POTENTIAL';
+  const statusLabel = overall >= 70 ? 'BUILDING' : overall >= 40 ? 'WAVERING' : overall > 0 ? 'BELOW POTENTIAL' : 'UNLOGGED';
   const gaugeColor  = overall >= 70 ? GOOD : overall >= 40 ? WC.warn : BAD;
+
+  // Friendly label for the selected day
+  const dayLabel = (() => {
+    if (selectedIdx === todayIdx)     return 'TODAY';
+    if (selectedIdx === yesterdayIdx) return 'YESTERDAY';
+    const d = new Date(selectedDay.date + 'T12:00:00Z');
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
+  })();
+  const canPrev = selectedIdx > 0;
+  const canNext = selectedIdx < todayIdx;
 
   const chartScores = chartTab === 'FOOD' ? cardData.map(d => d.food)
                     : chartTab === 'PHYS' ? cardData.map(d => d.physical)
@@ -430,9 +467,9 @@ function DashSection({ cardData, theme, onHawkEye }: { cardData: { date: string;
   const days = ['M','T','W','T','F','S','S'];
 
   const breakdown = [
-    { k: 'DISCIPLINE', v: yesterday.discipline, color: yesterday.discipline >= 70 ? GOOD : yesterday.discipline >= 40 ? WC.warn : BAD },
-    { k: 'FOOD',       v: yesterday.food,       color: yesterday.food >= 70 ? GOOD : yesterday.food >= 40 ? WC.warn : BAD },
-    { k: 'PHYSICAL',   v: yesterday.physical,   color: yesterday.physical >= 70 ? GOOD : yesterday.physical >= 40 ? WC.warn : BAD },
+    { k: 'DISCIPLINE', v: selectedDay.discipline, color: selectedDay.discipline >= 70 ? GOOD : selectedDay.discipline >= 40 ? WC.warn : BAD },
+    { k: 'FOOD',       v: selectedDay.food,       color: selectedDay.food       >= 70 ? GOOD : selectedDay.food       >= 40 ? WC.warn : BAD },
+    { k: 'PHYSICAL',   v: selectedDay.physical,   color: selectedDay.physical   >= 70 ? GOOD : selectedDay.physical   >= 40 ? WC.warn : BAD },
   ];
 
   const insights = [
@@ -454,11 +491,31 @@ function DashSection({ cardData, theme, onHawkEye }: { cardData: { date: string;
     <View>
       {/* ── Hero card ── */}
       <View style={[dd.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        {/* Top: YESTERDAY + status | STREAK */}
+        {/* Top: day nav + status | STREAK */}
         <View style={dd.heroTop}>
           <View style={dd.heroLeft}>
-            <Text style={[dd.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>YESTERDAY</Text>
-            <View style={{ marginTop: 6 }}>
+            <View style={dd.dayNav}>
+              <TouchableOpacity
+                style={[dd.navBtn, { borderColor: theme.border, opacity: canPrev ? 1 : 0.3 }]}
+                onPress={() => canPrev && setSelectedIdx(i => i - 1)}
+                disabled={!canPrev}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.6}
+              >
+                <Ionicons name="chevron-back" size={14} color={theme.textSecondary} />
+              </TouchableOpacity>
+              <Text style={[dd.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{dayLabel}</Text>
+              <TouchableOpacity
+                style={[dd.navBtn, { borderColor: theme.border, opacity: canNext ? 1 : 0.3 }]}
+                onPress={() => canNext && setSelectedIdx(i => i + 1)}
+                disabled={!canNext}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.6}
+              >
+                <Ionicons name="chevron-forward" size={14} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={{ marginTop: 8 }}>
               <StatusPill tone={statusTone} theme={theme}>{statusLabel}</StatusPill>
             </View>
           </View>
@@ -585,6 +642,8 @@ const dd = StyleSheet.create({
   // Hero card
   heroTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 16, paddingBottom: 4 },
   heroLeft:    { gap: 6 },
+  dayNav:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  navBtn:      { width: 24, height: 24, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   streakVal:   { fontSize: 17 },
   breakdown:   { flexDirection: 'row', borderTopWidth: 1 },
   breakCell:   { flex: 1, alignItems: 'center', paddingVertical: 14, paddingHorizontal: 8, gap: 6 },

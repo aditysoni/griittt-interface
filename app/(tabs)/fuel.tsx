@@ -8,7 +8,7 @@ import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
-import { fuel, ai, FoodLog, FoodItem, MealTime, today } from '../../lib/api';
+import { fuel, ai, FoodLog, FoodItem, MealTime, MacroTargets, today } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
 import { DaySelector } from '../../components/DaySelector';
 import { useTheme } from '../../components/ThemeContext';
@@ -18,7 +18,7 @@ type TabMode = 'quick' | 'detailed';
 const QUALITY_LABELS = ['Terrible','Very poor','Poor','Below avg','Average','Average+','Good','Great','Excellent','Outstanding','Perfect'];
 
 export default function FuelScreen() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
 
@@ -146,14 +146,8 @@ export default function FuelScreen() {
   async function updateItem(item: FoodItem, patch: { calories?: number; protein?: number; fat?: number; carbs?: number }) {
     if (!token) return;
     try {
-      await fuel.deleteItem(token, item.id);
-      await fuel.addItem(token, {
-        date: selectedDate, name: item.name, mealTime: item.mealTime,
-        calories: patch.calories ?? item.calories ?? undefined,
-        protein:  patch.protein  ?? item.protein  ?? undefined,
-        fat:      patch.fat      ?? item.fat      ?? undefined,
-        carbs:    patch.carbs    ?? item.carbs     ?? undefined,
-      });
+      // Single round-trip via PUT /fuel/items/:id (replaced the old delete-then-readd dance).
+      await fuel.editItem(token, item.id, patch);
       await load(selectedDate);
     } catch (err: any) { Alert.alert('Error', err.message); }
   }
@@ -219,14 +213,21 @@ export default function FuelScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Macro tracker — editable, always visible under the toggle */}
-        <MacroTracker items={foodItems} theme={theme} onQuickLog={isToday ? async (macros) => {
-          if (!token) return;
-          try {
-            await fuel.addItem(token, { date: selectedDate, name: 'Quick entry', mealTime: 'lunch', ...macros });
-            await load(selectedDate);
-          } catch (err: any) { Alert.alert('Error', err.message); }
-        } : undefined} />
+        {/* Macro tracker — DETAILED mode only. QUICK stays focused on diet/junk/quality questions. */}
+        {mode === 'detailed' && (
+          <MacroTracker
+            items={foodItems}
+            theme={theme}
+            targets={user?.macroTargets ?? MACRO_TARGETS}
+            onQuickLog={isToday ? async (macros) => {
+              if (!token) return;
+              try {
+                await fuel.addItem(token, { date: selectedDate, name: 'Quick entry', mealTime: 'lunch', ...macros });
+                await load(selectedDate);
+              } catch (err: any) { Alert.alert('Error', err.message); }
+            } : undefined}
+          />
+        )}
 
         {/* QUICK */}
         {mode === 'quick' && isToday && (
@@ -605,9 +606,10 @@ const qs = StyleSheet.create({
 const MACRO_TARGETS = { calories: 2000, protein: 150, fat: 65, carbs: 250 };
 const MACRO_COLORS  = { calories: '#FF9500', protein: '#0A84FF', fat: '#FFD60A', carbs: '#34C759' };
 
-function MacroTracker({ items, theme, onQuickLog }: {
+function MacroTracker({ items, theme, targets, onQuickLog }: {
   items: FoodItem[];
   theme: any;
+  targets: MacroTargets;
   onQuickLog?: (macros: { calories?: number; protein?: number; fat?: number; carbs?: number }) => void;
 }) {
   const totals = items.reduce(
@@ -663,7 +665,7 @@ function MacroTracker({ items, theme, onQuickLog }: {
       <View style={mt.grid}>
         {cells.map((cell, idx) => {
           const val    = Math.round(cell.total);
-          const target = MACRO_TARGETS[cell.key as keyof typeof MACRO_TARGETS];
+          const target = targets[cell.key as keyof MacroTargets];
           const pct    = Math.min((val + (Number(cell.input) || 0)) / target, 1);
           const isFocused = focused === cell.key;
           const displayVal = cell.input || (val > 0 ? String(val) : '');
@@ -940,23 +942,6 @@ const fi = StyleSheet.create({
   totalCell:      { flex: 1, alignItems: 'center', paddingVertical: 12, gap: 4 },
   totalVal:       { fontSize: 18 },
   totalCellLabel: { fontSize: 8, letterSpacing: 1.5 },
-  // add modal
-  backdrop:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
-  sheet:          { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 44, paddingTop: 12, maxHeight: '90%' },
-  handle:         { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
-  sheetTitle:     { fontSize: 13, letterSpacing: 3, textAlign: 'center', marginBottom: 20 },
-  nameBox:        { marginHorizontal: 20, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 20 },
-  nameInput:      { fontSize: 15, letterSpacing: 0.3 },
-  fieldLabel:     { fontSize: 8, letterSpacing: 2.5, marginHorizontal: 20, marginBottom: 10 },
-  mealTimeRow:    { paddingHorizontal: 20, gap: 8, marginBottom: 20 },
-  mealChip:       { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderRadius: 10 },
-  mealChipText:   { fontSize: 9, letterSpacing: 2 },
-  macroGrid:      { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 20, gap: 10, marginBottom: 24 },
-  macroBox:       { width: '47%', borderWidth: 1, borderRadius: 10, padding: 12 },
-  macroLabel:     { fontSize: 7, letterSpacing: 2, marginBottom: 6 },
-  macroInput:     { fontSize: 20 },
-  doneBtn:        { marginHorizontal: 20, paddingVertical: 16, alignItems: 'center', borderRadius: 12, marginBottom: 8 },
-  doneBtnText:    { fontSize: 11, letterSpacing: 4 },
 });
 
 function QuestionCard({ icon, label, sub, state, onAnswer, yesColor, noColor, theme }: {

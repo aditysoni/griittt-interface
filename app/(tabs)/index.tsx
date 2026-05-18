@@ -352,6 +352,7 @@ export default function HabitsScreen() {
           userId={undefined}
           theme={theme}
           onClose={() => setDetailHabit(null)}
+          onChanged={() => { setDetailHabit(null); load(selectedDate); }}
         />
       )}
 
@@ -573,14 +574,56 @@ const cs = StyleSheet.create({
 
 const DAY_LABELS_SHORT = ['M','T','W','T','F','S','S'];
 
-function HabitDetailModal({ habit, token, theme, onClose }: {
-  habit: HabitWithStatus; token: string; userId: any; theme: any; onClose: () => void;
+function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
+  habit: HabitWithStatus; token: string; userId: any; theme: any;
+  onClose: () => void;
+  onChanged?: () => void;
 }) {
   const [loading, setLoading]         = useState(true);
   const [doneDates, setDoneDates]       = useState<Set<string>>(new Set());
   const [percentile, setPercentile]     = useState<number | null>(null);
   const [totalUsers, setTotalUsers]     = useState(0);
   const [consistency, setConsistency]   = useState(0);
+
+  // Edit mode
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName]   = useState(habit.name);
+  const [editScore, setEditScore] = useState(habit.score || 5);
+  const [saving, setSaving]       = useState(false);
+
+  async function handleSave() {
+    if (!editName.trim()) { Alert.alert('Name required', 'Enter a habit name.'); return; }
+    setSaving(true);
+    try {
+      await tasks.update(token, habit.id, { name: editName.trim(), score: editScore });
+      onChanged?.();
+    } catch (err: any) {
+      Alert.alert('Could not save', err?.message ?? 'Update failed.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleDelete() {
+    Alert.alert(
+      'Delete habit?',
+      `"${habit.name}" will be removed from your list. Past completions are kept.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            try {
+              await tasks.delete(token, habit.id);
+              onChanged?.();
+            } catch (err: any) {
+              Alert.alert('Could not delete', err?.message ?? 'Delete failed.');
+            }
+          },
+        },
+      ]
+    );
+  }
 
   useEffect(() => {
     habits.stats(token, habit.name)
@@ -616,15 +659,19 @@ function HabitDetailModal({ habit, token, theme, onClose }: {
   return (
     <Modal visible transparent animationType="fade">
       <Pressable style={[hd.backdrop, { backgroundColor: theme.backdrop }]} onPress={onClose} />
-      <View style={hd.centreWrap} pointerEvents="box-none">
+      <ScrollView
+        style={hd.centreWrap}
+        contentContainerStyle={hd.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={[hd.card, { backgroundColor: theme.cardElevated, borderColor: theme.border }]}>
           {/* Header */}
           <View style={hd.header}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[hd.habitName, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-                {habit.name.toUpperCase()}
+                {editing ? 'EDIT HABIT' : habit.name.toUpperCase()}
               </Text>
-              {habit.streak > 0 && (
+              {!editing && habit.streak > 0 && (
                 <Text style={[hd.streak, { color: '#F59E0B', fontFamily: 'Inter_700Bold' }]}>
                   🔥 {habit.streak} day streak
                 </Text>
@@ -635,7 +682,64 @@ function HabitDetailModal({ habit, token, theme, onClose }: {
             </TouchableOpacity>
           </View>
 
-          {loading ? (
+          {editing ? (
+            /* ── Edit mode ─────────────────────────────────────────── */
+            <>
+              <Text style={[hd.editLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>HABIT NAME</Text>
+              <TextInput
+                style={[hd.editInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface, fontFamily: 'Inter_700Bold' }]}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Habit name"
+                placeholderTextColor={theme.textSecondary}
+                autoCapitalize="characters"
+              />
+
+              <Text style={[hd.editLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                TOUGHNESS — <Text style={{ color: toughnessColor(editScore, theme.isDark) }}>{editScore}/10</Text>
+              </Text>
+              <View style={hd.scoreGrid}>
+                {TOUGHNESS_OPTIONS.map(n => {
+                  const active = editScore === n;
+                  const col = toughnessColor(n, theme.isDark);
+                  return (
+                    <TouchableOpacity
+                      key={n}
+                      style={[hd.scoreChip, {
+                        borderColor: active ? col : theme.border,
+                        backgroundColor: active ? col + '20' : theme.surface,
+                      }]}
+                      onPress={() => setEditScore(n)}
+                    >
+                      <Text style={[hd.scoreChipText, { color: active ? col : theme.textSecondary, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                        {n}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={hd.actionRow}>
+                <TouchableOpacity
+                  style={[hd.actionBtn, hd.actionBtnGhost, { borderColor: theme.border }]}
+                  onPress={() => { setEditing(false); setEditName(habit.name); setEditScore(habit.score || 5); }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[hd.actionBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>CANCEL</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[hd.actionBtn, { backgroundColor: theme.inverse, opacity: (saving || !editName.trim()) ? 0.4 : 1 }]}
+                  onPress={handleSave}
+                  disabled={saving || !editName.trim()}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[hd.actionBtnText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>
+                    {saving ? 'SAVING...' : 'SAVE'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : loading ? (
             <View style={hd.loading}>
               <ActivityIndicator color={theme.text} />
             </View>
@@ -719,20 +823,52 @@ function HabitDetailModal({ habit, token, theme, onClose }: {
                   </View>
                 ))}
               </View>
+
+              {/* Edit / Delete actions */}
+              <View style={hd.actionRow}>
+                <TouchableOpacity
+                  style={[hd.actionBtn, hd.actionBtnGhost, { borderColor: '#EF4444' }]}
+                  onPress={handleDelete}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                  <Text style={[hd.actionBtnText, { color: '#EF4444', fontFamily: 'Inter_900Black' }]}>DELETE</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[hd.actionBtn, { backgroundColor: theme.inverse }]}
+                  onPress={() => { setEditing(true); setEditName(habit.name); setEditScore(habit.score || 5); }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="create-outline" size={14} color={theme.inverseText} />
+                  <Text style={[hd.actionBtnText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>EDIT</Text>
+                </TouchableOpacity>
+              </View>
             </>
           )}
         </View>
-      </View>
+      </ScrollView>
     </Modal>
   );
 }
 
 const hd = StyleSheet.create({
-  backdrop:  { ...StyleSheet.absoluteFillObject },
-  centreWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  card:      { width: '100%', borderRadius: 2, borderWidth: 1, padding: 20, gap: 16 },
-  header:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  habitName: { fontSize: 16, letterSpacing: 1 },
+  backdrop:       { ...StyleSheet.absoluteFillObject },
+  centreWrap:     { ...StyleSheet.absoluteFillObject },
+  scrollContent:  { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  card:           { width: '100%', borderRadius: 2, borderWidth: 1, padding: 20, gap: 16 },
+  header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  habitName:      { fontSize: 16, letterSpacing: 1 },
+  // Edit mode
+  editLabel:      { fontSize: 9, letterSpacing: 3, marginBottom: -8 },
+  editInput:      { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, letterSpacing: 1 },
+  scoreGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  scoreChip:      { width: 44, height: 44, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  scoreChipText:  { fontSize: 14 },
+  // Action row (Edit / Delete in view mode, Save / Cancel in edit mode)
+  actionRow:      { flexDirection: 'row', gap: 10, marginTop: 4 },
+  actionBtn:      { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 10 },
+  actionBtnGhost: { backgroundColor: 'transparent', borderWidth: 1.5 },
+  actionBtnText:  { fontSize: 11, letterSpacing: 2.5 },
   streak:    { fontSize: 11, marginTop: 4 },
   closeBtn:  { padding: 4 },
   loading:   { paddingVertical: 32, alignItems: 'center' },

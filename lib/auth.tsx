@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth as authApi, User } from './api';
+import { auth as authApi, users as usersApi, User, OnboardingPayload } from './api';
 import { storage } from './storage';
 
 type AuthContextType = {
@@ -8,9 +8,14 @@ type AuthContextType = {
   isLoading: boolean;
   onboardingDone: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (name: string, email: string, password: string) => Promise<void>;
+  /** Returns the new auth token so callers can chain follow-up requests without
+   *  waiting for React state to flush. */
+  signup: (name: string, email: string, password: string) => Promise<string>;
   logout: () => Promise<void>;
-  completeOnboarding: () => Promise<void>;
+  /** `overrideToken` lets callers bypass the closure-captured token when chaining
+   *  immediately after signup. */
+  completeOnboarding: (payload: OnboardingPayload, overrideToken?: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -19,16 +24,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [onboardingDone, setOnboardingDone] = useState(false);
+
+  // Server is the source of truth — local flag is just an offline fallback.
+  const onboardingDone = !!user?.onboardingDone;
 
   useEffect(() => {
     async function hydrate() {
       try {
-        const [storedToken, obDone] = await Promise.all([
-          storage.getToken(),
-          storage.getOnboardingDone(),
-        ]);
-        setOnboardingDone(obDone);
+        const storedToken = await storage.getToken();
         if (storedToken) {
           const me = await authApi.me(storedToken);
           setToken(storedToken);
@@ -45,37 +48,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function login(email: string, password: string) {
     const result = await authApi.login(email, password);
-    const obDone = await storage.getOnboardingDone();
     await storage.setToken(result.token);
     await storage.setUser(result.user);
-    setOnboardingDone(obDone);
     setToken(result.token);
     setUser(result.user);
   }
 
-  async function signup(name: string, email: string, password: string) {
+  async function signup(name: string, email: string, password: string): Promise<string> {
     const result = await authApi.signup(name, email, password);
     await storage.setToken(result.token);
     await storage.setUser(result.user);
-    setOnboardingDone(false);
     setToken(result.token);
     setUser(result.user);
+    return result.token;
   }
 
   async function logout() {
     await storage.clear();
     setToken(null);
     setUser(null);
-    setOnboardingDone(false);
   }
 
-  async function completeOnboarding() {
-    await storage.setOnboardingDone();
-    setOnboardingDone(true);
+  async function completeOnboarding(payload: OnboardingPayload, overrideToken?: string) {
+    const t = overrideToken ?? token;
+    if (!t) throw new Error('Not authenticated');
+    const res = await usersApi.onboarding(t, payload);
+    await storage.setUser(res.user);
+    setUser(res.user);
+  }
+
+  async function refreshUser() {
+    if (!token) return;
+    const me = await authApi.me(token);
+    await storage.setUser(me);
+    setUser(me);
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, onboardingDone, login, signup, logout, completeOnboarding }}>
+    <AuthContext.Provider value={{
+      user, token, isLoading, onboardingDone,
+      login, signup, logout, completeOnboarding, refreshUser,
+    }}>
       {children}
     </AuthContext.Provider>
   );

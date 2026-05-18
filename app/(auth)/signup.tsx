@@ -10,13 +10,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../lib/auth';
 import { COLORS } from '../../components/theme';
 
 export default function SignupScreen() {
   const { signup } = useAuth();
+  const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -34,6 +35,8 @@ export default function SignupScreen() {
     setLoading(true);
     try {
       await signup(name.trim(), email.trim().toLowerCase(), password);
+      // Brand new account — kick into onboarding. Login does NOT route here.
+      router.replace('/(auth)/onboarding' as any);
     } catch (err: any) {
       Alert.alert('Signup Failed', err.message || 'Could not create account');
     } finally {

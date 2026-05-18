@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Platform, Pressable, ScrollView, StyleSheet, Text,
+  Alert, Platform, Pressable, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,9 +24,11 @@ const W = {
 };
 
 // ── Shared Shell ─────────────────────────────────────────
-function Shell({ step, total = 10, children, cta, ctaDisabled, onCta, dark = false }: {
+function Shell({ step, total = 10, children, cta, ctaDisabled, onCta, onBack, dark = false }: {
   step: number; total?: number; children: React.ReactNode;
-  cta?: string; ctaDisabled?: boolean; onCta?: () => void; dark?: boolean;
+  cta?: string; ctaDisabled?: boolean; onCta?: () => void;
+  onBack?: () => void;
+  dark?: boolean;
 }) {
   const bg = dark ? W.dark : W.bg;
   const ink = dark ? '#FFFFFF' : W.ink;
@@ -39,9 +41,15 @@ function Shell({ step, total = 10, children, cta, ctaDisabled, onCta, dark = fal
     <View style={[ss.shell, { backgroundColor: bg }]}>
       <SafeAreaView edges={['top']} style={{ backgroundColor: bg }}>
         <View style={ss.progressRow}>
-          <View style={[ss.backBtn, { borderColor: ruleC }]}>
-            <Text style={{ color: dark ? 'rgba(255,255,255,0.5)' : W.ink3, fontSize: 18 }}>‹</Text>
-          </View>
+          <TouchableOpacity
+            style={[ss.backBtn, { borderColor: ruleC, opacity: onBack ? 1 : 0.3 }]}
+            onPress={onBack}
+            disabled={!onBack}
+            activeOpacity={0.6}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={{ color: dark ? 'rgba(255,255,255,0.7)' : W.ink2, fontSize: 18 }}>‹</Text>
+          </TouchableOpacity>
           <View style={ss.dots}>
             {Array.from({ length: total }).map((_, i) => (
               <View key={i} style={[
@@ -102,7 +110,11 @@ function Title({ eyebrow, title, sub, dark = false }: {
 }
 
 // ── S1: Welcome ──────────────────────────────────────────
-function S1_Welcome({ onNext }: { onNext: () => void }) {
+function S1_Welcome({ onNext, showSignIn, onSignIn }: {
+  onNext: () => void;
+  showSignIn: boolean;
+  onSignIn: () => void;
+}) {
   return (
     <View style={{ flex: 1, backgroundColor: W.dark }}>
       <SafeAreaView style={{ flex: 1 }}>
@@ -121,6 +133,14 @@ function S1_Welcome({ onNext }: { onNext: () => void }) {
           <TouchableOpacity style={s1.cta} onPress={onNext} activeOpacity={0.85}>
             <Text style={[s1.ctaText, { fontFamily: 'SpaceGrotesk_700Bold' }]}>LET'S GO  →</Text>
           </TouchableOpacity>
+          {showSignIn && (
+            <TouchableOpacity onPress={onSignIn} activeOpacity={0.7} style={s1.signInBtn}>
+              <Text style={[s1.signInText, { fontFamily: 'Inter_500Medium' }]}>
+                Already have an account?{' '}
+                <Text style={{ color: W.hype, fontFamily: 'Inter_700Bold' }}>Sign in</Text>
+              </Text>
+            </TouchableOpacity>
+          )}
           <View style={{ height: 16 }} />
         </View>
       </SafeAreaView>
@@ -143,14 +163,17 @@ const s1 = StyleSheet.create({
   sub: { color: 'rgba(255,255,255,0.65)', fontSize: 16, marginTop: 20, lineHeight: 24, maxWidth: 300 },
   cta: { backgroundColor: W.hype, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
   ctaText: { color: W.ink, fontSize: 14, letterSpacing: 2 },
+  signInBtn: { paddingVertical: 14, alignItems: 'center' },
+  signInText: { color: 'rgba(255,255,255,0.6)', fontSize: 13 },
 });
 
 // ── S2: Name ─────────────────────────────────────────────
-function S2_Name({ value, onChange, onNext }: {
-  value: string; onChange: (s: string) => void; onNext: () => void;
+function S2_Name({ value, onChange, onNext, onBack, step, total }: {
+  value: string; onChange: (s: string) => void; onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
 }) {
   return (
-    <Shell step={1} cta="CONTINUE" onCta={onNext} ctaDisabled={!value.trim()}>
+    <Shell step={step ?? 1} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack} ctaDisabled={!value.trim()}>
       <Title eyebrow="ABOUT YOU · 1 OF 4" title="What should we call you?" sub="Used for your daily coaching nudges." />
       <TextInput
         style={[s2.input, { fontFamily: 'SpaceGrotesk_700Bold' }]}
@@ -198,13 +221,14 @@ function Stepper({ label, value, unit, onDec, onInc, big }: {
   );
 }
 
-function S3_Body({ age, height, weight, onAge, onHeight, onWeight, onNext }: {
+function S3_Body({ age, height, weight, onAge, onHeight, onWeight, onNext, onBack, step, total }: {
   age: number; height: number; weight: number;
   onAge: (n: number) => void; onHeight: (n: number) => void; onWeight: (n: number) => void;
-  onNext: () => void;
+  onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
 }) {
   return (
-    <Shell step={2} cta="CONTINUE" onCta={onNext}>
+    <Shell step={step ?? 2} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
       <Title eyebrow="ABOUT YOU · 2 OF 4" title="The basics." sub="So your fuel and strength scores actually mean something." />
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <View style={{ flex: 1 }}>
@@ -237,40 +261,91 @@ const s3 = StyleSheet.create({
   notice: { marginTop: 16, padding: 14, borderRadius: 12 },
 });
 
-// ── S4: Why ──────────────────────────────────────────────
-const WHY_OPTS = [
-  { id: 'build',   label: 'Build new habits',        emoji: '🌱' },
-  { id: 'break',   label: 'Break bad habits',        emoji: '✂️' },
-  { id: 'strong',  label: 'Get physically stronger', emoji: '💪' },
-  { id: 'fuel',    label: 'Eat cleaner',             emoji: '🥗' },
-  { id: 'lose',    label: 'Lose fat',                emoji: '⚖️' },
-  { id: 'sharp',   label: 'Feel sharper mentally',   emoji: '🧠' },
-  { id: 'sleep',   label: 'Sleep better',            emoji: '😴' },
-  { id: 'better',  label: 'Just feel better',        emoji: '✨' },
+// ── Habit recommendations ───────────────────────────────────
+// Build = things to start doing (positive habits)
+// Break = things to stop doing (control habits)
+const BUILD_RECS = [
+  { id: 'gym',         name: 'Go to the gym',       icon: '🏋️', impact: 8 },
+  { id: 'run',         name: 'Morning run',         icon: '🏃', impact: 7 },
+  { id: 'wake_early',  name: 'Wake up at 5am',      icon: '🌅', impact: 6 },
+  { id: 'protein',     name: 'Hit protein target',  icon: '💪', impact: 5 },
+  { id: 'water',       name: 'Drink 3L water',      icon: '💧', impact: 3 },
+  { id: 'read',        name: 'Read 30 minutes',     icon: '📖', impact: 4 },
+  { id: 'meditate',    name: 'Meditate 10 min',     icon: '🧘', impact: 5 },
+  { id: 'cold_shower', name: 'Cold shower',         icon: '🚿', impact: 5 },
+  { id: 'journal',     name: 'Journal 1 page',      icon: '📝', impact: 4 },
 ];
 
-function S4_Why({ selected, onToggle, onNext }: {
-  selected: string[]; onToggle: (id: string) => void; onNext: () => void;
+const BREAK_RECS = [
+  { id: 'smoking',      name: 'No smoking',           icon: '🚭', impact: 9 },
+  { id: 'alcohol',      name: 'No alcohol',           icon: '🍺', impact: 8 },
+  { id: 'porn',         name: 'No porn',              icon: '🚫', impact: 7 },
+  { id: 'masturbation', name: 'No masturbation',      icon: '🔞', impact: 7 },
+  { id: 'junk_food',    name: 'No junk food',         icon: '🍔', impact: 6 },
+  { id: 'social_media', name: 'No social media',      icon: '📱', impact: 6 },
+  { id: 'sugar',        name: 'No sugar',             icon: '🍬', impact: 5 },
+  { id: 'phone_bed',    name: 'No phone in bed',      icon: '🛏️', impact: 5 },
+];
+
+// ── Challenge recommendations ───────────────────────────────
+// Title is matched server-side against seeded preset challenges by lowercase.
+type ChallengeTheme = 'physical' | 'health' | 'career' | 'lifestyle';
+const THEME_COLOR: Record<ChallengeTheme, string> = {
+  physical:  '#34C759',
+  health:    '#F59E0B',
+  career:    '#06B6D4',
+  lifestyle: '#8B5CF6',
+};
+const CHALLENGE_RECS: { title: string; durationDays: number; theme: ChallengeTheme; benefits: string[] }[] = [
+  { title: 'Cold shower',     durationDays: 30, theme: 'physical',  benefits: ['Blood flow', 'High testosterone', 'Stress release'] },
+  { title: 'Gym daily',       durationDays: 30, theme: 'physical',  benefits: ['Muscle gain', 'Strength', 'Confidence'] },
+  { title: 'Morning run',     durationDays: 30, theme: 'physical',  benefits: ['Cardio fitness', 'Mental clarity', 'Energy boost'] },
+  { title: 'No sugar',        durationDays: 30, theme: 'health',    benefits: ['Lean body', 'Stable energy', 'Better mood'] },
+  { title: 'No alcohol',      durationDays: 30, theme: 'health',    benefits: ['Better sleep', 'Lean body', 'Mental clarity'] },
+  { title: 'Meditation',      durationDays: 30, theme: 'health',    benefits: ['Lower anxiety', 'Better focus', 'Emotional control'] },
+  { title: 'Read daily',      durationDays: 30, theme: 'career',    benefits: ['Vocabulary', 'Empathy', 'Focus stamina'] },
+  { title: 'Wake at 5am',     durationDays: 30, theme: 'lifestyle', benefits: ['Time control', 'Discipline reps', 'Quiet hours'] },
+  { title: 'No phone in bed', durationDays: 30, theme: 'lifestyle', benefits: ['Better sleep', 'Sharper focus', 'Less anxiety'] },
+];
+
+// ── S_HabitPicker — list-row design like the Discipline page ────────────────
+function S_HabitPicker({
+  variant, selected, onToggle, onNext, onBack, step, total,
+}: {
+  variant: 'build' | 'break';
+  selected: string[];
+  onToggle: (id: string) => void;
+  onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
 }) {
+  const isBuild  = variant === 'build';
+  const opts     = isBuild ? BUILD_RECS : BREAK_RECS;
+  const eyebrow  = isBuild ? 'DISCIPLINE · BUILD' : 'DISCIPLINE · BREAK';
+  const title    = isBuild ? 'What do you want to build?' : 'What do you want to control?';
+  const sub      = isBuild
+    ? 'Pick the habits to add. Skip anything you don\'t want.'
+    : 'Pick what you want out of your life. Skip anything that doesn\'t apply.';
+  const ptColor  = isBuild ? W.good : W.bad;
+  const ptPrefix = isBuild ? '+' : '−';
+
   return (
-    <Shell step={3} cta="CONTINUE" onCta={onNext} ctaDisabled={selected.length === 0}>
-      <Title eyebrow="ABOUT YOU · 3 OF 4" title="Why are you here?" sub="Pick all that apply. Shapes your coaching." />
-      <View style={s4.grid}>
-        {WHY_OPTS.map(o => {
+    <Shell step={step ?? 4} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
+      <Title eyebrow={eyebrow} title={title} sub={sub} />
+      <View style={hp.list}>
+        {opts.map(o => {
           const on = selected.includes(o.id);
           return (
             <TouchableOpacity key={o.id}
-              style={[s4.option, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.ink : W.card }]}
+              style={[hp.row, { borderColor: on ? W.ink : W.rule, backgroundColor: W.card }]}
               onPress={() => onToggle(o.id)} activeOpacity={0.8}>
-              <Text style={{ fontSize: 18 }}>{o.emoji}</Text>
-              <Text style={[s4.optLabel, { color: on ? '#FFFFFF' : W.ink, fontFamily: 'Inter_500Medium' }]}>
-                {o.label}
+              <View style={[hp.checkbox, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.hype : 'transparent' }]}>
+                {on && <Text style={{ color: W.ink, fontSize: 12, fontWeight: '900' }}>✓</Text>}
+              </View>
+              <Text style={{ fontSize: 22 }}>{o.icon}</Text>
+              <Text style={[hp.name, { color: W.ink, fontFamily: 'Inter_700Bold' }]} numberOfLines={1}>{o.name}</Text>
+              <Text style={[hp.pts, { color: ptColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                {ptPrefix}{o.impact} PT
               </Text>
-              {on && (
-                <View style={s4.check}>
-                  <Text style={{ color: W.ink, fontSize: 9, fontWeight: '900' }}>✓</Text>
-                </View>
-              )}
             </TouchableOpacity>
           );
         })}
@@ -279,16 +354,79 @@ function S4_Why({ selected, onToggle, onNext }: {
   );
 }
 
-const s4 = StyleSheet.create({
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  option: { width: '48%', padding: 14, borderRadius: 14, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  optLabel: { fontSize: 13, flex: 1, lineHeight: 18 },
-  check: { position: 'absolute', top: 8, right: 8, width: 16, height: 16, borderRadius: 8, backgroundColor: W.hype, alignItems: 'center', justifyContent: 'center' },
+const hp = StyleSheet.create({
+  list:     { gap: 8 },
+  row:      {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 14, paddingVertical: 14,
+    borderRadius: 14, borderWidth: 1.5,
+  },
+  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  name:     { flex: 1, fontSize: 14, letterSpacing: 0.3 },
+  pts:      { fontSize: 12, letterSpacing: 1 },
+});
+
+// ── S_ChallengePicker — styled like the Challenges page cards ───────────────
+function S_ChallengePicker({
+  selected, onToggle, onNext, onBack, step, total,
+}: {
+  selected: string[];
+  onToggle: (title: string) => void;
+  onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
+}) {
+  return (
+    <Shell step={step ?? 6} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
+      <Title eyebrow="GRIND · CHALLENGES" title="Take on a challenge?" sub="Pick anything you want to lock in for 30 days. Skip if none." />
+      <View style={cp.list}>
+        {CHALLENGE_RECS.map(c => {
+          const on = selected.includes(c.title);
+          const dotColor = THEME_COLOR[c.theme];
+          return (
+            <TouchableOpacity key={c.title}
+              style={[cp.card, { borderColor: on ? W.ink : W.rule, backgroundColor: W.card }]}
+              onPress={() => onToggle(c.title)} activeOpacity={0.85}>
+              <View style={cp.headerRow}>
+                <View style={[cp.dot, { backgroundColor: dotColor }]} />
+                <Text style={[cp.title, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>{c.title.toUpperCase()}</Text>
+                <View style={{ flex: 1 }} />
+                <View style={[cp.checkbox, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.hype : 'transparent' }]}>
+                  {on && <Text style={{ color: W.ink, fontSize: 12, fontWeight: '900' }}>✓</Text>}
+                </View>
+              </View>
+              <Text style={[cp.duration, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>{c.durationDays} DAYS</Text>
+              <View style={cp.benefits}>
+                {c.benefits.map(b => (
+                  <View key={b} style={[cp.chip, { backgroundColor: W.rest }]}>
+                    <Text style={[cp.chipText, { color: W.ink2, fontFamily: 'Inter_500Medium' }]}>{b}</Text>
+                  </View>
+                ))}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </Shell>
+  );
+}
+
+const cp = StyleSheet.create({
+  list:      { gap: 10 },
+  card:      { padding: 14, borderRadius: 14, borderWidth: 1.5, gap: 8 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dot:       { width: 10, height: 10, borderRadius: 5 },
+  title:     { fontSize: 14, letterSpacing: 1 },
+  duration:  { fontSize: 9, letterSpacing: 2 },
+  benefits:  { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
+  chip:      { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 6 },
+  chipText:  { fontSize: 11 },
+  checkbox:  { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
 });
 
 // ── S5: Baseline ─────────────────────────────────────────
-function S5_Baseline({ value, onChange, onNext }: {
-  value: number; onChange: (n: number) => void; onNext: () => void;
+function S5_Baseline({ value, onChange, onNext, onBack, step, total }: {
+  value: number; onChange: (n: number) => void; onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
 }) {
   const cfg = value <= 4
     ? { label: value <= 2 ? 'ROCK BOTTOM' : 'DRIFTING — TIME TO RESET', color: W.bad, bg: '#FCE6E6' }
@@ -297,8 +435,8 @@ function S5_Baseline({ value, onChange, onNext }: {
       : { label: 'BUILDING MOMENTUM', color: W.good, bg: '#E2F7EC' };
 
   return (
-    <Shell step={4} cta="CONTINUE" onCta={onNext}>
-      <Title eyebrow="ABOUT YOU · 4 OF 4" title="Be honest." sub="Where are you right now? 1 is rock bottom, 10 is dialed. No judgment." />
+    <Shell step={step ?? 4} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
+      <Title eyebrow="HONEST CHECK" title="Be honest." sub="Where are you right now? 1 is rock bottom, 10 is dialed. No judgment." />
       <View style={{ alignItems: 'center', paddingVertical: 12 }}>
         <Text style={[s5.bigNum, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>
           {value}<Text style={{ fontSize: 32, color: W.ink3 }}>/10</Text>
@@ -341,11 +479,12 @@ const MODES = [
   { id: 'phys', name: 'STRENGTH',   sub: 'Move every day. Get visibly stronger.' },
 ];
 
-function S6_Priority({ selected, onSelect, onNext }: {
-  selected: string; onSelect: (id: string) => void; onNext: () => void;
+function S6_Priority({ selected, onSelect, onNext, onBack, step, total }: {
+  selected: string; onSelect: (id: string) => void; onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
 }) {
   return (
-    <Shell step={5} cta="CONTINUE" onCta={onNext}>
+    <Shell step={step ?? 3} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
       <Title eyebrow="YOUR FOCUS" title="What matters most right now?" sub="We'll surface this mode first on your dashboard. Change anytime." />
       <View style={{ gap: 10 }}>
         {MODES.map(m => {
@@ -374,62 +513,6 @@ const s6 = StyleSheet.create({
   radio: { position: 'absolute', top: 18, right: 18, width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
 });
 
-// ── S7: Starter habits ───────────────────────────────────
-const ALL_HABITS = [
-  { id: 'cold',    name: 'Cold shower',       dur: '3 min' },
-  { id: 'sugar',   name: 'No sugar',          dur: 'all day' },
-  { id: 'walk',    name: 'Walk 8,000 steps',  dur: '60 min' },
-  { id: 'read',    name: 'Read 30 min',       dur: '30 min' },
-  { id: 'phone',   name: 'No phone in bed',   dur: '—' },
-  { id: 'journal', name: 'Journal 1 page',    dur: '5 min' },
-  { id: 'med',     name: 'Meditate 10 min',   dur: '10 min' },
-  { id: 'workout', name: 'Strength workout',  dur: '45 min' },
-];
-
-function S7_Habits({ selected, onToggle, onNext }: {
-  selected: string[]; onToggle: (id: string) => void; onNext: () => void;
-}) {
-  const atMax = selected.length >= 3;
-  return (
-    <Shell step={6} cta="START WITH THESE" onCta={onNext} ctaDisabled={selected.length === 0}>
-      <Title eyebrow="DISCIPLINE · STARTERS" title="Pick 3 habits to build." sub="Small wins compound. Add more once these stick." />
-      <View style={{ gap: 8 }}>
-        {ALL_HABITS.map(h => {
-          const on = selected.includes(h.id);
-          const disabled = !on && atMax;
-          return (
-            <TouchableOpacity key={h.id}
-              style={[s7.row, { borderColor: on ? W.ink : W.rule, backgroundColor: W.card, opacity: disabled ? 0.4 : 1 }]}
-              onPress={() => !disabled && onToggle(h.id)} activeOpacity={0.8}>
-              <View style={[s7.checkbox, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.hype : 'transparent' }]}>
-                {on && <Text style={{ color: W.ink, fontSize: 11, fontWeight: '900' }}>✓</Text>}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s7.habitName, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>{h.name}</Text>
-                <Text style={[s7.habitDur, { color: W.ink3, fontFamily: 'Inter_500Medium' }]}>{h.dur}</Text>
-              </View>
-              <Text style={[s7.pts, { color: on ? W.good : W.ink3, fontFamily: 'SpaceGrotesk_700Bold' }]}>+5 PT</Text>
-            </TouchableOpacity>
-          );
-        })}
-        <View style={s7.addRow}>
-          <Text style={[s7.addText, { color: W.ink2, fontFamily: 'Inter_500Medium' }]}>+ Add your own</Text>
-        </View>
-      </View>
-    </Shell>
-  );
-}
-
-const s7 = StyleSheet.create({
-  row: { padding: 14, borderRadius: 14, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  habitName: { fontSize: 15, letterSpacing: 0.3 },
-  habitDur: { fontSize: 11.5, marginTop: 2 },
-  pts: { fontSize: 11, letterSpacing: 1 },
-  addRow: { padding: 12, borderRadius: 14, borderWidth: 1.5, borderColor: W.ink3, borderStyle: 'dashed', alignItems: 'center' },
-  addText: { fontSize: 13 },
-});
-
 // ── S8: Log time ─────────────────────────────────────────
 const TIMES = [
   { id: 'morning', label: 'Morning',    emoji: '🌅', sub: '6–10 am' },
@@ -438,11 +521,12 @@ const TIMES = [
   { id: 'bed',     label: 'Before bed', emoji: '🌙', sub: '9–11 pm' },
 ];
 
-function S8_Time({ selected, onSelect, onNext }: {
-  selected: string; onSelect: (id: string) => void; onNext: () => void;
+function S8_Time({ selected, onSelect, onNext, onBack, step, total }: {
+  selected: string; onSelect: (id: string) => void; onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
 }) {
   return (
-    <Shell step={7} cta="CONTINUE" onCta={onNext}>
+    <Shell step={step ?? 7} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
       <Title eyebrow="DAILY RHYTHM" title="When can you spare 60 seconds?" sub="That's when we'll nudge you to log. Be realistic." />
       <View style={s8.grid}>
         {TIMES.map(t => {
@@ -482,11 +566,12 @@ const TONES = [
   { id: 'hard', label: 'No mercy',    sub: 'Goggins energy. Call out every slip.', icon: '🔥' },
 ];
 
-function S9_Tone({ selected, onSelect, onNext }: {
-  selected: string; onSelect: (id: string) => void; onNext: () => void;
+function S9_Tone({ selected, onSelect, onNext, onBack, step, total }: {
+  selected: string; onSelect: (id: string) => void; onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
 }) {
   return (
-    <Shell step={8} cta="CONTINUE" onCta={onNext}>
+    <Shell step={step ?? 8} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
       <Title eyebrow="COACHING" title="How should we talk to you?" sub="Change anytime in settings." />
       <View style={{ gap: 10 }}>
         {TONES.map(t => {
@@ -532,71 +617,127 @@ const s9 = StyleSheet.create({
 });
 
 // ── S10: Commit ──────────────────────────────────────────
-function S10_Commit({ name, onCommit }: { name: string; onCommit: () => void }) {
+function S10_Commit({
+  name, onCommit, onBack, needsCredentials, email, password, onEmail, onPassword, submitting,
+}: {
+  name: string;
+  onCommit: () => void;
+  onBack: () => void;
+  needsCredentials: boolean;
+  email: string;
+  password: string;
+  onEmail: (s: string) => void;
+  onPassword: (s: string) => void;
+  submitting: boolean;
+}) {
   const today = new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
+  const credsValid = !needsCredentials || (email.trim().includes('@') && password.length >= 8);
+  const disabled = !credsValid || submitting;
+
   return (
     <View style={{ flex: 1, backgroundColor: W.dark }}>
       <SafeAreaView edges={['top']} style={{ backgroundColor: W.dark }}>
         <View style={s10.topRow}>
-          <View style={[s10.backBtn, { borderColor: 'rgba(255,255,255,0.15)' }]}>
-            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 18 }}>‹</Text>
-          </View>
+          <TouchableOpacity
+            style={[s10.backBtn, { borderColor: 'rgba(255,255,255,0.15)' }]}
+            onPress={onBack}
+            activeOpacity={0.6}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 18 }}>‹</Text>
+          </TouchableOpacity>
           <View style={[s10.fullBar, { backgroundColor: W.hype }]} />
           <Text style={[s10.stepNum, { color: 'rgba(255,255,255,0.5)', fontFamily: 'SpaceGrotesk_500Medium' }]}>10/10</Text>
         </View>
       </SafeAreaView>
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={s10.body} showsVerticalScrollIndicator={false}>
-        <Text style={[s10.eyebrow, { color: W.hype, fontFamily: 'Inter_700Bold' }]}>SIGN THE PACT</Text>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={s10.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <Text style={[s10.eyebrow, { color: W.hype, fontFamily: 'Inter_700Bold' }]}>
+          {needsCredentials ? 'LOCK IT IN' : 'SIGN THE PACT'}
+        </Text>
         <Text style={[s10.headline, { color: '#FFFFFF', fontFamily: 'SpaceGrotesk_700Bold' }]}>
           {'Today.\nTomorrow.\n'}
           <Text style={{ color: W.hype }}>Every day.</Text>
         </Text>
         <Text style={[s10.sub, { color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter_400Regular' }]}>
-          You'll get one daily nudge. Log in under a minute. Watch your score build.
+          {needsCredentials
+            ? 'Create your account so we can save your answers and track every day.'
+            : "You'll get one daily nudge. Log in under a minute. Watch your score build."}
         </Text>
 
-        <View style={s10.pact}>
-          <Text style={[s10.pactEyebrow, { color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' }]}>
-            I, {(name || 'YOU').toUpperCase()}, COMMIT TO:
-          </Text>
-          {[
-            'Logging every day for 30 days.',
-            'Building 3 daily habits.',
-            'Being honest about my food and effort.',
-          ].map((t, i) => (
-            <View key={i} style={s10.commitRow}>
-              <View style={s10.commitCheck}>
-                <Text style={{ color: W.ink, fontSize: 11, fontWeight: '900' }}>✓</Text>
-              </View>
-              <Text style={[s10.commitText, { color: '#FFFFFF', fontFamily: 'Inter_400Regular' }]}>{t}</Text>
+        {needsCredentials && (
+          <View style={{ marginTop: 22, gap: 12 }}>
+            <View>
+              <Text style={[s10.fieldLabel, { color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' }]}>EMAIL</Text>
+              <TextInput
+                style={[s10.input, { color: '#FFFFFF', fontFamily: 'Inter_500Medium' }]}
+                value={email}
+                onChangeText={onEmail}
+                placeholder="you@example.com"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                textContentType="emailAddress"
+              />
             </View>
-          ))}
-          <View style={s10.sigLine}>
-            <Text style={[s10.sigName, { color: W.hype, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-              {name || 'Your name'}
-            </Text>
-            <Text style={[s10.sigDate, { color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_700Bold' }]}>
-              SIGNATURE · {today}
-            </Text>
+            <View>
+              <Text style={[s10.fieldLabel, { color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' }]}>PASSWORD</Text>
+              <TextInput
+                style={[s10.input, { color: '#FFFFFF', fontFamily: 'Inter_500Medium' }]}
+                value={password}
+                onChangeText={onPassword}
+                placeholder="At least 8 characters"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                textContentType="newPassword"
+              />
+            </View>
           </View>
-        </View>
+        )}
 
-        <View style={s10.notifRow}>
-          <Text style={{ fontSize: 18 }}>🔔</Text>
-          <Text style={[{ flex: 1, fontSize: 12.5, color: 'rgba(255,255,255,0.8)', fontFamily: 'Inter_400Regular' }]}>
-            Daily nudge enabled.
-          </Text>
-          <View style={s10.toggle}>
-            <View style={s10.toggleThumb} />
+        {!needsCredentials && (
+          <View style={s10.pact}>
+            <Text style={[s10.pactEyebrow, { color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' }]}>
+              I, {(name || 'YOU').toUpperCase()}, COMMIT TO:
+            </Text>
+            {[
+              'Logging every day for 30 days.',
+              'Building 3 daily habits.',
+              'Being honest about my food and effort.',
+            ].map((t, i) => (
+              <View key={i} style={s10.commitRow}>
+                <View style={s10.commitCheck}>
+                  <Text style={{ color: W.ink, fontSize: 11, fontWeight: '900' }}>✓</Text>
+                </View>
+                <Text style={[s10.commitText, { color: '#FFFFFF', fontFamily: 'Inter_400Regular' }]}>{t}</Text>
+              </View>
+            ))}
+            <View style={s10.sigLine}>
+              <Text style={[s10.sigName, { color: W.hype, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                {name || 'Your name'}
+              </Text>
+              <Text style={[s10.sigDate, { color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_700Bold' }]}>
+                SIGNATURE · {today}
+              </Text>
+            </View>
           </View>
-        </View>
+        )}
       </ScrollView>
 
       <SafeAreaView edges={['bottom']} style={{ backgroundColor: W.dark }}>
         <View style={{ paddingHorizontal: 22, paddingBottom: 16 }}>
-          <TouchableOpacity style={s10.cta} onPress={onCommit} activeOpacity={0.85}>
-            <Text style={[s10.ctaText, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>I'M IN  →</Text>
+          <TouchableOpacity
+            style={[s10.cta, disabled && { opacity: 0.4 }]}
+            onPress={onCommit}
+            disabled={disabled}
+            activeOpacity={0.85}
+          >
+            <Text style={[s10.ctaText, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+              {submitting ? 'CREATING...' : needsCredentials ? 'CREATE ACCOUNT  →' : "I'M IN  →"}
+            </Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -630,6 +771,12 @@ const s10 = StyleSheet.create({
   toggleThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: W.ink },
   cta: { backgroundColor: W.hype, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
   ctaText: { fontSize: 14, letterSpacing: 2 },
+  fieldLabel: { fontSize: 10, letterSpacing: 2, marginBottom: 8 },
+  input: {
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 14, fontSize: 16,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
 });
 
 // ── Shell styles ─────────────────────────────────────────
@@ -654,47 +801,149 @@ const tt = StyleSheet.create({
 
 // ── Main export ──────────────────────────────────────────
 export default function OnboardingScreen() {
-  const { completeOnboarding, user } = useAuth();
+  const { completeOnboarding, signup, user } = useAuth();
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [name, setName] = useState(user?.name ?? '');
   const [age, setAge] = useState(25);
   const [height, setHeight] = useState(175);
   const [weight, setWeight] = useState(75);
-  const [whySelected, setWhySelected] = useState<string[]>([]);
   const [baseline, setBaseline] = useState(5);
   const [priority, setPriority] = useState('disc');
-  const [habits, setHabits] = useState<string[]>([]);
+  // Recommendations the user opts into
+  const [buildHabits, setBuildHabits]           = useState<string[]>([]);
+  const [breakHabits, setBreakHabits]           = useState<string[]>([]);
+  const [pickedChallenges, setPickedChallenges] = useState<string[]>([]);
   const [logTime, setLogTime] = useState('evening');
   const [tone, setTone] = useState('bal');
 
+  // Credentials only collected on the final screen when the user isn't logged in yet
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+
+  const needsCredentials = !user;
+
   const next = () => setStep(s => s + 1);
+  const back = () => setStep(s => Math.max(0, s - 1));
 
-  function toggleWhy(id: string) {
-    setWhySelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  function toggleBuildHabit(id: string) {
+    setBuildHabits(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   }
-  function toggleHabit(id: string) {
-    setHabits(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  function toggleBreakHabit(id: string) {
+    setBreakHabits(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  }
+  function toggleChallenge(title: string) {
+    setPickedChallenges(p => p.includes(title) ? p.filter(x => x !== title) : [...p, title]);
   }
 
+  const [submitting, setSubmitting] = useState(false);
   async function finish() {
-    await completeOnboarding();
-    router.replace('/(tabs)');
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      // Create the account first if the user isn't logged in yet. signup()
+      // returns the new token so we can chain completeOnboarding() without
+      // waiting for React state to re-render — the closure-captured `token`
+      // would still be null at this point.
+      let freshToken: string | undefined;
+      if (needsCredentials) {
+        if (!email.trim() || password.length < 8) {
+          Alert.alert('Almost there', 'Enter an email and a password (8+ characters).');
+          setSubmitting(false);
+          return;
+        }
+        freshToken = await signup(name.trim() || 'You', email.trim().toLowerCase(), password);
+      }
+
+      // Convert recommendation ids → habit names the backend can store.
+      const buildNames = buildHabits
+        .map(id => BUILD_RECS.find(b => b.id === id)?.name)
+        .filter((n): n is string => !!n);
+      const breakNames = breakHabits
+        .map(id => BREAK_RECS.find(b => b.id === id)?.name)
+        .filter((n): n is string => !!n);
+      const starterHabits = [...buildNames, ...breakNames];
+
+      await completeOnboarding({
+        name: name.trim() || undefined,
+        age,
+        heightCm: height,
+        weightKg: weight,
+        goals: [],
+        baselineSelfRating: baseline,
+        priorityMode: priority as 'disc' | 'fuel' | 'phys',
+        starterHabits,
+        starterChallenges: pickedChallenges,
+        dailyNudgeTime: logTime as 'morning' | 'midday' | 'evening' | 'before_bed',
+        coachingTone: tone as 'soft' | 'bal' | 'hard',
+        notificationsEnabled: true,
+      }, freshToken);
+      router.replace('/(tabs)');
+    } catch (err: any) {
+      Alert.alert('Could not finish setup', err?.message ?? 'Try again.');
+      setSubmitting(false);
+    }
   }
 
-  const screens = [
-    <S1_Welcome key="ob1" onNext={next} />,
-    <S2_Name key="ob2" value={name} onChange={setName} onNext={next} />,
+  // Linear flow — no conditional branches. Build → Control → Challenge picks
+  // are always shown; each can be skipped by leaving zero selections.
+  const flow: React.ReactElement[] = [
+    <S1_Welcome
+      key="ob1"
+      onNext={next}
+      showSignIn={!user}
+      onSignIn={() => router.push('/(auth)/login' as any)}
+    />,
+    <S2_Name key="ob2" value={name} onChange={setName} onNext={next} onBack={back} />,
     <S3_Body key="ob3" age={age} height={height} weight={weight}
-      onAge={setAge} onHeight={setHeight} onWeight={setWeight} onNext={next} />,
-    <S4_Why key="ob4" selected={whySelected} onToggle={toggleWhy} onNext={next} />,
-    <S5_Baseline key="ob5" value={baseline} onChange={setBaseline} onNext={next} />,
-    <S6_Priority key="ob6" selected={priority} onSelect={setPriority} onNext={next} />,
-    <S7_Habits key="ob7" selected={habits} onToggle={toggleHabit} onNext={next} />,
-    <S8_Time key="ob8" selected={logTime} onSelect={setLogTime} onNext={next} />,
-    <S9_Tone key="ob9" selected={tone} onSelect={setTone} onNext={next} />,
-    <S10_Commit key="ob10" name={name} onCommit={finish} />,
+      onAge={setAge} onHeight={setHeight} onWeight={setWeight} onNext={next} onBack={back} />,
+    <S6_Priority key="ob_priority" selected={priority} onSelect={setPriority} onNext={next} onBack={back} />,
+    <S_HabitPicker
+      key="ob_build"
+      variant="build"
+      selected={buildHabits}
+      onToggle={toggleBuildHabit}
+      onNext={next}
+      onBack={back}
+    />,
+    <S_HabitPicker
+      key="ob_break"
+      variant="break"
+      selected={breakHabits}
+      onToggle={toggleBreakHabit}
+      onNext={next}
+      onBack={back}
+    />,
+    <S_ChallengePicker
+      key="ob_challenges"
+      selected={pickedChallenges}
+      onToggle={toggleChallenge}
+      onNext={next}
+      onBack={back}
+    />,
+    <S5_Baseline key="ob_baseline" value={baseline} onChange={setBaseline} onNext={next} onBack={back} />,
+    <S8_Time key="ob_time" selected={logTime} onSelect={setLogTime} onNext={next} onBack={back} />,
+    <S9_Tone key="ob_tone" selected={tone} onSelect={setTone} onNext={next} onBack={back} />,
+    <S10_Commit
+      key="ob_commit"
+      name={name}
+      onCommit={finish}
+      onBack={back}
+      needsCredentials={needsCredentials}
+      email={email}
+      password={password}
+      onEmail={setEmail}
+      onPassword={setPassword}
+      submitting={submitting}
+    />,
   ];
 
-  return screens[step];
+  // Inject the correct step + total into each screen based on its position.
+  // S1_Welcome is index 0 and doesn't render a Shell, so it has no progress dots.
+  const total = flow.length - 1; // excludes Welcome from the dot count
+  const screens = flow.map((el, idx) =>
+    idx === 0 ? el : React.cloneElement(el, { step: idx, total } as any)
+  );
+
+  return screens[Math.min(step, screens.length - 1)];
 }
