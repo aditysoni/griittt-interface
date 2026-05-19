@@ -79,8 +79,12 @@ export default function HabitsScreen() {
   const [newScore, setNewScore]         = useState(5);
   const [newTrackCount, setNewTrackCount] = useState(false);
   const [newUnit, setNewUnit]           = useState('');
+  const [newDays, setNewDays]           = useState<number[]>([0,1,2,3,4,5,6]);
   const [adding, setAdding]             = useState(false);
   const [detailHabit, setDetailHabit]   = useState<HabitWithStatus | null>(null);
+
+  // Control habit Y-pressed tracking (local — lost on refresh, persists during session)
+  const [yPressedIds, setYPressedIds]   = useState<Set<string>>(new Set());
 
   // Count input modal state
   const [countHabit, setCountHabit]     = useState<HabitWithStatus | null>(null);
@@ -125,6 +129,7 @@ export default function HabitsScreen() {
   }
 
   useEffect(() => { load(selectedDate).finally(() => setLoading(false)); }, [token, selectedDate]);
+  useEffect(() => { setYPressedIds(new Set()); }, [selectedDate]);
 
   // Refresh whenever we come back to this screen — e.g. after joining a
   // challenge on the GRIND tab, so the new habit shows up immediately.
@@ -175,6 +180,47 @@ export default function HabitsScreen() {
     }
   }
 
+  async function handleControlN(habit: HabitWithStatus) {
+    if (!token || !isToday) return;
+    const wasY = yPressedIds.has(habit.id);
+    setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
+    if (habit.done) return; // already N-selected
+
+    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true } : h));
+    const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: true } : h);
+    recomputeOptimisticScore(updatedList);
+
+    try {
+      await habits.complete(token, habit.name, habit.id);
+      const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
+      if (disc) setDiscipline(disc);
+    } catch (err: any) {
+      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false } : h));
+      if (wasY) setYPressedIds(prev => new Set([...prev, habit.id]));
+      Alert.alert('Error', err.message);
+    }
+  }
+
+  async function handleControlY(habit: HabitWithStatus) {
+    if (!token || !isToday) return;
+    setYPressedIds(prev => new Set([...prev, habit.id]));
+    if (!habit.done) return; // already not done, just mark Y visually
+
+    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false } : h));
+    const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: false } : h);
+    recomputeOptimisticScore(updatedList);
+
+    try {
+      await habits.uncomplete(token, habit.name);
+      const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
+      if (disc) setDiscipline(disc);
+    } catch (err: any) {
+      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true } : h));
+      setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
+      Alert.alert('Error', err.message);
+    }
+  }
+
   async function submitCount() {
     if (!token || !countHabit) return;
     const raw = countInput.trim();
@@ -208,13 +254,14 @@ export default function HabitsScreen() {
         name: newName.trim(),
         category: newType,
         score: newScore,
+        days: newDays,
         trackCount: isControl ? true : newTrackCount,
         countUnit: (isControl || newTrackCount) ? (newUnit.trim() || null) : null,
       });
       setHabitList(l => [...l, { ...task, done: false, streak: 0, count: null }]);
       setShowAdd(false);
       setNewName(''); setNewType('build'); setNewScore(5);
-      setNewTrackCount(false); setNewUnit('');
+      setNewTrackCount(false); setNewUnit(''); setNewDays([0,1,2,3,4,5,6]);
     } catch (err: any) { Alert.alert('Error', err.message); }
     finally { setAdding(false); }
   }
@@ -336,8 +383,11 @@ export default function HabitsScreen() {
               theme={theme}
               canToggle={isToday}
               isControl={isControl}
+              ySelected={isControl ? yPressedIds.has(habit.id) : false}
               fromChallenge={challengeNames.has(habit.name.trim().toLowerCase())}
-              onToggle={() => toggleHabit(habit)}
+              onToggle={isControl ? undefined : () => toggleHabit(habit)}
+              onPressN={isControl ? () => handleControlN(habit) : undefined}
+              onPressY={isControl ? () => handleControlY(habit) : undefined}
               onInfo={() => setDetailHabit(habit)}
             />
           ))
@@ -466,10 +516,48 @@ export default function HabitsScreen() {
               </>
             )}
 
+            <Text style={[s.fieldLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>DAYS</Text>
+            <View style={s.daysRow}>
+              {['M','T','W','T','F','S','S'].map((label, i) => {
+                const active = newDays.includes(i);
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    style={[s.dayChip, {
+                      backgroundColor: active ? theme.text : 'transparent',
+                      borderColor: active ? theme.text : theme.border,
+                    }]}
+                    onPress={() => setNewDays(prev =>
+                      prev.includes(i) ? prev.filter(d => d !== i) : [...prev, i]
+                    )}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[s.dayChipText, {
+                      color: active ? theme.bg : theme.textSecondary,
+                      fontFamily: 'Inter_900Black',
+                    }]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                style={[s.dayAllBtn, {
+                  backgroundColor: newDays.length === 7 ? theme.text : 'transparent',
+                  borderColor: newDays.length === 7 ? theme.text : theme.border,
+                }]}
+                onPress={() => setNewDays(newDays.length === 7 ? [] : [0,1,2,3,4,5,6])}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.dayChipText, {
+                  color: newDays.length === 7 ? theme.bg : theme.textSecondary,
+                  fontFamily: 'Inter_900Black',
+                }]}>ALL</Text>
+              </TouchableOpacity>
+            </View>
+
             <Text style={[s.fieldLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
               TOUGHNESS — <Text style={{ color: toughnessColor(newScore, theme.isDark) }}>{newScore}/10</Text>
             </Text>
-            <View style={s.scoreGrid}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.scoreScroll}>
               {TOUGHNESS_OPTIONS.map(n => {
                 const active = newScore === n;
                 const col = toughnessColor(n, theme.isDark);
@@ -488,7 +576,7 @@ export default function HabitsScreen() {
                   </TouchableOpacity>
                 );
               })}
-            </View>
+            </ScrollView>
 
             <TouchableOpacity
               style={[s.submitBtn, { backgroundColor: theme.tabActiveBg, opacity: (!newName.trim() || adding) ? 0.4 : 1 }]}
@@ -589,13 +677,24 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName]   = useState(habit.name);
   const [editScore, setEditScore] = useState(habit.score || 5);
+  const [editDays, setEditDays]   = useState<number[]>(
+    habit.days && habit.days.length > 0 ? habit.days : [0,1,2,3,4,5,6]
+  );
   const [saving, setSaving]       = useState(false);
+
+  function toggleEditDay(i: number) {
+    setEditDays(prev =>
+      prev.includes(i)
+        ? prev.length > 1 ? prev.filter(d => d !== i) : prev  // keep at least 1
+        : [...prev, i].sort((a, b) => a - b)
+    );
+  }
 
   async function handleSave() {
     if (!editName.trim()) { Alert.alert('Name required', 'Enter a habit name.'); return; }
     setSaving(true);
     try {
-      await tasks.update(token, habit.id, { name: editName.trim(), score: editScore });
+      await tasks.update(token, habit.id, { name: editName.trim(), score: editScore, days: editDays });
       onChanged?.();
     } catch (err: any) {
       Alert.alert('Could not save', err?.message ?? 'Update failed.');
@@ -667,14 +766,25 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
         <View style={[hd.card, { backgroundColor: theme.cardElevated, borderColor: theme.border }]}>
           {/* Header */}
           <View style={hd.header}>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, gap: 4 }}>
               <Text style={[hd.habitName, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
                 {editing ? 'EDIT HABIT' : habit.name.toUpperCase()}
               </Text>
-              {!editing && habit.streak > 0 && (
-                <Text style={[hd.streak, { color: '#F59E0B', fontFamily: 'Inter_700Bold' }]}>
-                  🔥 {habit.streak} day streak
-                </Text>
+              {!editing && !loading && (
+                totalUsers <= 1
+                  ? <Text style={[hd.percentileLine, { color: '#22A664', fontFamily: 'Inter_600SemiBold' }]}>
+                      Only you have this habit — set the standard.
+                    </Text>
+                  : <Text style={[hd.percentileLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                      Doing better than{' '}
+                      <Text style={{
+                        color: (percentile ?? 0) >= 60 ? '#22A664' : (percentile ?? 0) >= 30 ? '#F0A12E' : '#E84A4A',
+                        fontFamily: 'Inter_700Bold',
+                      }}>
+                        {percentile ?? 0}%
+                      </Text>
+                      {' '}of people with this habit
+                    </Text>
               )}
             </View>
             <TouchableOpacity onPress={onClose} style={hd.closeBtn}>
@@ -694,6 +804,29 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                 placeholderTextColor={theme.textSecondary}
                 autoCapitalize="characters"
               />
+
+              <Text style={[hd.editLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>DAYS</Text>
+              <View style={hd.scheduleRow}>
+                {DAY_LABELS_SHORT.map((d, i) => {
+                  const active = editDays.includes(i);
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      style={[hd.scheduleDay, {
+                        backgroundColor: active ? theme.inverse : 'transparent',
+                        borderColor: active ? theme.inverse : theme.border,
+                      }]}
+                      onPress={() => toggleEditDay(i)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[hd.scheduleDayText, {
+                        color: active ? theme.inverseText : theme.textMuted,
+                        fontFamily: 'Inter_700Bold',
+                      }]}>{d}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
               <Text style={[hd.editLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
                 TOUGHNESS — <Text style={{ color: toughnessColor(editScore, theme.isDark) }}>{editScore}/10</Text>
@@ -722,7 +855,12 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
               <View style={hd.actionRow}>
                 <TouchableOpacity
                   style={[hd.actionBtn, hd.actionBtnGhost, { borderColor: theme.border }]}
-                  onPress={() => { setEditing(false); setEditName(habit.name); setEditScore(habit.score || 5); }}
+                  onPress={() => {
+                    setEditing(false);
+                    setEditName(habit.name);
+                    setEditScore(habit.score || 5);
+                    setEditDays(habit.days && habit.days.length > 0 ? habit.days : [0,1,2,3,4,5,6]);
+                  }}
                   activeOpacity={0.7}
                 >
                   <Text style={[hd.actionBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>CANCEL</Text>
@@ -745,7 +883,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
             </View>
           ) : (
             <>
-              {/* Stats row — 2 cells only */}
+              {/* Stats row — 3 metrics */}
               <View style={hd.statsRow}>
                 <View style={hd.statCell}>
                   <Text style={[hd.statVal, { color: consistencyColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
@@ -764,29 +902,49 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                     DAYS DONE
                   </Text>
                 </View>
+                <View style={[hd.statSep, { backgroundColor: theme.border }]} />
+                <View style={hd.statCell}>
+                  <Text style={[hd.statVal, {
+                    color: habit.streak > 0 ? '#F59E0B' : theme.textMuted,
+                    fontFamily: 'SpaceGrotesk_700Bold',
+                  }]}>
+                    {habit.streak > 0 ? `🔥 ${habit.streak}` : '—'}
+                  </Text>
+                  <Text style={[hd.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
+                    STREAK
+                  </Text>
+                </View>
               </View>
 
-              {/* Percentile line — always visible */}
-              <Text style={[hd.percentileLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                {totalUsers <= 1
-                  ? <Text style={{ color: '#34C759', fontFamily: 'Inter_700Bold' }}>Only you have this habit. </Text>
-                  : <>
-                      {'You are doing better than '}
-                      <Text style={{ color: (percentile ?? 0) >= 60 ? '#34C759' : '#F59E0B', fontFamily: 'Inter_700Bold' }}>
-                        {percentile ?? 0}% of people
-                      </Text>
-                      {' '}
-                    </>
-                }
-                {totalUsers <= 1 ? 'Set the standard.' : 'having the same habit.'}
-              </Text>
 
+              {/* Schedule — which days this habit runs */}
+              <View style={hd.scheduleBlock}>
+                <Text style={[hd.calLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold', marginBottom: 8 }]}>
+                  SCHEDULE
+                </Text>
+                <View style={hd.scheduleRow}>
+                  {DAY_LABELS_SHORT.map((d, i) => {
+                    const active = !habit.days || habit.days.length === 0 || habit.days.includes(i);
+                    return (
+                      <View key={i} style={[hd.scheduleDay, {
+                        backgroundColor: active ? theme.inverse : 'transparent',
+                        borderColor: active ? theme.inverse : theme.border,
+                      }]}>
+                        <Text style={[hd.scheduleDayText, {
+                          color: active ? theme.inverseText : theme.textMuted,
+                          fontFamily: 'Inter_700Bold',
+                        }]}>{d}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
 
-              {/* Hawk Eye mini calendar */}
-              <Text style={[hd.calLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
-                LAST 28 DAYS
-              </Text>
-              <View style={hd.calWrap}>
+              {/* 28-day activity heatmap */}
+              <View>
+                <Text style={[hd.calLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold', marginBottom: 10 }]}>
+                  LAST 28 DAYS
+                </Text>
                 {/* Day headers */}
                 <View style={hd.calRow}>
                   {DAY_LABELS_SHORT.map((d, i) => (
@@ -794,34 +952,62 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                   ))}
                 </View>
                 {/* Weeks */}
-                {weeks.map((week, wi) => (
-                  <View key={wi} style={hd.calRow}>
-                    {week.map((dateStr, di) => {
-                      if (!dateStr) return <View key={di} style={hd.calCell} />;
-                      const isPast  = dateStr <= today();
-                      const isDone  = doneDates.has(dateStr);
-                      const isToday2 = dateStr === today();
-                      return (
-                        <View key={di} style={[hd.calCell, hd.calCircle, {
-                          backgroundColor: isToday2 ? theme.inverse :
-                            isDone ? '#34C75930' : isPast ? theme.surface : 'transparent',
-                          borderColor: isToday2 ? theme.inverse :
-                            isDone ? '#34C759' : theme.border,
-                        }]}>
-                          {isDone && !isToday2 && (
-                            <Ionicons name="checkmark" size={10} color="#34C759" />
-                          )}
-                          {!isDone && isPast && !isToday2 && (
-                            <Text style={{ fontSize: 9, color: theme.textMuted }}>✕</Text>
-                          )}
-                          {isToday2 && (
-                            <Text style={{ fontSize: 8, color: theme.inverseText, fontFamily: 'Inter_900Black' }}>•</Text>
-                          )}
-                        </View>
-                      );
-                    })}
+                <View style={{ gap: 5, marginTop: 4 }}>
+                  {weeks.map((week, wi) => (
+                    <View key={wi} style={hd.calRow}>
+                      {week.map((dateStr, di) => {
+                        if (!dateStr) return <View key={di} style={hd.calCell} />;
+                        const isPast   = dateStr <= today();
+                        const isDone   = doneDates.has(dateStr);
+                        const isToday2 = dateStr === today();
+                        const dayNum   = parseInt(dateStr.slice(8), 10);
+
+                        let bg = 'transparent';
+                        if (isToday2)     bg = theme.inverse;
+                        else if (isDone)  bg = '#22A664';
+                        else if (isPast)  bg = theme.surface;
+
+                        return (
+                          <View key={di} style={[hd.calCell, {
+                            backgroundColor: bg,
+                            borderRadius: 7,
+                            opacity: !isPast && !isToday2 ? 0.3 : 1,
+                          }]}>
+                            {isDone && !isToday2 && (
+                              <Ionicons name="checkmark" size={11} color="#FFFFFF" />
+                            )}
+                            {!isDone && isPast && !isToday2 && (
+                              <Text style={{ fontSize: 9, color: theme.textMuted, fontFamily: 'Inter_700Bold' }}>
+                                {dayNum}
+                              </Text>
+                            )}
+                            {isToday2 && (
+                              <Text style={{ fontSize: 9, color: theme.inverseText, fontFamily: 'Inter_900Black' }}>
+                                {dayNum}
+                              </Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ))}
+                </View>
+
+                {/* Legend */}
+                <View style={hd.calLegend}>
+                  <View style={hd.legendItem}>
+                    <View style={[hd.legendDot, { backgroundColor: '#22A664' }]} />
+                    <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Done</Text>
                   </View>
-                ))}
+                  <View style={hd.legendItem}>
+                    <View style={[hd.legendDot, { backgroundColor: theme.surface }]} />
+                    <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Missed</Text>
+                  </View>
+                  <View style={hd.legendItem}>
+                    <View style={[hd.legendDot, { backgroundColor: theme.inverse }]} />
+                    <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Today</Text>
+                  </View>
+                </View>
               </View>
 
               {/* Edit / Delete actions */}
@@ -855,12 +1041,13 @@ const hd = StyleSheet.create({
   backdrop:       { ...StyleSheet.absoluteFillObject },
   centreWrap:     { ...StyleSheet.absoluteFillObject },
   scrollContent:  { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  card:           { width: '100%', borderRadius: 2, borderWidth: 1, padding: 20, gap: 16 },
+  card:           { width: '100%', borderRadius: 20, borderWidth: 1, padding: 20, gap: 16 },
   header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  habitName:      { fontSize: 16, letterSpacing: 1 },
+  habitName:      { fontSize: 20, letterSpacing: 0.5 },
+  percentileLine: { fontSize: 12, lineHeight: 17 },
   // Edit mode
   editLabel:      { fontSize: 9, letterSpacing: 3, marginBottom: -8 },
-  editInput:      { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, letterSpacing: 1 },
+  editInput:      { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, letterSpacing: 1 },
   scoreGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   scoreChip:      { width: 44, height: 44, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   scoreChipText:  { fontSize: 14 },
@@ -869,7 +1056,6 @@ const hd = StyleSheet.create({
   actionBtn:      { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 10 },
   actionBtnGhost: { backgroundColor: 'transparent', borderWidth: 1.5 },
   actionBtnText:  { fontSize: 11, letterSpacing: 2.5 },
-  streak:    { fontSize: 11, marginTop: 4 },
   closeBtn:  { padding: 4 },
   loading:   { paddingVertical: 32, alignItems: 'center' },
   statsRow:  { flexDirection: 'row', alignItems: 'center' },
@@ -877,13 +1063,20 @@ const hd = StyleSheet.create({
   statVal:   { fontSize: 22 },
   statLabel: { fontSize: 7, letterSpacing: 1.5 },
   statSep:   { width: 1, height: 36 },
-  percentileLine: { fontSize: 12, lineHeight: 18 },
-  calLabel:  { fontSize: 8, letterSpacing: 3 },
-  calWrap:   { gap: 4 },
-  calRow:    { flexDirection: 'row', gap: 4 },
-  calCell:   { flex: 1, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
-  calCircle: { borderRadius: 4, borderWidth: 1 },
-  calDayHead: { flex: 1, textAlign: 'center', fontSize: 8 },
+  // Schedule
+  scheduleBlock:   { gap: 0 },
+  scheduleRow:     { flexDirection: 'row', gap: 5, justifyContent: 'space-between' },
+  scheduleDay:     { flex: 1, aspectRatio: 1, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  scheduleDayText: { fontSize: 9 },
+  // Calendar
+  calLabel:    { fontSize: 8, letterSpacing: 3 },
+  calRow:      { flexDirection: 'row', gap: 5 },
+  calCell:     { flex: 1, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
+  calDayHead:  { flex: 1, textAlign: 'center', fontSize: 8, paddingBottom: 2 },
+  calLegend:   { flexDirection: 'row', gap: 14, marginTop: 10, justifyContent: 'center' },
+  legendItem:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot:   { width: 10, height: 10, borderRadius: 3 },
+  legendText:  { fontSize: 10 },
 });
 
 // ── Arc gauge — 220° sweep with score in the centre ────────────────────────
@@ -959,13 +1152,27 @@ function MomentumPill({ score, theme }: { score: number; theme: any }) {
   );
 }
 
-function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, onToggle, onInfo }: {
+function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected, onToggle, onPressY, onPressN, onInfo }: {
   habit: HabitWithStatus; theme: any; canToggle: boolean; isControl: boolean;
   fromChallenge?: boolean;
-  onToggle: () => void; onInfo: () => void;
+  ySelected?: boolean;
+  onToggle?: () => void;
+  onPressY?: () => void;
+  onPressN?: () => void;
+  onInfo: () => void;
 }) {
   const impact = habit.score || 1;
   const accentColor = theme.isDark ? '#B8F23A' : '#16A34A';
+
+  const yActive = isControl && !habit.done && ySelected;
+  const nActive = isControl && habit.done;
+
+  const nameColor = habit.done
+    ? theme.textSecondary
+    : yActive ? '#E84A4A'
+    : theme.text;
+
+  const scoreColor = nActive ? '#22A664' : yActive ? '#E84A4A' : theme.textTertiary;
 
   return (
     <TouchableOpacity
@@ -974,21 +1181,23 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, onToggle,
         borderColor: fromChallenge ? '#F0A12E' : theme.border,
         borderWidth: fromChallenge ? 1.5 : 1,
       }]}
-      onPress={canToggle ? onToggle : undefined}
-      activeOpacity={canToggle ? 0.75 : 1}
+      onPress={(!isControl && canToggle) ? onToggle : undefined}
+      activeOpacity={(!isControl && canToggle) ? 0.75 : 1}
     >
-      {/* Checkbox — lime when done */}
-      <View style={[s.habitCheck, {
-        backgroundColor: habit.done ? accentColor : 'transparent',
-        borderColor: habit.done ? accentColor : theme.borderStrong,
-      }]}>
-        {habit.done && <Ionicons name="checkmark" size={13} color={theme.isDark ? '#14110D' : '#FFFFFF'} />}
-      </View>
+      {/* Build habit: lime checkbox on left */}
+      {!isControl && (
+        <View style={[s.habitCheck, {
+          backgroundColor: habit.done ? accentColor : 'transparent',
+          borderColor: habit.done ? accentColor : theme.borderStrong,
+        }]}>
+          {habit.done && <Ionicons name="checkmark" size={13} color={theme.isDark ? '#14110D' : '#FFFFFF'} />}
+        </View>
+      )}
 
       {/* Name + meta */}
       <View style={s.habitInfo}>
         <Text style={[s.habitName, {
-          color: habit.done ? theme.textSecondary : theme.text,
+          color: nameColor,
           textDecorationLine: habit.done ? 'line-through' : 'none',
           textDecorationColor: theme.textTertiary,
           fontFamily: 'SpaceGrotesk_700Bold',
@@ -996,8 +1205,11 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, onToggle,
           {habit.name.toUpperCase()}
         </Text>
         <View style={s.habitMetaRow}>
-          <Text style={[s.impactText, { color: '#22A664', fontFamily: 'Inter_700Bold' }]}>
-            +{impact}% {isControl ? 'CONTROL' : 'DISCIPLINE'}
+          <Text style={[s.impactText, {
+            color: nActive ? '#22A664' : yActive ? '#E84A4A' : theme.textTertiary,
+            fontFamily: 'Inter_700Bold',
+          }]}>
+            {nActive ? `+${impact}% CONTROLLED` : yActive ? 'FAILED' : `+${impact}% ${isControl ? 'CONTROL' : 'DISCIPLINE'}`}
           </Text>
           {habit.streak > 0 && (
             <View style={s.streakBadge}>
@@ -1008,8 +1220,8 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, onToggle,
             </View>
           )}
           {habit.done && habit.count != null && (
-            <View style={[s.countBadge, { backgroundColor: (isControl ? theme.danger : '#22A664') + '20' }]}>
-              <Text style={[s.impactText, { color: isControl ? theme.danger : '#22A664', fontFamily: 'SpaceGrotesk_700Bold' }]}>
+            <View style={[s.countBadge, { backgroundColor: '#22A66420' }]}>
+              <Text style={[s.impactText, { color: '#22A664', fontFamily: 'SpaceGrotesk_700Bold' }]}>
                 {habit.count}{habit.count_unit ? ` ${habit.count_unit}` : ''}
               </Text>
             </View>
@@ -1017,13 +1229,36 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, onToggle,
         </View>
       </View>
 
-      {/* Score */}
-      <Text style={[s.pointsText, {
-        color: habit.done ? '#22A664' : theme.textTertiary,
-        fontFamily: 'SpaceGrotesk_700Bold',
-      }]}>
-        +{impact}
-      </Text>
+      {/* Control habits: Y | N circles on right (replaces score) */}
+      {isControl ? (
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <TouchableOpacity
+            style={[s.ynCircle, {
+              backgroundColor: yActive ? '#E84A4A' : 'transparent',
+              borderColor: '#E84A4A',
+            }]}
+            onPress={canToggle ? onPressY : undefined}
+            activeOpacity={0.75}
+          >
+            <Text style={[s.ynText, { color: yActive ? '#FFFFFF' : '#E84A4A', fontFamily: 'Inter_900Black' }]}>Y</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.ynCircle, {
+              backgroundColor: nActive ? '#22A664' : 'transparent',
+              borderColor: '#22A664',
+            }]}
+            onPress={canToggle ? onPressN : undefined}
+            activeOpacity={0.75}
+          >
+            <Text style={[s.ynText, { color: nActive ? '#FFFFFF' : '#22A664', fontFamily: 'Inter_900Black' }]}>N</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        /* Build habit: score number */
+        <Text style={[s.pointsText, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+          +{impact}
+        </Text>
+      )}
 
       <TouchableOpacity onPress={onInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={s.infoBtn}>
         <Ionicons name="stats-chart" size={13} color={theme.textTertiary} />
@@ -1105,6 +1340,8 @@ const s = StyleSheet.create({
   trackCheckbox: { width: 18, height: 18, borderWidth: 1.5, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   trackLabel: { fontSize: 10, letterSpacing: 2 },
   trackHint: { flex: 1, fontSize: 9, letterSpacing: 0.3, fontStyle: 'italic', textAlign: 'right' },
+  ynCircle:   { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  ynText:     { fontSize: 11 },
   infoBtn:    { padding: 4, opacity: 0.6 },
   modal:      { flex: 1, paddingTop: 8 },
   modalHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
@@ -1115,9 +1352,13 @@ const s = StyleSheet.create({
   typeToggle:  { flexDirection: 'row', borderRadius: 8, padding: 4, height: 44 },
   typeBtn:     { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 6 },
   typeBtnText: { fontSize: 11, letterSpacing: 3 },
-  input:       { borderWidth: 1, borderRadius: 0, paddingHorizontal: 16, paddingVertical: 14, fontSize: 14, letterSpacing: 1 },
-  scoreGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  scoreChip:   { width: 48, height: 48, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  input:       { borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 14, letterSpacing: 1 },
+  daysRow:     { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  dayChip:     { width: 34, height: 34, borderWidth: 1.5, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  dayAllBtn:   { flex: 1, height: 34, borderWidth: 1.5, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  dayChipText: { fontSize: 10, letterSpacing: 1 },
+  scoreScroll: { flexDirection: 'row', gap: 10, paddingVertical: 4 },
+  scoreChip:   { width: 52, height: 52, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   scoreChipText: { fontSize: 15 },
   submitBtn:   { paddingVertical: 16, alignItems: 'center', borderRadius: 0, marginTop: 8 },
   submitBtnText: { fontSize: 12, letterSpacing: 4 },
