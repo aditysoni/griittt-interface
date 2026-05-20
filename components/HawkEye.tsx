@@ -23,7 +23,7 @@ const GAP    = 6;
 const COLS   = 7;
 const DAY_LABELS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 const STORAGE_KEY = 'grittt_hawkeye_countdown';
-const PRIMARY  = '#8B5CF6';
+const PRIMARY  = '#14110D'; // warm ink — overridden inline via theme where possible
 const GREEN    = '#10B981';
 const RED      = '#EF4444';
 
@@ -92,9 +92,9 @@ function DayCircle({
       displayLabel = '';
     }
   } else if (today) {
-    bg = PRIMARY;
-    borderColor = PRIMARY;
-    textColor = '#FFF';
+    bg = theme.inverse;
+    borderColor = theme.inverse;
+    textColor = theme.inverseText;
   } else if (past) {
     bg = theme.surface;
     borderColor = theme.border;
@@ -178,11 +178,32 @@ function CountdownGrid({ startDate, endDate, theme }: { startDate: string; endDa
     return { n: total - i, state };
   });
 
+  const todayDate  = parseDate(today);
+  const daysLeft   = Math.max(0, Math.round((end.getTime() - todayDate.getTime()) / 86400000) + 1);
+  const daysDone   = days.filter(d => d.state === 'past').length;
+
   return (
     <View>
+      {/* Date range banner */}
+      <View style={[cg.dateBanner, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <View style={cg.dateCell}>
+          <Text style={[cg.dateCaption, { color: theme.textMuted }]}>START</Text>
+          <Text style={[cg.dateVal, { color: theme.text }]}>{startDate}</Text>
+        </View>
+        <View style={[cg.dateSep, { backgroundColor: theme.border }]} />
+        <View style={[cg.dateCell, { alignItems: 'center' }]}>
+          <Text style={[cg.daysLeftNum, { color: theme.text }]}>{daysLeft}</Text>
+          <Text style={[cg.daysLeftLabel, { color: theme.textMuted }]}>DAYS LEFT</Text>
+        </View>
+        <View style={[cg.dateSep, { backgroundColor: theme.border }]} />
+        <View style={[cg.dateCell, { alignItems: 'flex-end' }]}>
+          <Text style={[cg.dateCaption, { color: theme.textMuted }]}>END</Text>
+          <Text style={[cg.dateVal, { color: theme.text }]}>{endDate}</Text>
+        </View>
+      </View>
       <View style={cg.header}>
-        <Text style={[cg.info, { color: theme.textSecondary }]}>{total} → 1 days remaining</Text>
-        <Text style={[cg.done, { color: PRIMARY }]}>{days.filter(d => d.state === 'past').length} / {total} done</Text>
+        <Text style={[cg.info, { color: theme.textSecondary }]}>{daysDone} / {total} days done</Text>
+        <Text style={[cg.done, { color: theme.text }]}>{Math.round((daysDone / total) * 100)}% complete</Text>
       </View>
       {chunk(days, COLS).map((row, ri) => (
         <View key={ri} style={cg.row}>
@@ -197,10 +218,17 @@ function CountdownGrid({ startDate, endDate, theme }: { startDate: string; endDa
 }
 
 const cg = StyleSheet.create({
-  header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
-  info: { fontSize: 13, fontWeight: '600' },
-  done: { fontSize: 13, fontWeight: '700' },
-  row: { flexDirection: 'row', gap: GAP, marginBottom: GAP },
+  dateBanner:    { flexDirection: 'row', borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 16, alignItems: 'center' },
+  dateCell:      { flex: 1 },
+  dateCaption:   { fontSize: 9, letterSpacing: 2, marginBottom: 3 },
+  dateVal:       { fontSize: 12, fontWeight: '700' },
+  dateSep:       { width: 1, height: 36, marginHorizontal: 12 },
+  daysLeftNum:   { fontSize: 28, fontWeight: '900', letterSpacing: -1 },
+  daysLeftLabel: { fontSize: 8, letterSpacing: 2, marginTop: 2 },
+  header:        { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
+  info:          { fontSize: 13, fontWeight: '600' },
+  done:          { fontSize: 13, fontWeight: '700' },
+  row:           { flexDirection: 'row', gap: GAP, marginBottom: GAP },
 });
 
 // ── Countdown Setup ────────────────────────────────────────────────────────────
@@ -209,16 +237,35 @@ const PRESETS = [21, 30, 60, 90, 100];
 
 function CountdownSetup({ onSet, theme }: { onSet: (start: string, end: string) => void; theme: AppTheme }) {
   const [startInput, setStartInput] = useState(todayStr());
-  const [duration, setDuration] = useState(30);
-  const [custom, setCustom] = useState('');
+  const [endInput, setEndInput]     = useState('');
+  const [duration, setDuration]     = useState(30);
+  const [custom, setCustom]         = useState('');
+
+  // Computed end date preview when no manual end date entered
+  function computedEnd(): string {
+    const s = parseDate(startInput);
+    if (isNaN(s.getTime())) return '';
+    const days = custom ? Number(custom) : duration;
+    if (!days || days < 1) return '';
+    const e = new Date(s); e.setDate(e.getDate() + days - 1);
+    return e.toISOString().slice(0, 10);
+  }
 
   function handleSet() {
     const s = parseDate(startInput);
     if (isNaN(s.getTime())) { Alert.alert('Invalid date', 'Use YYYY-MM-DD'); return; }
-    const days = custom ? Number(custom) : duration;
-    if (!days || days < 1 || days > 3650) { Alert.alert('Invalid duration', '1–3650 days'); return; }
-    const e = new Date(s); e.setDate(e.getDate() + days - 1);
-    onSet(startInput, e.toISOString().slice(0, 10));
+    if (endInput.trim()) {
+      // End date entered directly
+      const e = parseDate(endInput.trim());
+      if (isNaN(e.getTime())) { Alert.alert('Invalid end date', 'Use YYYY-MM-DD'); return; }
+      if (e.getTime() <= s.getTime()) { Alert.alert('Invalid range', 'End date must be after start'); return; }
+      onSet(startInput, endInput.trim());
+    } else {
+      const days = custom ? Number(custom) : duration;
+      if (!days || days < 1 || days > 3650) { Alert.alert('Invalid duration', '1–3650 days'); return; }
+      const e = new Date(s); e.setDate(e.getDate() + days - 1);
+      onSet(startInput, e.toISOString().slice(0, 10));
+    }
   }
 
   return (
@@ -243,19 +290,34 @@ function CountdownSetup({ onSet, theme }: { onSet: (start: string, end: string) 
                 style={[
                   su.chip,
                   { backgroundColor: theme.surface, borderColor: theme.border },
-                  active && { borderColor: PRIMARY, backgroundColor: PRIMARY + '18' },
+                  active && { borderColor: theme.text, backgroundColor: theme.text + '18' },
                 ]}
                 onPress={() => { setDuration(p); setCustom(''); }}
               >
-                <Text style={[su.chipText, { color: theme.textSecondary }, active && { color: PRIMARY, fontWeight: '700' }]}>{p}d</Text>
+                <Text style={[su.chipText, { color: theme.textSecondary }, active && { color: theme.text, fontWeight: '700' }]}>{p}d</Text>
               </TouchableOpacity>
             );
           })}
         </View>
         <TextInput
           style={[su.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text, marginTop: 8 }]}
-          value={custom} onChangeText={setCustom}
+          value={custom} onChangeText={v => { setCustom(v); setEndInput(''); }}
           placeholder="Custom days..." placeholderTextColor={theme.textTertiary} keyboardType="number-pad"
+        />
+        {/* End date preview when duration chosen and no manual end set */}
+        {!endInput && computedEnd() !== '' && (
+          <View style={[su.endPreview, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[su.endPreviewLabel, { color: theme.textMuted }]}>END DATE →</Text>
+            <Text style={[su.endPreviewVal, { color: theme.text }]}>{computedEnd()}</Text>
+          </View>
+        )}
+      </View>
+      <View style={su.field}>
+        <Text style={[su.label, { color: theme.textSecondary }]}>Or set End Date directly (YYYY-MM-DD)</Text>
+        <TextInput
+          style={[su.input, { backgroundColor: theme.surface, borderColor: endInput ? theme.text : theme.border, color: theme.text }]}
+          value={endInput} onChangeText={setEndInput}
+          placeholder="e.g. 2026-08-01" placeholderTextColor={theme.textTertiary} autoCorrect={false}
         />
       </View>
       <TouchableOpacity style={su.btn} onPress={handleSet}>
@@ -275,8 +337,11 @@ const su = StyleSheet.create({
   presets: { flexDirection: 'row', gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1.5 },
   chipText: { fontSize: 13, fontWeight: '600' },
-  btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: PRIMARY, borderRadius: 12, paddingVertical: 14 },
-  btnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  btn:             { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#14110D', borderRadius: 12, paddingVertical: 14 },
+  btnText:         { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  endPreview:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, marginTop: 4 },
+  endPreviewLabel: { fontSize: 9, letterSpacing: 2 },
+  endPreviewVal:   { fontSize: 13, fontWeight: '700' },
 });
 
 // ── Filter Panel ───────────────────────────────────────────────────────────────
@@ -312,10 +377,10 @@ function FilterPanel({
           return (
             <TouchableOpacity
               key={k}
-              style={[fp.kindBtn, active && { backgroundColor: PRIMARY + '20' }]}
+              style={[fp.kindBtn, active && { backgroundColor: theme.text + '20' }]}
               onPress={() => { setFilterKind(k); if (k !== 'habit') setSelectedHabit(null); }}
             >
-              <Text style={[fp.kindText, { color: theme.textSecondary }, active && { color: PRIMARY, fontWeight: '700' }]}>
+              <Text style={[fp.kindText, { color: theme.textSecondary }, active && { color: theme.text, fontWeight: '700' }]}>
                 {k === 'none' ? 'Calendar' : k === 'habit' ? '🏷 Habit' : '🥗 Food'}
               </Text>
             </TouchableOpacity>
@@ -331,10 +396,10 @@ function FilterPanel({
             return (
               <TouchableOpacity
                 key={t.id}
-                style={[fp.habitChip, { backgroundColor: theme.card, borderColor: theme.border }, active && { borderColor: PRIMARY, backgroundColor: PRIMARY + '18' }]}
+                style={[fp.habitChip, { backgroundColor: theme.card, borderColor: theme.border }, active && { borderColor: theme.text, backgroundColor: theme.text + '18' }]}
                 onPress={() => setSelectedHabit(active ? null : t)}
               >
-                <Text style={[fp.habitChipText, { color: theme.textSecondary }, active && { color: PRIMARY, fontWeight: '700' }]} numberOfLines={1}>
+                <Text style={[fp.habitChipText, { color: theme.textSecondary }, active && { color: theme.text, fontWeight: '700' }]} numberOfLines={1}>
                   {t.name}
                 </Text>
               </TouchableOpacity>
@@ -351,10 +416,10 @@ function FilterPanel({
             return (
               <TouchableOpacity
                 key={m.key}
-                style={[fp.metricBtn, { backgroundColor: theme.card, borderColor: theme.border }, active && { borderColor: PRIMARY, backgroundColor: PRIMARY + '15' }]}
+                style={[fp.metricBtn, { backgroundColor: theme.card, borderColor: theme.border }, active && { borderColor: theme.text, backgroundColor: theme.text + '15' }]}
                 onPress={() => setFoodMetric(m.key)}
               >
-                <Text style={[fp.metricLabel, { color: theme.textSecondary }, active && { color: PRIMARY }]}>{m.label}</Text>
+                <Text style={[fp.metricLabel, { color: theme.textSecondary }, active && { color: theme.text }]}>{m.label}</Text>
                 <Text style={[fp.metricDesc, { color: theme.textTertiary }]}>{m.desc}</Text>
               </TouchableOpacity>
             );
@@ -516,7 +581,7 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
     return (
       <View style={m.legend}>
         <LegendItem color={theme.surface} border={theme.border} label="Past" crossed theme={theme} />
-        <LegendItem color={PRIMARY} border={PRIMARY} label="Today" theme={theme} />
+        <LegendItem color={theme.inverse} border={theme.inverse} label="Today" theme={theme} />
         <LegendItem color="transparent" border={theme.border} label="Future" theme={theme} />
       </View>
     );
@@ -538,9 +603,9 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
           {(['calendar', 'countdown'] as HawkMode[]).map(md => {
             const active = mode === md;
             return (
-              <Pressable key={md} style={[m.modeBtn, active && { backgroundColor: PRIMARY }]} onPress={() => setMode(md)}>
-                <Ionicons name={md === 'calendar' ? 'calendar-outline' : 'timer-outline'} size={14} color={active ? '#FFF' : theme.textSecondary} />
-                <Text style={[m.modeBtnText, { color: theme.textSecondary }, active && { color: '#FFF' }]}>{md === 'calendar' ? 'Calendar' : 'Countdown'}</Text>
+              <Pressable key={md} style={[m.modeBtn, active && { backgroundColor: theme.inverse }]} onPress={() => setMode(md)}>
+                <Ionicons name={md === 'calendar' ? 'calendar-outline' : 'timer-outline'} size={14} color={active ? theme.inverseText : theme.textSecondary} />
+                <Text style={[m.modeBtnText, { color: theme.textSecondary }, active && { color: theme.inverseText }]}>{md === 'calendar' ? 'Calendar' : 'Countdown'}</Text>
               </Pressable>
             );
           })}
@@ -563,7 +628,7 @@ export function HawkEyeModal({ visible, onClose, token }: Props) {
 
         {overlayLoading && (
           <View style={m.loadingRow}>
-            <ActivityIndicator size="small" color={PRIMARY} />
+            <ActivityIndicator size="small" color={theme.text} />
             <Text style={[m.loadingText, { color: theme.textSecondary }]}>Loading history…</Text>
           </View>
         )}

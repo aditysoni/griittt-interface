@@ -5,6 +5,7 @@ import {
   Modal,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -63,6 +64,14 @@ function themeForDomain(domain: string): typeof THEME_ROWS[number] {
 }
 
 const DURATION_OPTIONS = [7, 14, 21, 30, 60, 90];
+
+async function shareChallenge(c: Challenge, detail: { benefits: string[] }) {
+  const bullets = detail.benefits.slice(0, 3).map(b => `• ${b}`).join('\n');
+  await Share.share({
+    message: `💪 ${c.title.toUpperCase()} — ${c.durationDays}-DAY CHALLENGE\n\n${bullets}\n\nJoin me on Grittt! 🔥`,
+    title: c.title,
+  }).catch(() => {});
+}
 
 const SCREEN_W = Dimensions.get('window').width;
 const CARD_W        = Math.min(280, SCREEN_W - 60);   // explore — horizontal cards (a touch wider for benefits)
@@ -647,17 +656,26 @@ function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge;
         {points.map((pt, i) => (
           <View key={i} style={cc.pointRow}>
             <View style={[cc.bullet, { backgroundColor: t.dot }]} />
-            <Text style={[cc.pointText, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>{pt}</Text>
+            <Text style={[cc.pointText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{pt}</Text>
           </View>
         ))}
       </View>
 
       <View style={{ flex: 1 }} />
 
-      {/* Start button */}
-      <TouchableOpacity style={[cc.startBtn, { backgroundColor: theme.inverse }]} onPress={onPress} activeOpacity={0.85}>
-        <Text style={[cc.startText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>START →</Text>
-      </TouchableOpacity>
+      {/* Start + Share row */}
+      <View style={cc.actionRow}>
+        <TouchableOpacity style={[cc.startBtn, { backgroundColor: theme.inverse, flex: 1 }]} onPress={onPress} activeOpacity={0.85}>
+          <Text style={[cc.startText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>START →</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[cc.shareBtn, { borderColor: theme.border }]}
+          onPress={() => shareChallenge(c, detail)}
+          activeOpacity={0.75}
+        >
+          <Ionicons name="share-outline" size={16} color={theme.textSecondary} />
+        </TouchableOpacity>
+      </View>
 
       {!c.isPreset && (
         <View style={[cc.customBadge, { backgroundColor: t.dot }]}>
@@ -811,8 +829,10 @@ const cc = StyleSheet.create({
   pointRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
   bullet:       { width: 4, height: 4, borderRadius: 2, flexShrink: 0 },
   pointText:    { fontSize: 12, lineHeight: 16, flex: 1 },
-  startBtn:     { paddingVertical: 12, borderRadius: 12, alignItems: 'center', marginTop: 4 },
+  actionRow:    { flexDirection: 'row', gap: 8, marginTop: 4 },
+  startBtn:     { paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
   startText:    { fontSize: 11, letterSpacing: 3 },
+  shareBtn:     { width: 44, height: 44, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   customBadge:  { position: 'absolute', top: 12, right: 12, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4 },
   customText:   { fontSize: 8, letterSpacing: 1.5 },
 });
@@ -909,6 +929,13 @@ function ChallengeDetailModal({
             <Text style={[dm.themeLabel, { color: t.dot, fontFamily: 'Inter_900Black' }]}>{t.label}</Text>
           </View>
           <View style={{ flex: 1 }} />
+          <TouchableOpacity
+            onPress={() => shareChallenge(c, detail)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{ marginRight: 12 }}
+          >
+            <Ionicons name="share-outline" size={20} color={theme.textSecondary} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="close" size={22} color={theme.textSecondary} />
           </TouchableOpacity>

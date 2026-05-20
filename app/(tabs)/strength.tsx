@@ -19,6 +19,23 @@ import { useTheme } from '../../components/ThemeContext';
 
 const RATING_LABELS = ['Rest','Very light','Light','Easy','Moderate','Medium','Good','Strong','Very strong','Excellent','Elite'];
 
+function ratingColor(r: number): string {
+  if (r <= 3) return '#E84A4A';
+  if (r <= 6) return '#F0A12E';
+  return '#22A664';
+}
+
+const BODY_PART_COLORS: Record<string, string> = {
+  chest:     '#FF6B6B',
+  back:      '#4ECDC4',
+  shoulders: '#FFD93D',
+  legs:      '#6BCB77',
+  biceps:    '#4D96FF',
+  triceps:   '#C77DFF',
+  abs:       '#F0A12E',
+  cardio:    '#34C759',
+};
+
 const TRAINING_TYPES: { key: TrainingType; label: string; icon: string; sub: string }[] = [
   { key: 'gym',    label: 'GYM',           icon: '🏋️', sub: 'Pick a body part' },
   { key: 'sports', label: 'SPORTS',        icon: '🏀', sub: 'Pick a sport' },
@@ -240,45 +257,52 @@ export default function StrengthScreen() {
           theme={theme}
         />
 
-        {/* Compact rating card */}
-        {isToday && (
-          <TouchableOpacity
-            style={[s.compactRating, { borderColor: theme.border, backgroundColor: theme.card }]}
-            onPress={() => setShowRatingPicker(true)}
-            activeOpacity={0.85}
-          >
-            <View style={s.compactRatingTop}>
-              <Text style={[s.compactRatingLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>HOW IT GO TODAY?</Text>
-              <View style={s.compactRatingRight}>
-                <Text style={[s.compactRatingBig, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-                  {rating}
-                  <Text style={[s.compactRatingSlash, { color: theme.textSecondary }]}>/10</Text>
+        {/* Rating card */}
+        {isToday && (() => {
+          const rc = ratingColor(rating);
+          return (
+            <View style={[s.ratingCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+              {/* Colored left accent */}
+              <View style={[s.ratingAccent, { backgroundColor: rc }]} />
+
+              {/* Body */}
+              <TouchableOpacity style={s.ratingBody} onPress={() => setShowRatingPicker(true)} activeOpacity={0.85}>
+                <Text style={[s.ratingEyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                  HOW DID IT GO?
                 </Text>
-                <Text style={[s.compactRatingWord, { color: '#34C759', fontFamily: 'Inter_900Black' }]}>{RATING_LABELS[rating]?.toUpperCase()}</Text>
-              </View>
-            </View>
-            <View style={s.compactRatingBars}>
-              {Array.from({ length: 10 }).map((_, i) => (
-                <View key={i} style={[s.compactRatingBar, { backgroundColor: i < rating ? '#34C759' : theme.overlay }]} />
-              ))}
-            </View>
-            <View style={s.compactRatingFooter}>
-              <Text style={[s.compactRatingHint, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
-                TAP TO ADJUST
-              </Text>
+                <View style={s.ratingNumRow}>
+                  <Text style={[s.ratingNum, { color: rc, fontFamily: 'Inter_900Black' }]}>{rating}</Text>
+                  <Text style={[s.ratingDenom, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>/10</Text>
+                  <View style={[s.ratingLabelPill, { backgroundColor: rc + '22' }]}>
+                    <Text style={[s.ratingLabelText, { color: rc, fontFamily: 'Inter_900Black' }]}>
+                      {RATING_LABELS[rating]?.toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+                {/* Single progress bar */}
+                <View style={[s.ratingBarBg, { backgroundColor: theme.surface }]}>
+                  <View style={[s.ratingBarFill, { width: `${rating * 10}%` as any, backgroundColor: rc }]} />
+                </View>
+                <Text style={[s.ratingHint, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>
+                  TAP TO CHANGE RATING
+                </Text>
+              </TouchableOpacity>
+
+              {/* LOG button */}
               <TouchableOpacity
-                style={[s.compactLogBtn, { backgroundColor: theme.inverse, opacity: submitting ? 0.4 : 1 }]}
+                style={[s.ratingLogBtn, { backgroundColor: rc, opacity: submitting ? 0.4 : 1 }]}
                 onPress={submitQuick}
                 disabled={submitting}
                 activeOpacity={0.8}
               >
-                <Text style={[s.compactLogBtnText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>
-                  {submitting ? 'LOGGING...' : 'LOG →'}
+                <Text style={[s.ratingLogBtnText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>
+                  {submitting ? '...' : 'LOG'}
                 </Text>
+                <Ionicons name="arrow-forward" size={13} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
-          </TouchableOpacity>
-        )}
+          );
+        })()}
 
         <Modal visible={showRatingPicker} transparent animationType="slide">
           <Pressable style={[bs.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setShowRatingPicker(false)} />
@@ -324,17 +348,30 @@ export default function StrengthScreen() {
               <>
                 <Text style={[s.sectionHint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>WHAT DID YOU TRAIN?</Text>
                 <View style={s.bodyGrid}>
-                  {BODY_PARTS.filter(b => b.key !== 'cardio').map(bp => (
-                    <TouchableOpacity
-                      key={bp.key}
-                      style={[s.bodyCard, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}
-                      onPress={() => openBodyPart(bp.key)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={s.bodyIcon}>{bp.icon}</Text>
-                      <Text style={[s.bodyLabel, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>{bp.label}</Text>
-                    </TouchableOpacity>
-                  ))}
+                  {BODY_PARTS.filter(b => b.key !== 'cardio').map(bp => {
+                    const ac = BODY_PART_COLORS[bp.key] ?? '#22A664';
+                    return (
+                      <TouchableOpacity
+                        key={bp.key}
+                        style={[s.bodyCard, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF' }]}
+                        onPress={() => openBodyPart(bp.key)}
+                        activeOpacity={0.75}
+                      >
+                        {/* Colored top strip */}
+                        <View style={[s.bodyCardAccent, { backgroundColor: ac }]} />
+                        <View style={s.bodyCardInner}>
+                          <View style={[s.bodyIconBubble, { backgroundColor: ac + '22' }]}>
+                            <Text style={s.bodyIcon}>{bp.icon}</Text>
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[s.bodyLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{bp.label}</Text>
+                            <Text style={[s.bodySubLabel, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Tap to log</Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={14} color={ac} />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               </>
             )}
@@ -718,20 +755,21 @@ const s = StyleSheet.create({
   datesRow:       { paddingHorizontal: 14, paddingBottom: 8 },
   scroll:         { paddingBottom: 120 },
 
-  // Compact rating card
-  compactRating:        { marginHorizontal: 16, marginTop: 14, borderWidth: 1, borderRadius: 14, padding: 14, gap: 10 },
-  compactRatingTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  compactRatingLabel:   { fontSize: 9, letterSpacing: 2 },
-  compactRatingRight:   { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-  compactRatingBig:     { fontSize: 28, letterSpacing: -1, lineHeight: 32 },
-  compactRatingSlash:   { fontSize: 14 },
-  compactRatingWord:    { fontSize: 9, letterSpacing: 1.5 },
-  compactRatingBars:    { flexDirection: 'row', gap: 3 },
-  compactRatingBar:     { flex: 1, height: 4, borderRadius: 2 },
-  compactRatingFooter:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
-  compactRatingHint:    { fontSize: 8, letterSpacing: 2 },
-  compactLogBtn:        { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6 },
-  compactLogBtnText:    { fontSize: 10, letterSpacing: 2 },
+  // Rating card
+  ratingCard:      { marginHorizontal: 16, marginTop: 14, borderWidth: 1, borderRadius: 16, flexDirection: 'row', alignItems: 'center', overflow: 'hidden' },
+  ratingAccent:    { width: 5, alignSelf: 'stretch' },
+  ratingBody:      { flex: 1, padding: 14, gap: 8 },
+  ratingEyebrow:   { fontSize: 9, letterSpacing: 2 },
+  ratingNumRow:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ratingNum:       { fontSize: 42, letterSpacing: -2, lineHeight: 44 },
+  ratingDenom:     { fontSize: 16, alignSelf: 'flex-end', paddingBottom: 6 },
+  ratingLabelPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, marginLeft: 4 },
+  ratingLabelText: { fontSize: 9, letterSpacing: 1.5 },
+  ratingBarBg:     { height: 6, borderRadius: 3, overflow: 'hidden' },
+  ratingBarFill:   { height: 6, borderRadius: 3 },
+  ratingHint:      { fontSize: 8, letterSpacing: 1.5, opacity: 0.6 },
+  ratingLogBtn:    { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 14, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12 },
+  ratingLogBtnText:{ fontSize: 10, letterSpacing: 1.5 },
 
   // Training type chooser
   sectionHint:    { fontSize: 9, letterSpacing: 3, paddingHorizontal: 24, paddingTop: 16, paddingBottom: 10 },
@@ -742,10 +780,14 @@ const s = StyleSheet.create({
   trainingSub:    { fontSize: 8, letterSpacing: 0.5, textAlign: 'center' },
 
   // Body grid
-  bodyGrid:       { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, gap: 8 },
-  bodyCard:       { width: '31.5%', aspectRatio: 1, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  bodyIcon:       { fontSize: 28 },
-  bodyLabel:      { fontSize: 9, letterSpacing: 1.5 },
+  bodyGrid:       { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, gap: 10 },
+  bodyCard:       { width: '47%', borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  bodyCardAccent: { height: 4 },
+  bodyCardInner:  { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  bodyIconBubble: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  bodyIcon:       { fontSize: 22 },
+  bodyLabel:      { fontSize: 12, letterSpacing: 0.5 },
+  bodySubLabel:   { fontSize: 10, marginTop: 2 },
 
   // Inline forms for sports / cardio
   inlineForm:     { marginHorizontal: 16, marginTop: 12, gap: 10, borderWidth: 1, borderRadius: 16, padding: 16 },

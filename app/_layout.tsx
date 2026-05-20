@@ -1,4 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
@@ -57,6 +59,38 @@ function InitialLayout() {
   );
 }
 
+function CountdownSplash({ daysLeft, onDone }: { daysLeft: number; onDone: () => void }) {
+  const scale   = useRef(new Animated.Value(0.5)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 10, stiffness: 140 }),
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 350, useNativeDriver: true }),
+        Animated.delay(1300),
+        Animated.timing(opacity, { toValue: 0, duration: 350, useNativeDriver: true }),
+      ]),
+    ]).start(() => onDone());
+  }, []);
+
+  return (
+    <View style={sp.root}>
+      <Animated.View style={[sp.content, { opacity, transform: [{ scale }] }]}>
+        <Text style={sp.number}>{daysLeft}</Text>
+        <Text style={sp.label}>DAYS LEFT</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+const sp = StyleSheet.create({
+  root:    { flex: 1, backgroundColor: '#0D0D0D', alignItems: 'center', justifyContent: 'center' },
+  content: { alignItems: 'center', gap: 14 },
+  number:  { fontSize: 110, color: '#FFFFFF', fontFamily: 'Inter_900Black', letterSpacing: -6, lineHeight: 110 },
+  label:   { fontSize: 11, color: 'rgba(255,255,255,0.45)', letterSpacing: 5, fontFamily: 'Inter_700Bold' },
+});
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -70,7 +104,35 @@ export default function RootLayout() {
     SpaceGrotesk_700Bold,
   });
 
-  if (!fontsLoaded) return null;
+  // ready = fonts loaded + AsyncStorage checked
+  const [ready, setReady]       = useState(false);
+  const [daysLeft, setDaysLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!fontsLoaded) return;
+    AsyncStorage.getItem('grittt_hawkeye_countdown')
+      .then(raw => {
+        if (raw) {
+          try {
+            const { end } = JSON.parse(raw) as { start: string; end: string };
+            const endDate = new Date(end + 'T00:00:00');
+            const now = new Date(); now.setHours(0, 0, 0, 0);
+            const left = Math.round((endDate.getTime() - now.getTime()) / 86400000) + 1;
+            if (left >= 1) setDaysLeft(left);
+          } catch {}
+        }
+      })
+      .catch(() => {})
+      .finally(() => setReady(true));
+  }, [fontsLoaded]);
+
+  // Show nothing until both fonts and storage check are done
+  if (!fontsLoaded || !ready) return null;
+
+  // Countdown found — show splash, dismiss into app when done
+  if (daysLeft !== null) {
+    return <CountdownSplash daysLeft={daysLeft} onDone={() => setDaysLeft(null)} />;
+  }
 
   return (
     <ThemeProvider>
