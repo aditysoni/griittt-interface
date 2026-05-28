@@ -36,10 +36,18 @@ const BODY_PART_COLORS: Record<string, string> = {
   cardio:    '#34C759',
 };
 
-const TRAINING_TYPES: { key: TrainingType; label: string; icon: string; sub: string }[] = [
-  { key: 'gym',    label: 'GYM',           icon: '🏋️', sub: 'Pick a body part' },
-  { key: 'sports', label: 'SPORTS',        icon: '🏀', sub: 'Pick a sport' },
-  { key: 'cardio', label: 'RUN / WALK',    icon: '🏃', sub: 'Distance & time' },
+const TRAINING_TYPES: { key: TrainingType; label: string; icon: string; sub: string; tint: string }[] = [
+  { key: 'gym',    label: 'GYM',        icon: '🏋️', sub: 'Pick a body part', tint: '#EAF2FF' },
+  { key: 'sports', label: 'SPORTS',     icon: '🏀', sub: 'Pick a sport',      tint: '#FFF1E5' },
+  { key: 'cardio', label: 'RUN / WALK', icon: '🏃', sub: 'Time & distance',   tint: '#E2F7EC' },
+];
+
+const RATING_TIERS = [
+  { upTo: 2,  label: 'WRECKED', color: '#E84A4A', copy: 'Tough one. Recovery is the work today.' },
+  { upTo: 4,  label: 'LOW',     color: '#E84A4A', copy: 'Showed up. That counts.' },
+  { upTo: 6,  label: 'STEADY',  color: '#F0A12E', copy: 'Solid effort — kept the streak alive.' },
+  { upTo: 8,  label: 'STRONG',  color: '#22A664', copy: 'Real work today. You earned this.' },
+  { upTo: 10, label: 'ELITE',   color: '#22A664', copy: "Top tier. Don't stop now." },
 ];
 
 function shiftDateStr(base: string, days: number) {
@@ -257,48 +265,60 @@ export default function StrengthScreen() {
           theme={theme}
         />
 
-        {/* Rating card */}
+        {/* Rating hero card */}
         {isToday && (() => {
-          const rc = ratingColor(rating);
+          const tier = RATING_TIERS.find(t => rating <= t.upTo) ?? RATING_TIERS[4];
           return (
-            <View style={[s.ratingCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-              {/* Colored left accent */}
-              <View style={[s.ratingAccent, { backgroundColor: rc }]} />
+            <View style={[s.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[s.heroEyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>HOW DID IT GO?</Text>
 
-              {/* Body */}
-              <TouchableOpacity style={s.ratingBody} onPress={() => setShowRatingPicker(true)} activeOpacity={0.85}>
-                <Text style={[s.ratingEyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-                  HOW DID IT GO?
-                </Text>
-                <View style={s.ratingNumRow}>
-                  <Text style={[s.ratingNum, { color: rc, fontFamily: 'Inter_900Black' }]}>{rating}</Text>
-                  <Text style={[s.ratingDenom, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>/10</Text>
-                  <View style={[s.ratingLabelPill, { backgroundColor: rc + '22' }]}>
-                    <Text style={[s.ratingLabelText, { color: rc, fontFamily: 'Inter_900Black' }]}>
-                      {RATING_LABELS[rating]?.toUpperCase()}
-                    </Text>
-                  </View>
+              {/* Hero number with glow halo */}
+              <TouchableOpacity style={s.heroNumWrap} onPress={() => setShowRatingPicker(true)} activeOpacity={0.85}>
+                <View style={[s.heroHalo, { backgroundColor: tier.color + '25' }]} />
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4 }}>
+                  <Text style={[s.heroNum, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{rating}</Text>
+                  <Text style={[s.heroDenom, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>/10</Text>
                 </View>
-                {/* Single progress bar */}
-                <View style={[s.ratingBarBg, { backgroundColor: theme.surface }]}>
-                  <View style={[s.ratingBarFill, { width: `${rating * 10}%` as any, backgroundColor: rc }]} />
-                </View>
-                <Text style={[s.ratingHint, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>
-                  TAP TO CHANGE RATING
-                </Text>
               </TouchableOpacity>
 
-              {/* LOG button */}
+              <Text style={[s.heroTierLabel, { color: tier.color, fontFamily: 'Inter_900Black' }]}>{tier.label}</Text>
+              <Text style={[s.heroTierCopy, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{tier.copy}</Text>
+
+              {/* Sculpted ramping bars */}
+              <View style={s.heroBarWrap}>
+                {Array.from({ length: 10 }).map((_, i) => {
+                  const n = i + 1;
+                  const filled = n <= rating;
+                  const isActive = n === rating;
+                  const h = 16 + (i / 9) * 36;
+                  const band = n <= 2 ? '#E84A4A' : n <= 4 ? '#F08560' : n <= 6 ? '#F0A12E' : n <= 8 ? '#7BC95E' : '#22A664';
+                  return (
+                    <View key={i} style={{
+                      flex: 1, height: h, borderRadius: 6,
+                      backgroundColor: filled ? band : theme.surface,
+                      ...(isActive ? { borderWidth: 2, borderColor: theme.text } : {}),
+                    }} />
+                  );
+                })}
+              </View>
+              <View style={s.heroBarTicks}>
+                <Text style={[s.heroBarTick, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>1 · COOKED</Text>
+                <Text style={[s.heroBarTick, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>10 · ELITE</Text>
+              </View>
+
+              {/* LOG RATING button */}
               <TouchableOpacity
-                style={[s.ratingLogBtn, { backgroundColor: rc, opacity: submitting ? 0.4 : 1 }]}
+                style={[s.heroLogBtn, { backgroundColor: theme.text, opacity: submitting ? 0.4 : 1 }]}
                 onPress={submitQuick}
                 disabled={submitting}
                 activeOpacity={0.8}
               >
-                <Text style={[s.ratingLogBtnText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>
-                  {submitting ? '...' : 'LOG'}
+                <Text style={[s.heroLogBtnText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>
+                  {submitting ? 'LOGGING...' : 'LOG RATING'}
                 </Text>
-                <Ionicons name="arrow-forward" size={13} color="#FFFFFF" />
+                <View style={s.heroLogArrow}>
+                  <Ionicons name="arrow-forward" size={12} color={theme.text} />
+                </View>
               </TouchableOpacity>
             </View>
           );
@@ -335,7 +355,9 @@ export default function StrengthScreen() {
                     onPress={() => setTrainingType(active ? null : tt.key)}
                     activeOpacity={0.7}
                   >
-                    <Text style={s.trainingIcon}>{tt.icon}</Text>
+                    <View style={[s.trainingIconBubble, { backgroundColor: theme.isDark ? '#2A2A2A' : tt.tint }]}>
+                      <Text style={s.trainingIcon}>{tt.icon}</Text>
+                    </View>
                     <Text style={[s.trainingLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{tt.label}</Text>
                     <Text style={[s.trainingSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{tt.sub}</Text>
                   </TouchableOpacity>
@@ -755,27 +777,28 @@ const s = StyleSheet.create({
   datesRow:       { paddingHorizontal: 14, paddingBottom: 8 },
   scroll:         { paddingBottom: 120 },
 
-  // Rating card
-  ratingCard:      { marginHorizontal: 16, marginTop: 14, borderWidth: 1, borderRadius: 16, flexDirection: 'row', alignItems: 'center', overflow: 'hidden' },
-  ratingAccent:    { width: 5, alignSelf: 'stretch' },
-  ratingBody:      { flex: 1, padding: 14, gap: 8 },
-  ratingEyebrow:   { fontSize: 9, letterSpacing: 2 },
-  ratingNumRow:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  ratingNum:       { fontSize: 42, letterSpacing: -2, lineHeight: 44 },
-  ratingDenom:     { fontSize: 16, alignSelf: 'flex-end', paddingBottom: 6 },
-  ratingLabelPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, marginLeft: 4 },
-  ratingLabelText: { fontSize: 9, letterSpacing: 1.5 },
-  ratingBarBg:     { height: 6, borderRadius: 3, overflow: 'hidden' },
-  ratingBarFill:   { height: 6, borderRadius: 3 },
-  ratingHint:      { fontSize: 8, letterSpacing: 1.5, opacity: 0.6 },
-  ratingLogBtn:    { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 14, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12 },
-  ratingLogBtnText:{ fontSize: 10, letterSpacing: 1.5 },
+  // Rating hero card
+  heroCard:        { marginHorizontal: 16, marginTop: 14, borderWidth: 1, borderRadius: 20, padding: 20 },
+  heroEyebrow:     { fontSize: 9, letterSpacing: 3, textAlign: 'center', marginBottom: 4 },
+  heroNumWrap:     { alignItems: 'center', justifyContent: 'center', paddingVertical: 12, position: 'relative' },
+  heroHalo:        { position: 'absolute', width: 130, height: 130, borderRadius: 65 },
+  heroNum:         { fontSize: 84, letterSpacing: -4, lineHeight: 84 },
+  heroDenom:       { fontSize: 22, letterSpacing: -0.5, paddingBottom: 12 },
+  heroTierLabel:   { fontSize: 14, letterSpacing: 3, textAlign: 'center', marginTop: 2 },
+  heroTierCopy:    { fontSize: 12, textAlign: 'center', lineHeight: 17, marginTop: 6, marginBottom: 16, paddingHorizontal: 16, opacity: 0.8 },
+  heroBarWrap:     { flexDirection: 'row', alignItems: 'flex-end', gap: 5, height: 56 },
+  heroBarTicks:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, marginBottom: 16 },
+  heroBarTick:     { fontSize: 9, letterSpacing: 1 },
+  heroLogBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14 },
+  heroLogBtnText:  { fontSize: 12, letterSpacing: 3 },
+  heroLogArrow:    { width: 22, height: 22, borderRadius: 11, backgroundColor: '#B8F23A', alignItems: 'center', justifyContent: 'center' },
 
   // Training type chooser
   sectionHint:    { fontSize: 9, letterSpacing: 3, paddingHorizontal: 24, paddingTop: 16, paddingBottom: 10 },
   trainingRow:    { flexDirection: 'row', paddingHorizontal: 14, gap: 8 },
   trainingCard:   { flex: 1, borderWidth: 1, borderRadius: 14, padding: 14, alignItems: 'center', gap: 6 },
-  trainingIcon:   { fontSize: 26 },
+  trainingIconBubble: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  trainingIcon:   { fontSize: 22 },
   trainingLabel:  { fontSize: 11, letterSpacing: 2 },
   trainingSub:    { fontSize: 8, letterSpacing: 0.5, textAlign: 'center' },
 

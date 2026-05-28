@@ -1,4 +1,4 @@
-const BASE_URL = `${process.env.EXPO_PUBLIC_API_BASE ?? 'http://192.168.1.9:3001'}/api`;
+const BASE_URL = `${process.env.EXPO_PUBLIC_API_BASE ?? 'http://192.168.1.6:3001'}/api`;
 
 export type MacroTargets = { calories: number; protein: number; fat: number; carbs: number };
 
@@ -278,10 +278,10 @@ export const habits = {
   dailyScore: (token: string, date: string) =>
     request<{ date: string; score: number }>(`/habits/score/day?date=${date}`, {}, token),
 
-  complete: (token: string, name: string, taskId?: string, count?: number | null) =>
+  complete: (token: string, name: string, taskId?: string, count?: number | null, failed?: boolean) =>
     request<{ ok: boolean; count: number | null }>(`/habits/${encodeURIComponent(name)}/completions`, {
       method: 'POST',
-      body: JSON.stringify({ taskId, count }),
+      body: JSON.stringify({ taskId, count, ...(failed ? { failed: true } : {}) }),
     }, token),
 
   uncomplete: (token: string, name: string) =>
@@ -322,7 +322,7 @@ export const habits = {
     request<{ patterns: Array<{ insight: string; actionable: string }> }>('/habits/ai/patterns', { method: 'POST' }, token),
 
   allStatus: (token: string, date: string) =>
-    request<Array<{ id: string; normalized_name: string; done: boolean; count: number | null; streak: number }>>(
+    request<Array<{ id: string; normalized_name: string; done: boolean; yFailed: boolean; count: number | null; streak: number }>>(
       `/habits/all/status?date=${date}`, {}, token
     ),
 

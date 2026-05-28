@@ -26,7 +26,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 type HabitType = 'build' | 'control';
 type TimeSlot  = 'morning' | 'afternoon' | 'evening' | 'night' | 'allday';
-type HabitWithStatus = Task & { done: boolean; streak: number; count: number | null };
+type HabitWithStatus = Task & { done: boolean; yFailed: boolean; streak: number; count: number | null };
 
 const TIME_SLOTS: { key: TimeSlot; label: string; color: string }[] = [
   { key: 'morning',   label: 'MORNING',   color: '#F59E0B' },
@@ -89,6 +89,7 @@ export default function HabitsScreen() {
   // Count input modal state
   const [countHabit, setCountHabit]     = useState<HabitWithStatus | null>(null);
   const [countInput, setCountInput]     = useState('');
+  const [countIsY,   setCountIsY]       = useState(false); // true = Y-press (failed), false = N/build
 
   const isToday = selectedDate === today();
 
@@ -105,9 +106,10 @@ export default function HabitsScreen() {
         .filter(t => !t.archived_at)
         .map(t => ({
           ...t,
-          done:   statusMap.get(t.id)?.done   ?? false,
-          streak: statusMap.get(t.id)?.streak ?? 0,
-          count:  statusMap.get(t.id)?.count  ?? null,
+          done:    statusMap.get(t.id)?.done    ?? false,
+          yFailed: statusMap.get(t.id)?.yFailed ?? false,
+          streak:  statusMap.get(t.id)?.streak  ?? 0,
+          count:   statusMap.get(t.id)?.count   ?? null,
         }));
       setHabitList(merged);
       setDiscipline(disc);
@@ -186,7 +188,8 @@ export default function HabitsScreen() {
     setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
     if (habit.done) return; // already N-selected
 
-    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true } : h));
+    // Clear count — N means controlled (0 violations), so any Y-entered count is wiped
+    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false, count: null } : h));
     const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: true } : h);
     recomputeOptimisticScore(updatedList);
 
@@ -203,10 +206,20 @@ export default function HabitsScreen() {
 
   async function handleControlY(habit: HabitWithStatus) {
     if (!token || !isToday) return;
-    setYPressedIds(prev => new Set([...prev, habit.id]));
-    if (!habit.done) return; // already not done, just mark Y visually
 
-    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false } : h));
+    // track_count habits → open count modal so the user can log how many
+    if (habit.track_count) {
+      setCountHabit(habit);
+      setCountIsY(true);
+      setCountInput('');
+      return;
+    }
+
+    // Non-count control habits: mark Y locally, uncomplete if was N
+    setYPressedIds(prev => new Set([...prev, habit.id]));
+    if (!habit.done && !habit.yFailed) return; // already unanswered
+
+    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: false } : h));
     const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: false } : h);
     recomputeOptimisticScore(updatedList);
 
@@ -215,7 +228,7 @@ export default function HabitsScreen() {
       const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
       if (disc) setDiscipline(disc);
     } catch (err: any) {
-      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true } : h));
+      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false } : h));
       setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
       Alert.alert('Error', err.message);
     }
@@ -227,21 +240,37 @@ export default function HabitsScreen() {
     const num = raw === '' ? 0 : Number(raw);
     if (Number.isNaN(num) || num < 0) { Alert.alert('Invalid', 'Enter a non-negative number.'); return; }
 
-    const habit = countHabit;
+    const habit  = countHabit;
+    const isY    = countIsY;
     setCountHabit(null);
+    setCountIsY(false);
 
-    // Optimistic UI: mark done with count
-    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, count: num } : h));
-    const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: true } : h);
-    recomputeOptimisticScore(updatedList);
-
-    try {
-      await habits.complete(token, habit.name, habit.id, num);
-      const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-      if (disc) setDiscipline(disc);
-    } catch (err: any) {
-      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, count: null } : h));
-      Alert.alert('Error', err.message);
+    if (isY) {
+      // Y path: store count as a "failed" completion — no discipline point
+      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: true, count: num } : h));
+      const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: false } : h);
+      recomputeOptimisticScore(updatedList);
+      try {
+        await habits.complete(token, habit.name, habit.id, num, true); // failed=true
+        const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
+        if (disc) setDiscipline(disc);
+      } catch (err: any) {
+        setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: false, count: null } : h));
+        Alert.alert('Error', err.message);
+      }
+    } else {
+      // N / build path: normal completion
+      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false, count: num } : h));
+      const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: true } : h);
+      recomputeOptimisticScore(updatedList);
+      try {
+        await habits.complete(token, habit.name, habit.id, num);
+        const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
+        if (disc) setDiscipline(disc);
+      } catch (err: any) {
+        setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, count: null } : h));
+        Alert.alert('Error', err.message);
+      }
     }
   }
 
@@ -258,7 +287,7 @@ export default function HabitsScreen() {
         trackCount: isControl ? true : newTrackCount,
         countUnit: (isControl || newTrackCount) ? (newUnit.trim() || null) : null,
       });
-      setHabitList(l => [...l, { ...task, done: false, streak: 0, count: null }]);
+      setHabitList(l => [...l, { ...task, done: false, yFailed: false, streak: 0, count: null }]);
       setShowAdd(false);
       setNewName(''); setNewType('build'); setNewScore(5);
       setNewTrackCount(false); setNewUnit(''); setNewDays([0,1,2,3,4,5,6]);
@@ -383,7 +412,7 @@ export default function HabitsScreen() {
               theme={theme}
               canToggle={isToday}
               isControl={isControl}
-              ySelected={isControl ? yPressedIds.has(habit.id) : false}
+              ySelected={isControl ? (habit.yFailed || yPressedIds.has(habit.id)) : false}
               fromChallenge={challengeNames.has(habit.name.trim().toLowerCase())}
               onToggle={isControl ? undefined : () => toggleHabit(habit)}
               onPressN={isControl ? () => handleControlN(habit) : undefined}
@@ -596,7 +625,7 @@ export default function HabitsScreen() {
         <Pressable style={cs.backdrop} onPress={() => setCountHabit(null)}>
           <Pressable style={[cs.card, { backgroundColor: theme.bg, borderColor: theme.border }]} onPress={e => e.stopPropagation()}>
             <Text style={[cs.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-              {countHabit?.category === 'control' ? 'HOW MUCH TODAY?' : 'COUNT TODAY'}
+              {countIsY ? 'HOW MANY TODAY?' : countHabit?.category === 'control' ? 'HOW MUCH TODAY?' : 'COUNT TODAY'}
             </Text>
             <Text style={[cs.subtitle, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
               {countHabit?.name}
@@ -1211,7 +1240,8 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
           }]}>
             {nActive ? `+${impact}% CONTROLLED` : yActive ? 'FAILED' : `+${impact}% ${isControl ? 'CONTROL' : 'DISCIPLINE'}`}
           </Text>
-          {habit.streak > 0 && (
+          {/* Streak — hide when Y is active (failed = no streak credit) */}
+          {habit.streak > 0 && !yActive && (
             <View style={s.streakBadge}>
               <Text style={{ fontSize: 10 }}>🔥</Text>
               <Text style={[s.streakText, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>
@@ -1219,9 +1249,10 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
               </Text>
             </View>
           )}
-          {habit.done && habit.count != null && (
-            <View style={[s.countBadge, { backgroundColor: '#22A66420' }]}>
-              <Text style={[s.impactText, { color: '#22A664', fontFamily: 'SpaceGrotesk_700Bold' }]}>
+          {/* Count badge — show for Y (red) and N (green), hide when neither selected */}
+          {habit.count != null && (yActive || nActive) && (
+            <View style={[s.countBadge, { backgroundColor: yActive ? '#E84A4A20' : '#22A66420' }]}>
+              <Text style={[s.impactText, { color: yActive ? '#E84A4A' : '#22A664', fontFamily: 'SpaceGrotesk_700Bold' }]}>
                 {habit.count}{habit.count_unit ? ` ${habit.count_unit}` : ''}
               </Text>
             </View>

@@ -232,45 +232,58 @@ export default function FuelScreen() {
         {/* QUICK */}
         {mode === 'quick' && isToday && (
           <>
-            {/* Hairline question rows */}
-            <View style={[qcs.group, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
-              <QuestionCard
-                icon="🍽️"
-                label="STUCK TO YOUR DIET?"
-                sub="Did you follow your planned meals today?"
-                state={stuckToMeal}
-                onAnswer={setStuckToMeal}
-                yesColor="#34C759"
-                noColor="#FF453A"
-                theme={theme}
-              />
-              <View style={[qcs.hairline, { backgroundColor: theme.border }]} />
-              <QuestionCard
-                icon="🍔"
-                label="HAD JUNK FOOD?"
-                sub="Any processed or unhealthy food?"
-                state={hadJunk}
-                onAnswer={setHadJunk}
-                yesColor="#FF453A"
-                noColor="#34C759"
-                theme={theme}
-              />
-              <View style={[qcs.hairline, { backgroundColor: theme.border }]} />
+            {/* Question cards */}
+            <QuestionCard
+              icon="🍽️"
+              iconBg={theme.isDark ? '#2A2A2A' : '#F0F0F0'}
+              label="STUCK TO YOUR DIET?"
+              sub="Did you follow your planned meals today?"
+              state={stuckToMeal}
+              onAnswer={setStuckToMeal}
+              yesColor="#22A664"
+              noColor="#E84A4A"
+              theme={theme}
+            />
+            <QuestionCard
+              icon="🍔"
+              iconBg={theme.isDark ? '#2A2A2A' : '#FFE9D6'}
+              label="HAD JUNK FOOD?"
+              sub="Any processed or unhealthy food?"
+              state={hadJunk}
+              onAnswer={setHadJunk}
+              yesColor="#E84A4A"
+              noColor="#22A664"
+              theme={theme}
+            />
 
-              {/* Food Quality row */}
-              <TouchableOpacity style={qcs.row} onPress={() => setShowQPicker(true)} activeOpacity={0.75}>
-                <Text style={qcs.icon}>⭐</Text>
+            {/* Food Quality card */}
+            <View style={[qcs.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                <View style={[qcs.iconBubble, { backgroundColor: theme.isDark ? '#2A2A2A' : '#FFF4D6' }]}>
+                  <Text style={{ fontSize: 18 }}>⭐</Text>
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>FOOD QUALITY</Text>
                   <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                    {QUALITY_LABELS[foodQuality]}
+                    {QUALITY_LABELS[foodQuality]} · tap to adjust
                   </Text>
                 </View>
-                <View style={qcs.qualityScore}>
-                  <Text style={[qcs.qualityNum, { color: '#34C759', fontFamily: 'SpaceGrotesk_700Bold' }]}>{foodQuality}</Text>
-                  <Text style={[qcs.qualityDenom, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>/10</Text>
+                <Text style={{ fontSize: 22, color: '#22A664', fontFamily: 'SpaceGrotesk_700Bold' }}>
+                  {foodQuality}<Text style={{ fontSize: 13, color: theme.textMuted, fontFamily: 'Inter_400Regular' }}>/10</Text>
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowQPicker(true)} activeOpacity={0.75} style={{ marginTop: 12 }}>
+                <View style={{ flexDirection: 'row', gap: 4 }}>
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <View key={i} style={{
+                      flex: 1, height: 8, borderRadius: 4,
+                      backgroundColor: i < foodQuality ? '#22A664' : theme.surface,
+                    }} />
+                  ))}
                 </View>
-                <Ionicons name="chevron-forward" size={14} color={theme.textSecondary} />
+                <Text style={[{ fontSize: 8, letterSpacing: 1.5, marginTop: 5, opacity: 0.5 }, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
+                  TAP TO ADJUST
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -288,9 +301,21 @@ export default function FuelScreen() {
               </View>
             </Modal>
 
-            <TouchableOpacity style={[s.submitBtn, { backgroundColor: theme.tabActiveBg, opacity: (stuckToMeal === null || hadJunk === null || submitting) ? 0.4 : 1 }]}
-              onPress={submitQuick} disabled={stuckToMeal === null || hadJunk === null || submitting}>
-              <Text style={[s.submitBtnText, { color: theme.tabActiveText, fontFamily: 'Inter_900Black' }]}>{submitting ? 'LOGGING...' : 'LOG FUEL →'}</Text>
+            <TouchableOpacity
+              style={[s.logFuelBtn, {
+                backgroundColor: theme.text,
+                opacity: (stuckToMeal === null || hadJunk === null || submitting) ? 0.4 : 1,
+              }]}
+              onPress={submitQuick}
+              disabled={stuckToMeal === null || hadJunk === null || submitting}
+              activeOpacity={0.85}
+            >
+              <Text style={[s.logFuelBtnText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>
+                {submitting ? 'LOGGING...' : 'LOG FUEL'}
+              </Text>
+              <View style={s.logFuelArrow}>
+                <Ionicons name="arrow-forward" size={12} color={theme.text} />
+              </View>
             </TouchableOpacity>
           </>
         )}
@@ -944,8 +969,9 @@ const fi = StyleSheet.create({
   totalCellLabel: { fontSize: 8, letterSpacing: 1.5 },
 });
 
-function QuestionCard({ icon, label, sub, state, onAnswer, yesColor, noColor, theme }: {
+function QuestionCard({ icon, iconBg, label, sub, state, onAnswer, yesColor, noColor, theme }: {
   icon: string;
+  iconBg: string;
   label: string;
   sub: string;
   state: boolean | null;
@@ -958,51 +984,66 @@ function QuestionCard({ icon, label, sub, state, onAnswer, yesColor, noColor, th
   const noActive  = state === false;
 
   return (
-    <View style={qcs.row}>
-      <Text style={qcs.icon}>{icon}</Text>
-      <View style={{ flex: 1 }}>
-        <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{label}</Text>
-        <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{sub}</Text>
-      </View>
-      <View style={qcs.toggles}>
-        <TouchableOpacity
-          style={[qcs.toggle, {
-            backgroundColor: yesActive ? yesColor : 'transparent',
-            borderColor: yesActive ? yesColor : theme.border,
-          }]}
-          onPress={() => onAnswer(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={[qcs.toggleText, { color: yesActive ? '#FFF' : yesColor, fontFamily: 'Inter_900Black' }]}>Y</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[qcs.toggle, {
-            backgroundColor: noActive ? noColor : 'transparent',
-            borderColor: noActive ? noColor : theme.border,
-          }]}
-          onPress={() => onAnswer(false)}
-          activeOpacity={0.7}
-        >
-          <Text style={[qcs.toggleText, { color: noActive ? '#FFF' : noColor, fontFamily: 'Inter_900Black' }]}>N</Text>
-        </TouchableOpacity>
+    <View style={[qcs.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+        <View style={[qcs.iconBubble, { backgroundColor: iconBg }]}>
+          <Text style={{ fontSize: 18 }}>{icon}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{label}</Text>
+          <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{sub}</Text>
+          <View style={qcs.btnRow}>
+            <TouchableOpacity
+              style={[qcs.yesNoBtn, {
+                backgroundColor: yesActive ? yesColor + '20' : 'transparent',
+                borderColor: yesActive ? yesColor : theme.border,
+              }]}
+              onPress={() => onAnswer(true)}
+              activeOpacity={0.75}
+            >
+              <Ionicons
+                name={yesActive ? 'checkmark' : 'checkmark-outline'}
+                size={14}
+                color={yesActive ? yesColor : theme.textSecondary}
+              />
+              <Text style={[qcs.yesNoText, {
+                color: yesActive ? yesColor : theme.textSecondary,
+                fontFamily: 'Inter_900Black',
+              }]}>YES</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[qcs.yesNoBtn, {
+                backgroundColor: noActive ? noColor + '20' : 'transparent',
+                borderColor: noActive ? noColor : theme.border,
+              }]}
+              onPress={() => onAnswer(false)}
+              activeOpacity={0.75}
+            >
+              <Ionicons
+                name={noActive ? 'close' : 'close-outline'}
+                size={14}
+                color={noActive ? noColor : theme.textSecondary}
+              />
+              <Text style={[qcs.yesNoText, {
+                color: noActive ? noColor : theme.textSecondary,
+                fontFamily: 'Inter_900Black',
+              }]}>NO</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     </View>
   );
 }
 
 const qcs = StyleSheet.create({
-  group:        { marginHorizontal: 16, borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
-  hairline:     { height: 1 },
-  row:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 13, gap: 12 },
-  icon:         { fontSize: 18 },
-  label:        { fontSize: 11, letterSpacing: 1.5 },
-  sub:          { fontSize: 9, letterSpacing: 0.3, marginTop: 2 },
-  toggles:      { flexDirection: 'row', gap: 6 },
-  toggle:       { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  toggleText:   { fontSize: 10, letterSpacing: 1 },
-  qualityScore: { flexDirection: 'row', alignItems: 'baseline', gap: 1 },
-  qualityNum:   { fontSize: 18 },
-  qualityDenom: { fontSize: 11 },
+  card:       { marginHorizontal: 16, marginBottom: 10, borderWidth: 1, borderRadius: 16, padding: 14 },
+  iconBubble: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  label:      { fontSize: 12, letterSpacing: 1 },
+  sub:        { fontSize: 10, letterSpacing: 0.2, marginTop: 2 },
+  btnRow:     { flexDirection: 'row', gap: 8, marginTop: 10 },
+  yesNoBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderWidth: 1.5, borderRadius: 10 },
+  yesNoText:  { fontSize: 11, letterSpacing: 1.5 },
 });
 
 function MealRow({ log, theme }: { log: FoodLog; theme: any }) {
@@ -1183,8 +1224,11 @@ const s = StyleSheet.create({
   targetLabel: { fontSize: 7, letterSpacing: 2 },
   targetField: { fontSize: 12, width: 48, textAlign: 'right' },
   notesInput: { marginHorizontal: 24, marginTop: 12, borderWidth: 1, padding: 14, fontSize: 12, letterSpacing: 1, minHeight: 60, textAlignVertical: 'top' },
-  submitBtn: { marginHorizontal: 16, marginTop: 14, paddingVertical: 14, alignItems: 'center', borderRadius: 12 },
-  submitBtnText: { fontSize: 10, letterSpacing: 4 },
+  submitBtn:      { marginHorizontal: 16, marginTop: 14, paddingVertical: 14, alignItems: 'center', borderRadius: 12 },
+  submitBtnText:  { fontSize: 10, letterSpacing: 4 },
+  logFuelBtn:     { marginHorizontal: 16, marginTop: 14, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14 },
+  logFuelBtnText: { fontSize: 12, letterSpacing: 3 },
+  logFuelArrow:   { width: 22, height: 22, borderRadius: 11, backgroundColor: '#B8F23A', alignItems: 'center', justifyContent: 'center' },
   empty: { alignItems: 'center', paddingVertical: 48 },
   emptyText: { fontSize: 9, letterSpacing: 3 },
   // detailed form
