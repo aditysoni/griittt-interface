@@ -173,6 +173,20 @@ export const auth = {
 
   me: (token: string) =>
     request<User>('/auth/me', {}, token),
+
+  // ── Google OAuth (server-side polling flow) ──────────────────────────────
+  // The app opens `googleMobileUrl(session)` in a browser; the backend runs the
+  // whole OAuth handshake with its OWN credentials (GOOGLE_CLIENT_ID/SECRET from
+  // its .env), stores the resulting JWT keyed by `session`, then the app polls
+  // `googlePoll(session)` to retrieve it. No Google client config lives in the app.
+  googleMobileUrl: (session: string) =>
+    `${BASE_URL}/auth/google/mobile?session=${encodeURIComponent(session)}`,
+
+  googlePoll: (session: string) =>
+    request<{ ready: boolean; token?: string; error?: string }>(
+      `/auth/google/mobile/poll/${encodeURIComponent(session)}`,
+      {}
+    ),
 };
 
 // Users / profile
@@ -278,14 +292,23 @@ export const habits = {
   dailyScore: (token: string, date: string) =>
     request<{ date: string; score: number }>(`/habits/score/day?date=${date}`, {}, token),
 
-  complete: (token: string, name: string, taskId?: string, count?: number | null, failed?: boolean) =>
+  // `date` (YYYY-MM-DD, the caller's LOCAL day) is sent so the server records the
+  // completion on the same calendar day the reads (allStatus / disciplineDay) query
+  // by. Without it the server falls back to its own CURRENT_DATE, which drifts from
+  // the user's local date across the midnight boundary (e.g. IST is UTC+5:30) and
+  // makes a just-completed habit read back as not-done.
+  complete: (token: string, name: string, taskId?: string, count?: number | null, failed?: boolean, date?: string) =>
     request<{ ok: boolean; count: number | null }>(`/habits/${encodeURIComponent(name)}/completions`, {
       method: 'POST',
-      body: JSON.stringify({ taskId, count, ...(failed ? { failed: true } : {}) }),
+      body: JSON.stringify({ taskId, count, ...(failed ? { failed: true } : {}), ...(date ? { date } : {}) }),
     }, token),
 
-  uncomplete: (token: string, name: string) =>
-    request<null>(`/habits/${encodeURIComponent(name)}/completions`, { method: 'DELETE' }, token),
+  uncomplete: (token: string, name: string, date?: string) =>
+    request<null>(
+      `/habits/${encodeURIComponent(name)}/completions${date ? `?date=${date}` : ''}`,
+      { method: 'DELETE' },
+      token,
+    ),
 
   ranking: (token: string, name: string) =>
     request<{ name: string; normalized: string; ranking: Array<{ userId: string; userName: string; avatar: string | null; streak: number }> }>(
@@ -656,6 +679,26 @@ export const challenges = {
     ),
 };
 
+/** Format a Date as YYYY-MM-DD in the device's LOCAL timezone.
+ *  Using toISOString() here would format in UTC, which shifts the calendar day
+ *  for anyone behind/ahead of UTC (e.g. evening in the Americas reads as
+ *  "tomorrow"), causing the wrong day to highlight and logs to land on the
+ *  wrong date. */
+export function toDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Local-timezone "today" as YYYY-MM-DD. */
 export function today(): string {
-  return new Date().toISOString().split('T')[0];
+  return toDateStr(new Date());
+}
+
+/** Shift a YYYY-MM-DD date string by `days` (local calendar days). */
+export function shiftDate(base: string, days: number): string {
+  const d = new Date(base + 'T00:00:00'); // parse as local midnight
+  d.setDate(d.getDate() + days);
+  return toDateStr(d);
 }

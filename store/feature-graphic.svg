@@ -1,0 +1,39 @@
+<svg width="1024" height="500" viewBox="0 0 1024 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111418"/>
+      <stop offset="1" stop-color="#0a0a0c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.6">
+      <stop offset="0" stop-color="#B8F23A" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#B8F23A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="500" fill="url(#bg)"/>
+  <rect width="1024" height="500" fill="url(#glow)"/>
+
+  <!-- subtle streak dots -->
+  <g fill="#B8F23A" opacity="0.9">
+    <circle cx="372" cy="372" r="7"/>
+    <circle cx="404" cy="372" r="7"/>
+    <circle cx="436" cy="372" r="7"/>
+    <circle cx="468" cy="372" r="7"/>
+    <circle cx="500" cy="372" r="7"/>
+  </g>
+  <g fill="#2c2c33">
+    <circle cx="532" cy="372" r="7"/>
+    <circle cx="564" cy="372" r="7"/>
+    <circle cx="596" cy="372" r="7"/>
+    <circle cx="628" cy="372" r="7"/>
+    <circle cx="660" cy="372" r="7"/>
+  </g>
+
+  <text x="512" y="232" text-anchor="middle"
+        font-family="Arial Black, Arial, sans-serif" font-weight="900"
+        font-size="118" letter-spacing="6" fill="#B8F23A">GRITTT</text>
+
+  <text x="512" y="300" text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif" font-weight="600"
+        font-size="30" letter-spacing="1" fill="#e8e8e8">Build discipline. Beat your vices.</text>
+</svg>

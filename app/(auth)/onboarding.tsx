@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
+import { storage } from '../../lib/storage';
 
 // ── Warm Coach design tokens ─────────────────────────────
 const W = {
@@ -131,17 +132,16 @@ function S1_Welcome({ onNext, showSignIn, onSignIn }: {
           </Text>
           <View style={{ flex: 1 }} />
           <TouchableOpacity style={s1.cta} onPress={onNext} activeOpacity={0.85}>
-            <Text style={[s1.ctaText, { fontFamily: 'SpaceGrotesk_700Bold' }]}>LET'S GO  →</Text>
+            <Text style={[s1.ctaText, { fontFamily: 'SpaceGrotesk_700Bold' }]}>I'M NEW HERE  →</Text>
           </TouchableOpacity>
           {showSignIn && (
-            <TouchableOpacity onPress={onSignIn} activeOpacity={0.7} style={s1.signInBtn}>
-              <Text style={[s1.signInText, { fontFamily: 'Inter_500Medium' }]}>
-                Already have an account?{' '}
-                <Text style={{ color: W.hype, fontFamily: 'Inter_700Bold' }}>Sign in</Text>
+            <TouchableOpacity style={s1.signInCta} onPress={onSignIn} activeOpacity={0.85}>
+              <Text style={[s1.signInCtaText, { fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                SIGN IN
               </Text>
             </TouchableOpacity>
           )}
-          <View style={{ height: 16 }} />
+          <View style={{ height: 24 }} />
         </View>
       </SafeAreaView>
     </View>
@@ -163,8 +163,16 @@ const s1 = StyleSheet.create({
   sub: { color: 'rgba(255,255,255,0.65)', fontSize: 16, marginTop: 20, lineHeight: 24, maxWidth: 300 },
   cta: { backgroundColor: W.hype, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
   ctaText: { color: W.ink, fontSize: 14, letterSpacing: 2 },
-  signInBtn: { paddingVertical: 14, alignItems: 'center' },
-  signInText: { color: 'rgba(255,255,255,0.6)', fontSize: 13 },
+  signInCta: {
+    marginTop: 12,
+    borderRadius: 16,
+    paddingVertical: 18,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: W.hype,
+    backgroundColor: 'transparent',
+  },
+  signInCtaText: { color: W.hype, fontSize: 14, letterSpacing: 2 },
 });
 
 // ── S2: Name ─────────────────────────────────────────────
@@ -801,7 +809,7 @@ const tt = StyleSheet.create({
 
 // ── Main export ──────────────────────────────────────────
 export default function OnboardingScreen() {
-  const { completeOnboarding, signup, user } = useAuth();
+  const { completeOnboarding, signup, login, user } = useAuth();
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [name, setName] = useState(user?.name ?? '');
@@ -847,12 +855,39 @@ export default function OnboardingScreen() {
       // would still be null at this point.
       let freshToken: string | undefined;
       if (needsCredentials) {
-        if (!email.trim() || password.length < 8) {
+        const em = email.trim().toLowerCase();
+        if (!em || password.length < 8) {
           Alert.alert('Almost there', 'Enter an email and a password (8+ characters).');
           setSubmitting(false);
           return;
         }
-        freshToken = await signup(name.trim() || 'You', email.trim().toLowerCase(), password);
+        try {
+          freshToken = await signup(name.trim() || 'You', em, password);
+        } catch (err: any) {
+          // A previous attempt may have created the account but failed to save
+          // onboarding (network blip on the final step). Retrying signup with
+          // the same email would 409 and trap the user with all their answers.
+          // Recover by signing in with the same credentials and continuing.
+          const msg = String(err?.message ?? '').toLowerCase();
+          const alreadyExists =
+            err?.status === 409 || msg.includes('exist') || msg.includes('already') || msg.includes('registered');
+          if (!alreadyExists) throw err;
+          try {
+            await login(em, password);
+            freshToken = (await storage.getToken()) ?? undefined;
+          } catch {
+            Alert.alert(
+              'Account already exists',
+              'That email is already registered. If it’s yours, sign in to continue — your answers here will need to be re-entered after signing in.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Go to sign in', onPress: () => router.replace('/(auth)/login' as any) },
+              ],
+            );
+            setSubmitting(false);
+            return;
+          }
+        }
       }
 
       // Convert recommendation ids → habit names the backend can store.
@@ -878,7 +913,9 @@ export default function OnboardingScreen() {
         coachingTone: tone as 'soft' | 'bal' | 'hard',
         notificationsEnabled: true,
       }, freshToken);
-      router.replace('/(tabs)');
+      // Bridge through the First Win screen so the user completes one habit and
+      // sees their score/streak move before hitting the (otherwise empty) dashboard.
+      router.replace('/first-win' as any);
     } catch (err: any) {
       Alert.alert('Could not finish setup', err?.message ?? 'Try again.');
       setSubmitting(false);

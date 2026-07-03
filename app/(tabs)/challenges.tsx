@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   Share,
@@ -17,8 +19,9 @@ import { useRouter } from 'expo-router';
 import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
-import { challenges, Challenge, tasks } from '../../lib/api';
+import { challenges, Challenge, DurationStats, tasks } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
+import { ErrorState } from '../../components/ErrorState';
 import { useTheme, AppTheme } from '../../components/ThemeContext';
 
 // ── Theme rows ────────────────────────────────────────────────────────────────
@@ -65,12 +68,23 @@ function themeForDomain(domain: string): typeof THEME_ROWS[number] {
 
 const DURATION_OPTIONS = [7, 14, 21, 30, 60, 90];
 
-async function shareChallenge(c: Challenge, detail: { benefits: string[] }) {
-  const bullets = detail.benefits.slice(0, 3).map(b => `• ${b}`).join('\n');
+async function shareChallenge(c: Challenge) {
+  const bullets = (c.benefits ?? []).slice(0, 3).map(b => `• ${b}`).join('\n');
   await Share.share({
     message: `💪 ${c.title.toUpperCase()} — ${c.durationDays}-DAY CHALLENGE\n\n${bullets}\n\nJoin me on Grittt! 🔥`,
     title: c.title,
   }).catch(() => {});
+}
+
+// Instructions come from the backend (preset-seeded or stored on the challenge);
+// fall back to the description, then a generic line. Benefits are read straight
+// off `c.benefits` (the server fills these in for presets and custom challenges).
+function instructionsFor(c: Challenge): string {
+  return (
+    c.instructions?.trim() ||
+    c.description?.trim() ||
+    `Complete this every day for ${c.durationDays} days. Mark it done on your habits page.`
+  );
 }
 
 const SCREEN_W = Dimensions.get('window').width;
@@ -99,130 +113,6 @@ function trendFor(c: Challenge): Trend {
   return            { label: 'SLIPPING',           color: '#F59E0B', icon: 'trending-down' };
 }
 
-// Maps actual-vs-expected pace into a comparative percentile.
-function percentileFor(c: Challenge): number {
-  const elapsed = Math.max(daysSince(c.startedAt), 1);
-  const ratio   = c.daysDone / elapsed;
-  if (ratio >= 1.0)  return 90;
-  if (ratio >= 0.85) return 75;
-  if (ratio >= 0.7)  return 60;
-  if (ratio >= 0.5)  return 40;
-  if (ratio >= 0.3)  return 25;
-  return 10;
-}
-
-// ── Benefits & instructions lookup ────────────────────────────────────────────
-// Keyed by lowercased title. Falls back to generic per-theme benefits.
-
-type ChallengeDetail = {
-  benefits: string[];
-  instructions: string;
-};
-
-const TITLE_DETAILS: Record<string, ChallengeDetail> = {
-  'cold water bath': {
-    benefits: ['Blood flow', 'High testosterone', 'Stress release', 'Calmness & freshness'],
-    instructions: 'Stand under cold water for at least 60 seconds every morning. Breathe slow through the nose.',
-  },
-  'cold shower': {
-    benefits: ['Blood flow', 'High testosterone', 'Stress release', 'Calmness & freshness'],
-    instructions: 'Finish each shower with 60s of cold. Breathe slow through the nose.',
-  },
-  'no phone in bed': {
-    benefits: ['Better sleep', 'Sharper focus', 'Less anxiety', 'More presence'],
-    instructions: 'Plug your phone outside the bedroom. Read or stretch before sleep instead.',
-  },
-  'morning run': {
-    benefits: ['Cardio fitness', 'Mental clarity', 'Energy boost', 'Discipline reps'],
-    instructions: 'Run 20–30 min within an hour of waking, 5 days a week. Pace conversational.',
-  },
-  'no sugar': {
-    benefits: ['Lean body', 'Stable energy', 'Better mood', 'Sharper mind'],
-    instructions: 'Cut added sugar from drinks, snacks, and sauces. Fruits are fine.',
-  },
-  'meditation': {
-    benefits: ['Lower anxiety', 'Better focus', 'Emotional control', 'Self-awareness'],
-    instructions: 'Sit quietly for 10 minutes, breath at the nostrils as anchor.',
-  },
-  'read daily': {
-    benefits: ['Vocabulary', 'Empathy', 'Focus stamina', 'Compounding knowledge'],
-    instructions: 'Read 10 pages every day, any genre. Phone elsewhere.',
-  },
-  'no alcohol': {
-    benefits: ['Better sleep', 'Lean body', 'Mental clarity', 'Stronger willpower'],
-    instructions: 'Zero alcohol. Mocktails or sparkling water at social events.',
-  },
-  'gym daily': {
-    benefits: ['Muscle gain', 'Strength', 'Bone density', 'Confidence'],
-    instructions: '45–60 min of resistance training. Track lifts and progress weekly.',
-  },
-  'wake at 5am': {
-    benefits: ['Time control', 'Discipline reps', 'Deep work', 'Quiet hours'],
-    instructions: 'Alarm at 5:00. Phone across the room. Out of bed within 2 minutes.',
-  },
-};
-
-const THEME_BENEFITS: Record<ThemeKey, string[]> = {
-  physical:  ['Cardio fitness', 'Strength', 'Energy boost', 'Lean body'],
-  health:    ['Better sleep', 'Stable energy', 'Sharper mind', 'Stronger immunity'],
-  career:    ['Sharper focus', 'Skill compounding', 'Higher output', 'Clear thinking'],
-  lifestyle: ['Discipline reps', 'Better routines', 'More presence', 'Calmer mind'],
-};
-
-function detailFor(c: Challenge): ChallengeDetail {
-  const key = c.title.trim().toLowerCase();
-  if (TITLE_DETAILS[key]) return TITLE_DETAILS[key];
-  const t = themeForDomain(c.domain);
-  return {
-    benefits: THEME_BENEFITS[t.key],
-    instructions: c.description?.trim() || `Complete this every day for ${c.durationDays} days. Mark it done on your habits page.`,
-  };
-}
-
-// Stable hash of a string → unsigned int.
-function hashStr(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-
-// Stable synthetic participant count from the challenge id — keeps the number
-// the same across reloads. Replace with a real API field when available.
-function participantsFor(c: Challenge): number {
-  return 80 + (hashStr(c.id) % 1820); // 80–1900 range
-}
-
-// Buckets of "how many users dropped off at this day range" — stable per
-// challenge. Total roughly equals participantsFor(c). Replace with real
-// distribution data when the backend exposes it.
-export type HistBucket = { label: string; range: [number, number]; users: number };
-
-function durationHistogramFor(c: Challenge): HistBucket[] {
-  const total      = participantsFor(c);
-  const d          = c.durationDays;
-  // Adaptive buckets so 7-day challenges and 90-day challenges both look right.
-  const stops      = bucketStops(d);
-  const seed       = hashStr(c.id + 'hist');
-
-  // Build raw weights via a deterministic random walk seeded by id.
-  // Bell-ish shape skewed left (more early dropoff, fewer go all the way).
-  const rawWeights = stops.map((_, i) => {
-    const center = stops.length * 0.45; // peak around 40-50% in
-    const dist   = Math.abs(i - center);
-    const bias   = Math.max(0, 1.4 - dist * 0.45);
-    const jitter = ((seed >> (i * 3)) & 0xff) / 255; // 0..1
-    return bias + jitter * 0.6;
-  });
-  const sum = rawWeights.reduce((a, b) => a + b, 0);
-  const counts = rawWeights.map(w => Math.max(1, Math.round((w / sum) * total)));
-
-  return stops.map((range, i) => ({
-    label: range[0] === range[1] ? `Day ${range[0]}` : `${range[0]}-${range[1]}d`,
-    range,
-    users: counts[i],
-  }));
-}
-
 // Classifies a challenge as a build (do this) or control (don't do this) habit.
 // Used when mirroring a joined challenge into the user's habit list.
 function inferHabitCategory(c: Challenge): 'build' | 'control' {
@@ -234,15 +124,6 @@ function inferHabitCategory(c: Challenge): 'build' | 'control' {
   return 'build';
 }
 
-function bucketStops(durationDays: number): [number, number][] {
-  if (durationDays <= 7)  return [[1,1],[2,2],[3,3],[4,4],[5,5],[6,6],[7,7]];
-  if (durationDays <= 14) return [[1,2],[3,4],[5,7],[8,10],[11,14]];
-  if (durationDays <= 21) return [[1,3],[4,7],[8,10],[11,14],[15,18],[19,21]];
-  if (durationDays <= 30) return [[1,3],[4,7],[8,14],[15,21],[22,28],[29,30]];
-  if (durationDays <= 60) return [[1,7],[8,14],[15,21],[22,30],[31,45],[46,60]];
-  return                    [[1,7],[8,14],[15,30],[31,45],[46,60],[61,75],[76, durationDays]];
-}
-
 export default function ChallengesScreen() {
   const { token } = useAuth();
   const { theme } = useTheme();
@@ -250,6 +131,7 @@ export default function ChallengesScreen() {
 
   const [list, setList]             = useState<Challenge[]>([]);
   const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   // Detail modal
@@ -264,7 +146,12 @@ export default function ChallengesScreen() {
 
   async function load() {
     if (!token) return;
-    try { setList(await challenges.list(token)); } catch {}
+    try {
+      setList(await challenges.list(token));
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
+    }
   }
 
   useEffect(() => { load().finally(() => setLoading(false)); }, [token]);
@@ -328,7 +215,11 @@ export default function ChallengesScreen() {
   }
 
   async function handleCreate() {
-    if (!token || !formTitle.trim()) return;
+    if (!token) return;
+    if (!formTitle.trim()) {
+      Alert.alert('Add a title', 'Give your challenge a name before launching it.');
+      return;
+    }
     setCreating(true);
     try {
       const created = await challenges.create(token, {
@@ -340,7 +231,9 @@ export default function ChallengesScreen() {
       setList(l => [created, ...l]);
       setShowCreate(false);
       setFormTitle(''); setFormDesc(''); setFormTheme('physical'); setFormDays(30);
-    } catch (err: any) { Alert.alert('Error', err.message); }
+    } catch (err: any) {
+      Alert.alert('Couldn’t create challenge', err?.message || 'Please try again.');
+    }
     finally { setCreating(false); }
   }
 
@@ -435,14 +328,18 @@ export default function ChallengesScreen() {
         })}
 
         {available.length === 0 && active.length === 0 && (
-          <View style={s.empty}>
-            <Text style={[s.emptyTitle, { color: theme.textSecondary, fontFamily: 'Inter_900Black' }]}>
-              NO CHALLENGES
-            </Text>
-            <Text style={[s.emptySub, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-              Tap + to create your first one
-            </Text>
-          </View>
+          loadError ? (
+            <ErrorState message="Couldn't load challenges." onRetry={() => { setLoading(true); load().finally(() => setLoading(false)); }} />
+          ) : (
+            <View style={s.empty}>
+              <Text style={[s.emptyTitle, { color: theme.textSecondary, fontFamily: 'Inter_900Black' }]}>
+                NO CHALLENGES
+              </Text>
+              <Text style={[s.emptySub, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+                Tap + to create your first one
+              </Text>
+            </View>
+          )
         )}
 
         {/* Footer */}
@@ -462,6 +359,7 @@ export default function ChallengesScreen() {
       <ChallengeDetailModal
         challenge={detail}
         theme={theme}
+        token={token}
         onClose={() => setDetail(null)}
         onJoin={c => { handleJoin(c); setDetail(null); }}
         onAbandon={c => { handleAbandon(c); setDetail(null); }}
@@ -469,7 +367,10 @@ export default function ChallengesScreen() {
 
       {/* Create Modal */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet">
-        <View style={[s.modal, { backgroundColor: theme.bg }]}>
+        <KeyboardAvoidingView
+          style={[s.modal, { backgroundColor: theme.bg }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <View style={[s.modalHandle, { backgroundColor: theme.border }]} />
           <View style={[s.modalHeader, { borderBottomColor: theme.border }]}>
             <Text style={[s.modalTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>NEW CHALLENGE</Text>
@@ -486,8 +387,8 @@ export default function ChallengesScreen() {
               onChangeText={setFormTitle}
               placeholder="E.G. NO PHONE IN BED"
               placeholderTextColor={theme.textSecondary}
-              autoFocus
               autoCapitalize="characters"
+              returnKeyType="done"
             />
 
             <FieldLabel label="DESCRIPTION" optional theme={theme} />
@@ -554,17 +455,18 @@ export default function ChallengesScreen() {
             <TouchableOpacity
               style={[
                 s.submitBtn,
-                { backgroundColor: theme.tabActiveBg, opacity: (!formTitle.trim() || creating) ? 0.4 : 1 },
+                { backgroundColor: theme.tabActiveBg, opacity: creating ? 0.5 : (formTitle.trim() ? 1 : 0.7) },
               ]}
               onPress={handleCreate}
-              disabled={!formTitle.trim() || creating}
+              disabled={creating}
+              activeOpacity={0.85}
             >
               <Text style={[s.submitBtnText, { color: theme.tabActiveText, fontFamily: 'Inter_900Black' }]}>
                 {creating ? 'CREATING...' : 'LAUNCH CHALLENGE'}
               </Text>
             </TouchableOpacity>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
     </DarkBackground>
@@ -623,8 +525,7 @@ const tr = StyleSheet.create({
 
 function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge; theme: any; onPress: () => void }) {
   const t      = themeForDomain(c.domain);
-  const detail = detailFor(c);
-  const points = detail.benefits.slice(0, 3);
+  const points = (c.benefits ?? []).slice(0, 3);
 
   return (
     <TouchableOpacity
@@ -670,7 +571,7 @@ function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge;
         </TouchableOpacity>
         <TouchableOpacity
           style={[cc.shareBtn, { borderColor: theme.border }]}
-          onPress={() => shareChallenge(c, detail)}
+          onPress={() => shareChallenge(c)}
           activeOpacity={0.75}
         >
           <Ionicons name="share-outline" size={16} color={theme.textSecondary} />
@@ -697,9 +598,9 @@ function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon }: {
   const isComplete = daysLeft === 0;
   const trend      = trendFor(c);
 
-  // Try the real /challenges/:id/percentile endpoint. Falls back to the
-  // synthetic pace-bucket value when there aren't enough comparators yet
-  // (server returns percentile: null in that case).
+  // Real /challenges/:id/percentile endpoint. `percentile` is null until there
+  // are enough other participants to compare against — we show an honest
+  // "you're setting the pace" line in that case rather than inventing a number.
   const [serverPct, setServerPct] = useState<number | null>(null);
   const [hasOthers, setHasOthers] = useState<boolean>(false);
   useEffect(() => {
@@ -711,7 +612,7 @@ function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon }: {
     return () => { alive = false; };
   }, [token, c.id]);
 
-  const percentile = serverPct ?? percentileFor(c);
+  const percentile = serverPct ?? 0;
   const pColor     = percentile >= 60 ? '#22A664' : percentile >= 40 ? '#F0A12E' : '#E84A4A';
 
   return (
@@ -781,11 +682,14 @@ function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon }: {
         </View>
       </View>
 
-      {/* Percentile — uses real server data when there are other participants,
-          falls back to the local pace-bucket estimate otherwise. */}
+      {/* Percentile — real server data only. When the server can't rank you yet
+          (no/too-few other participants) we show an honest line instead of a
+          made-up number. */}
       <Text style={[ac.percentileLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-        {serverPct == null && !hasOthers
-          ? <>You're the <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>first one in</Text> — set the pace.</>
+        {serverPct == null
+          ? (hasOthers
+              ? <>Not enough data to rank you <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>yet</Text> — keep going.</>
+              : <>You're the <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>first one in</Text> — set the pace.</>)
           : <>Better than{' '}
               <Text style={{ color: pColor, fontFamily: 'Inter_900Black' }}>{percentile}%</Text>
               {' '}of people on this challenge</>
@@ -889,28 +793,44 @@ const s = StyleSheet.create({
 // ── Challenge detail modal ────────────────────────────────────────────────────
 
 function ChallengeDetailModal({
-  challenge: c, theme, onClose, onJoin, onAbandon,
+  challenge: c, theme, token, onClose, onJoin, onAbandon,
 }: {
   challenge: Challenge | null;
   theme: AppTheme;
+  token: string | null;
   onClose: () => void;
   onJoin: (c: Challenge) => void;
   onAbandon: (c: Challenge) => void;
 }) {
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [stats, setStats]             = useState<DurationStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
-  // Reset heatmap toggle whenever the modal opens for a new challenge.
-  useEffect(() => { setShowHeatmap(false); }, [c?.id]);
+  // Reset state whenever the modal opens for a new challenge.
+  useEffect(() => { setShowHeatmap(false); setStats(null); }, [c?.id]);
+
+  // Fetch the real drop-off distribution lazily, the first time the heatmap is opened.
+  useEffect(() => {
+    if (!showHeatmap || !token || !c || stats) return;
+    let alive = true;
+    setStatsLoading(true);
+    challenges.durationStats(token, c.id)
+      .then(r => { if (alive) setStats(r); })
+      .catch(() => {})
+      .finally(() => { if (alive) setStatsLoading(false); });
+    return () => { alive = false; };
+  }, [showHeatmap, token, c?.id]);
 
   if (!c) return null;
   const t            = themeForDomain(c.domain);
-  const detail       = detailFor(c);
-  const participants = participantsFor(c);
+  const instructions = instructionsFor(c);
+  const benefits     = c.benefits ?? [];
+  const participants = c.participantCount;
   const isActive     = c.joined && c.status === 'active';
   const pct          = isActive ? Math.min(c.daysDone / c.durationDays, 1) : 0;
-  const histogram    = durationHistogramFor(c);
-  const peakBucket   = histogram.reduce((a, b) => b.users > a.users ? b : a, histogram[0]);
-  const maxUsers     = peakBucket.users;
+  const histogram    = stats?.histogram ?? [];
+  const peakBucket   = histogram.length ? histogram.reduce((a, b) => b.users > a.users ? b : a, histogram[0]) : null;
+  const maxUsers     = Math.max(1, ...histogram.map(b => b.users));
 
   return (
     <Modal
@@ -930,7 +850,7 @@ function ChallengeDetailModal({
           </View>
           <View style={{ flex: 1 }} />
           <TouchableOpacity
-            onPress={() => shareChallenge(c, detail)}
+            onPress={() => shareChallenge(c)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={{ marginRight: 12 }}
           >
@@ -993,32 +913,36 @@ function ChallengeDetailModal({
               WHAT YOU NEED TO DO
             </Text>
             <Text style={[dm.sectionBody, { color: theme.text, fontFamily: 'Inter_500Medium' }]}>
-              {detail.instructions}
+              {instructions}
             </Text>
           </View>
 
           {/* Benefits */}
-          <View style={dm.section}>
-            <Text style={[dm.sectionLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-              WHAT YOU GAIN
-            </Text>
-            <View style={dm.benefitGrid}>
-              {detail.benefits.map((b, i) => (
-                <View key={i} style={[dm.benefitChip, { borderColor: t.dot + '60', backgroundColor: t.dot + '12' }]}>
-                  <View style={[dm.benefitDot, { backgroundColor: t.dot }]} />
-                  <Text style={[dm.benefitText, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>
-                    {b}
-                  </Text>
-                </View>
-              ))}
+          {benefits.length > 0 && (
+            <View style={dm.section}>
+              <Text style={[dm.sectionLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                WHAT YOU GAIN
+              </Text>
+              <View style={dm.benefitGrid}>
+                {benefits.map((b, i) => (
+                  <View key={i} style={[dm.benefitChip, { borderColor: t.dot + '60', backgroundColor: t.dot + '12' }]}>
+                    <View style={[dm.benefitDot, { backgroundColor: t.dot }]} />
+                    <Text style={[dm.benefitText, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>
+                      {b}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
+          )}
 
-          {/* Participants footer line */}
-          <Text style={[dm.participantsLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-            <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>{participants.toLocaleString()}</Text>
-            {' '}people are running this challenge right now
-          </Text>
+          {/* Participants footer line — real count from the backend */}
+          {participants > 0 && (
+            <Text style={[dm.participantsLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+              <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>{participants.toLocaleString()}</Text>
+              {participants === 1 ? ' person has' : ' people have'} joined this challenge
+            </Text>
+          )}
 
           {/* Heatmap toggle */}
           <TouchableOpacity
@@ -1042,36 +966,56 @@ function ChallengeDetailModal({
               <Text style={[dm.heatmapTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
                 HOW LONG OTHERS STUCK WITH IT
               </Text>
-              <Text style={[dm.heatmapSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                Most people drop off around{' '}
-                <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>
-                  {peakBucket.label}
+
+              {statsLoading && (
+                <Text style={[dm.heatmapSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                  Loading the real numbers…
                 </Text>
-                .
-              </Text>
-              <View style={dm.heatRows}>
-                {histogram.map((b, i) => {
-                  const w        = (b.users / maxUsers) * 100;
-                  const isPeak   = b.users === maxUsers;
-                  const barColor = isPeak ? t.dot : t.dot + '70';
-                  return (
-                    <View key={i} style={dm.heatRow}>
-                      <Text style={[dm.heatLabel, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-                        {b.label}
+              )}
+
+              {!statsLoading && (!stats || stats.total === 0) && (
+                <Text style={[dm.heatmapSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                  No one has logged enough days yet — be the first to set the curve.
+                </Text>
+              )}
+
+              {!statsLoading && stats && stats.total > 0 && (
+                <>
+                  {peakBucket && (
+                    <Text style={[dm.heatmapSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                      Most people are around{' '}
+                      <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>
+                        {peakBucket.label}
                       </Text>
-                      <View style={[dm.heatTrack, { backgroundColor: theme.overlay }]}>
-                        <View style={[dm.heatFill, { width: `${w}%`, backgroundColor: barColor }]} />
-                      </View>
-                      <Text style={[dm.heatCount, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-                        {b.users}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-              <Text style={[dm.heatmapFootnote, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>
-                Based on {participants.toLocaleString()} participants
-              </Text>
+                      .
+                    </Text>
+                  )}
+                  <View style={dm.heatRows}>
+                    {histogram.map((b, i) => {
+                      const w        = (b.users / maxUsers) * 100;
+                      const isPeak   = peakBucket != null && b.users === peakBucket.users && b.users > 0;
+                      const barColor = isPeak ? t.dot : t.dot + '70';
+                      return (
+                        <View key={i} style={dm.heatRow}>
+                          <Text style={[dm.heatLabel, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                            {b.label}
+                          </Text>
+                          <View style={[dm.heatTrack, { backgroundColor: theme.overlay }]}>
+                            <View style={[dm.heatFill, { width: `${w}%`, backgroundColor: barColor }]} />
+                          </View>
+                          <Text style={[dm.heatCount, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
+                            {b.users}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                  <Text style={[dm.heatmapFootnote, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>
+                    Based on {stats.total.toLocaleString()} {stats.total === 1 ? 'participant' : 'participants'}
+                    {' · '}{stats.completed} completed · {stats.active} active · {stats.abandoned} dropped
+                  </Text>
+                </>
+              )}
             </View>
           )}
 
