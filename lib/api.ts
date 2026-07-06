@@ -19,6 +19,43 @@ export type User = {
   notificationsEnabled?: boolean | null;
   onboardingDone?: boolean;
   macroTargets?: MacroTargets | null;
+  isPremium?: boolean;
+  premiumUntil?: string | null;
+};
+
+// ── The Mirror ──────────────────────────────────────────────────────────────
+export type MirrorTrait = {
+  key: string; name: string; score: number; delta: number; deltaText: string; evidence: string;
+};
+export type MirrorHorizon = { k: string; label: string; score: number; caption: string };
+export type MirrorHero = {
+  archetype: string; becoming: string; outlook: 'up' | 'flat' | 'down';
+  chips: { momentum: number; consistency: number; streak: number };
+};
+export type MirrorPayload = {
+  state: 'forming' | 'teaser' | 'full';
+  updatedAt: string;
+  meta?: { narrated: boolean };
+  // forming
+  forming?: { daysLogged: number; daysNeeded: number; pct: number; streakDays: number; message: string };
+  // teaser + full
+  hero?: MirrorHero;
+  teaserTrait?: MirrorTrait;
+  traitCount?: number;
+  // full
+  windowDays?: number;
+  selfScore?: { value: number; deltaVsLastMonth: number; caption: string };
+  stats?: {
+    streak: { current: number; best: number };
+    perfectDays: { count: number; of: number; delta: number };
+    bounceBack: { days: number; was: number | null; caption: string } | null;
+  };
+  traits?: MirrorTrait[];
+  consistency?: { offDays: number; days: { date: string; score: number }[] };
+  buildControl?: { build: number; control: number };
+  projection?: { selected: string; horizons: MirrorHorizon[] };
+  risks?: { title: string; body: string; fix: string }[];
+  recommendations?: { title: string; impact: string; why: string; action: string }[];
 };
 
 export type OnboardingPayload = {
@@ -677,6 +714,17 @@ export const challenges = {
     request<{ challengeId: string; pace: number; percentile: number | null; totalOthers: number }>(
       `/challenges/${id}/percentile`, {}, token
     ),
+};
+
+export const mirror = {
+  // `preview` (forming|teaser|full) is a dev override for building all states.
+  get: (token: string, preview?: 'forming' | 'teaser' | 'full') => {
+    const qs = `?today=${today()}${preview ? `&preview=${preview}` : ''}`;
+    return request<MirrorPayload>(`/mirror${qs}`, {}, token);
+  },
+  // DEV UNLOCK STUB — flips premium so the paywall can be demoed. Real billing later.
+  setPremium: (token: string, premium = true) =>
+    request<{ isPremium: boolean }>('/mirror/premium', { method: 'POST', body: JSON.stringify({ premium }) }, token),
 };
 
 /** Format a Date as YYYY-MM-DD in the device's LOCAL timezone.

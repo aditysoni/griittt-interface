@@ -73,6 +73,7 @@ export default function TabsLayout() {
     >
       {TABS.map(t => <Tabs.Screen key={t.name} name={t.name} />)}
       <Tabs.Screen name="ai" options={{ href: null }} />
+      <Tabs.Screen name="mirror" options={{ href: null }} />
     </Tabs>
   );
 }

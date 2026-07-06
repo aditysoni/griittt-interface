@@ -166,6 +166,38 @@ export default function HabitsScreen() {
     setRefreshing(true); await load(selectedDate); setRefreshing(false);
   }, [token, selectedDate]);
 
+  // Long-press a habit → quick Edit / Delete menu (works for build + control rows).
+  function handleHabitMenu(habit: HabitWithStatus) {
+    Alert.alert(habit.name, 'What would you like to do?', [
+      { text: 'Edit', onPress: () => setDetailHabit(habit) },
+      { text: 'Delete', style: 'destructive', onPress: () => confirmDeleteHabit(habit) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  function confirmDeleteHabit(habit: HabitWithStatus) {
+    Alert.alert(
+      'Delete habit?',
+      `"${habit.name}" will be removed from your list. Your past completions are kept.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            if (!token) return;
+            setHabitList(l => l.filter(h => h.id !== habit.id)); // optimistic removal
+            try {
+              await tasks.delete(token, habit.id);
+            } catch (err: any) {
+              Alert.alert('Could not delete', err?.message ?? 'Delete failed.');
+              load(selectedDate); // restore from server on failure
+            }
+          },
+        },
+      ]
+    );
+  }
+
   async function toggleHabit(habit: HabitWithStatus) {
     if (!token || !isToday) return;
 
@@ -372,6 +404,38 @@ export default function HabitsScreen() {
           <MomentumPill score={overallScore} theme={theme} />
         </View>
 
+        {/* ── The Mirror entry card ── */}
+        <Pressable
+          onPress={() => router.push('/(tabs)/mirror' as any)}
+          style={({ pressed }) => ({
+            marginHorizontal: 16,
+            marginBottom: 22,
+            borderRadius: 24,
+            backgroundColor: '#14110D',
+            paddingVertical: 20,
+            paddingHorizontal: 20,
+            overflow: 'hidden',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 14,
+            borderWidth: 1,
+            borderColor: theme.accent + '33',
+            opacity: pressed ? 0.9 : 1,
+          })}
+        >
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="sparkles" size={12} color={theme.accent} />
+              <Text style={{ fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 10, letterSpacing: 2, color: theme.accent }}>THE MIRROR · PREMIUM</Text>
+            </View>
+            <Text style={{ fontFamily: 'BricolageGrotesque_800ExtraBold', fontSize: 22, lineHeight: 26, color: '#F5F2E9', marginTop: 10 }}>See who you’re becoming</Text>
+            <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 12.5, color: '#F5F2E9', opacity: 0.6, marginTop: 5 }}>one tap → your reflection</Text>
+          </View>
+          <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="arrow-forward" size={20} color="#14110D" />
+          </View>
+        </Pressable>
+
         {/* ── BUILD / CONTROL segmented control ── */}
         <View
           style={[s.segmented, { backgroundColor: theme.surface }]}
@@ -441,6 +505,7 @@ export default function HabitsScreen() {
               onPressN={isControl ? () => handleControlN(habit) : undefined}
               onPressY={isControl ? () => handleControlY(habit) : undefined}
               onInfo={() => setDetailHabit(habit)}
+              onLongPress={() => handleHabitMenu(habit)}
             />
           ))
         )}
@@ -1212,7 +1277,7 @@ function MomentumPill({ score, theme }: { score: number; theme: any }) {
   );
 }
 
-function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected, onToggle, onPressY, onPressN, onInfo }: {
+function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected, onToggle, onPressY, onPressN, onInfo, onLongPress }: {
   habit: HabitWithStatus; theme: any; canToggle: boolean; isControl: boolean;
   fromChallenge?: boolean;
   ySelected?: boolean;
@@ -1220,6 +1285,7 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
   onPressY?: () => void;
   onPressN?: () => void;
   onInfo: () => void;
+  onLongPress?: () => void;
 }) {
   const impact = habit.score || 1;
   const accentColor = theme.isDark ? '#B8F23A' : '#16A34A';
@@ -1242,6 +1308,8 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
         borderWidth: fromChallenge ? 1.5 : 1,
       }]}
       onPress={(!isControl && canToggle) ? onToggle : undefined}
+      onLongPress={onLongPress}
+      delayLongPress={300}
       activeOpacity={(!isControl && canToggle) ? 0.75 : 1}
     >
       {/* Build habit: lime checkbox on left */}

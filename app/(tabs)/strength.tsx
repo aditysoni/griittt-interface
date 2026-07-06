@@ -304,20 +304,28 @@ export default function StrengthScreen() {
               <Text style={[s.heroTierLabel, { color: tier.color, fontFamily: 'Inter_900Black' }]}>{tier.label}</Text>
               <Text style={[s.heroTierCopy, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{tier.copy}</Text>
 
-              {/* Sculpted ramping bars */}
+              {/* Rating scale — tap a segment to set your rating */}
               <View style={s.heroBarWrap}>
                 {Array.from({ length: 10 }).map((_, i) => {
                   const n = i + 1;
                   const filled = n <= rating;
                   const isActive = n === rating;
-                  const h = 16 + (i / 9) * 36;
                   const band = n <= 2 ? '#E84A4A' : n <= 4 ? '#F08560' : n <= 6 ? '#F0A12E' : n <= 8 ? '#7BC95E' : '#22A664';
                   return (
-                    <View key={i} style={{
-                      flex: 1, height: h, borderRadius: 6,
-                      backgroundColor: filled ? band : theme.surface,
-                      ...(isActive ? { borderWidth: 2, borderColor: theme.text } : {}),
-                    }} />
+                    <TouchableOpacity
+                      key={i}
+                      activeOpacity={0.7}
+                      onPress={() => setRating(n)}
+                      style={[
+                        s.heroBar,
+                        { backgroundColor: filled ? band : theme.surface },
+                        isActive && { borderWidth: 2.5, borderColor: theme.text, transform: [{ scale: 1.12 }] },
+                      ]}
+                    >
+                      {isActive && (
+                        <Text style={[s.heroBarNum, { color: filled ? '#FFFFFF' : theme.text, fontFamily: 'Inter_900Black' }]}>{n}</Text>
+                      )}
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -808,8 +816,10 @@ const s = StyleSheet.create({
   heroDenom:       { fontSize: 22, letterSpacing: -0.5 },
   heroTierLabel:   { fontSize: 14, letterSpacing: 3, textAlign: 'center', marginTop: 2 },
   heroTierCopy:    { fontSize: 12, textAlign: 'center', lineHeight: 17, marginTop: 6, marginBottom: 16, paddingHorizontal: 16, opacity: 0.8 },
-  heroBarWrap:     { flexDirection: 'row', alignItems: 'flex-end', gap: 5, height: 56 },
-  heroBarTicks:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, marginBottom: 16 },
+  heroBarWrap:     { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  heroBar:         { flex: 1, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  heroBarNum:      { fontSize: 13 },
+  heroBarTicks:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, marginBottom: 18, paddingHorizontal: 2 },
   heroBarTick:     { fontSize: 9, letterSpacing: 1 },
   heroLogBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14 },
   heroLogBtnText:  { fontSize: 12, letterSpacing: 3 },
