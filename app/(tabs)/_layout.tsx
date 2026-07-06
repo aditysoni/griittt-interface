@@ -8,6 +8,7 @@ const TABS = [
   { name: 'fuel',       label: 'FUEL',     icon: 'nutrition-outline' as const },
   { name: 'strength',   label: 'STRENGTH', icon: 'barbell-outline'   as const },
   { name: 'challenges', label: 'GRIND',    icon: 'flag-outline'      as const },
+  { name: 'mirror',     label: 'MIRROR',   icon: 'eye-outline'       as const },
   { name: 'profile',    label: 'YOU',      icon: 'person-outline'    as const },
 ];
 
@@ -73,6 +74,8 @@ export default function TabsLayout() {
     >
       {TABS.map(t => <Tabs.Screen key={t.name} name={t.name} />)}
       <Tabs.Screen name="ai" options={{ href: null }} />
+      <Tabs.Screen name="fuel-analysis" options={{ href: null }} />
+      <Tabs.Screen name="building-you" options={{ href: null }} />
     </Tabs>
   );
 }

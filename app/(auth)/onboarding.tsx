@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 
 // ── Warm Coach design tokens ─────────────────────────────
@@ -109,39 +110,53 @@ function Title({ eyebrow, title, sub, dark = false }: {
   );
 }
 
-// ── S1: Welcome ──────────────────────────────────────────
+// ── S1: Welcome / Entry screen ──────────────────────────
 function S1_Welcome({ onNext, showSignIn, onSignIn }: {
   onNext: () => void;
   showSignIn: boolean;
   onSignIn: () => void;
 }) {
   return (
-    <View style={{ flex: 1, backgroundColor: W.dark }}>
+    <View style={{ flex: 1, backgroundColor: '#FBFAF7' }}>
       <SafeAreaView style={{ flex: 1 }}>
-        <View style={{ flex: 1, paddingHorizontal: 26, paddingTop: 40 }}>
-          <View style={s1.circle1} />
-          <View style={s1.circle2} />
+        {/* Geometric motif */}
+        <View style={s1.circle1} />
+        <View style={s1.circle2} />
+
+        <View style={{ flex: 1, paddingHorizontal: 26 }}>
+          {/* Wordmark */}
+          <View style={{ paddingTop: 52, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={[s1.wordmark, { fontFamily: 'Inter_900Black' }]}>grittt</Text>
+            <View style={s1.wordDot} />
+          </View>
+
           <View style={{ flex: 1 }} />
-          <Text style={[s1.eyebrow, { fontFamily: 'Inter_700Bold' }]}>WELCOME TO GRITTT</Text>
-          <Text style={[s1.headline, { fontFamily: 'SpaceGrotesk_700Bold' }]}>
-            {'The day\nbelongs\nto you.'}
+
+          {/* Headline block */}
+          <Text style={[s1.eyebrow, { fontFamily: 'Inter_700Bold' }]}>EARN EVERY DAY</Text>
+          <Text style={[s1.headline, { fontFamily: 'Inter_900Black' }]}>
+            {'Show up.\nScore it.\nRepeat.'}
           </Text>
           <Text style={[s1.sub, { fontFamily: 'Inter_400Regular' }]}>
-            One score. Every day. Built from your habits, your fuel, your sweat. Let's set you up in 60 seconds.
+            One score from your habits, your fuel, your sweat. Set a countdown and chase it down.
           </Text>
+
           <View style={{ flex: 1 }} />
-          <TouchableOpacity style={s1.cta} onPress={onNext} activeOpacity={0.85}>
-            <Text style={[s1.ctaText, { fontFamily: 'SpaceGrotesk_700Bold' }]}>LET'S GO  →</Text>
+        </View>
+
+        {/* CTAs */}
+        <View style={{ paddingHorizontal: 22, paddingBottom: 36, gap: 10 }}>
+          <TouchableOpacity style={s1.primaryBtn} onPress={onNext} activeOpacity={0.85}>
+            <Text style={[s1.primaryText, { fontFamily: 'Inter_900Black' }]}>GET STARTED</Text>
+            <View style={s1.arrowChip}>
+              <Ionicons name="arrow-forward" size={14} color="#14110D" />
+            </View>
           </TouchableOpacity>
           {showSignIn && (
-            <TouchableOpacity onPress={onSignIn} activeOpacity={0.7} style={s1.signInBtn}>
-              <Text style={[s1.signInText, { fontFamily: 'Inter_500Medium' }]}>
-                Already have an account?{' '}
-                <Text style={{ color: W.hype, fontFamily: 'Inter_700Bold' }}>Sign in</Text>
-              </Text>
+            <TouchableOpacity style={s1.secondaryBtn} onPress={onSignIn} activeOpacity={0.8}>
+              <Text style={[s1.secondaryText, { fontFamily: 'Inter_700Bold' }]}>I ALREADY HAVE AN ACCOUNT</Text>
             </TouchableOpacity>
           )}
-          <View style={{ height: 16 }} />
         </View>
       </SafeAreaView>
     </View>
@@ -149,22 +164,22 @@ function S1_Welcome({ onNext, showSignIn, onSignIn }: {
 }
 
 const s1 = StyleSheet.create({
-  circle1: {
-    position: 'absolute', top: 88, right: 26,
-    width: 90, height: 90, borderRadius: 45,
-    borderWidth: 1.5, borderColor: W.hype,
-  },
-  circle2: {
-    position: 'absolute', top: 130, right: 60,
-    width: 50, height: 50, borderRadius: 25, backgroundColor: W.hype,
-  },
-  eyebrow: { color: W.hype, fontSize: 12, letterSpacing: 2, marginBottom: 12 },
-  headline: { color: '#FFFFFF', fontSize: 50, letterSpacing: -1.5, lineHeight: 52 },
-  sub: { color: 'rgba(255,255,255,0.65)', fontSize: 16, marginTop: 20, lineHeight: 24, maxWidth: 300 },
-  cta: { backgroundColor: W.hype, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
-  ctaText: { color: W.ink, fontSize: 14, letterSpacing: 2 },
-  signInBtn: { paddingVertical: 14, alignItems: 'center' },
-  signInText: { color: 'rgba(255,255,255,0.6)', fontSize: 13 },
+  // Geometric motif
+  circle1:      { position: 'absolute', top: 96, right: 26, width: 90, height: 90, borderRadius: 45, borderWidth: 1.5, borderColor: '#14110D' },
+  circle2:      { position: 'absolute', top: 138, right: 62, width: 46, height: 46, borderRadius: 23, backgroundColor: '#C8F14A' },
+  // Wordmark
+  wordmark:     { fontSize: 26, color: '#14110D', letterSpacing: -0.5 },
+  wordDot:      { width: 7, height: 7, borderRadius: 4, backgroundColor: '#C8F14A' },
+  // Copy
+  eyebrow:      { fontSize: 12, letterSpacing: 3, color: '#AAA295', marginBottom: 14 },
+  headline:     { fontSize: 50, color: '#14110D', letterSpacing: -1.5, lineHeight: 52 },
+  sub:          { fontSize: 15, color: '#6A6258', marginTop: 18, lineHeight: 23, maxWidth: 300 },
+  // Buttons
+  primaryBtn:   { backgroundColor: '#14110D', borderRadius: 16, paddingVertical: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  primaryText:  { color: '#FFFFFF', fontSize: 14, letterSpacing: 2.5 },
+  arrowChip:    { width: 26, height: 26, borderRadius: 13, backgroundColor: '#C8F14A', alignItems: 'center', justifyContent: 'center' },
+  secondaryBtn: { borderWidth: 1.5, borderColor: '#E8E2D5', borderRadius: 16, paddingVertical: 16, alignItems: 'center', backgroundColor: '#FFFFFF' },
+  secondaryText:{ color: '#14110D', fontSize: 13, letterSpacing: 2 },
 });
 
 // ── S2: Name ─────────────────────────────────────────────

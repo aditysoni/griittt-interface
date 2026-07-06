@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Animated,
   Alert,
+  Dimensions,
   Modal,
   Pressable,
   RefreshControl,
@@ -13,6 +14,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+const SW = Dimensions.get('window').width;
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
@@ -174,10 +177,11 @@ export default function HabitsScreen() {
     try {
       if (nowDone) await habits.complete(token, habit.name, habit.id);
       else await habits.uncomplete(token, habit.name);
-      const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-      if (disc) setDiscipline(disc);
+      // No server refetch — optimistic score is accurate, avoids double-update flicker
     } catch (err: any) {
+      // Roll back on failure
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: habit.done } : h));
+      recomputeOptimisticScore(habitList);
       Alert.alert('Error', err.message);
     }
   }
@@ -195,11 +199,10 @@ export default function HabitsScreen() {
 
     try {
       await habits.complete(token, habit.name, habit.id);
-      const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-      if (disc) setDiscipline(disc);
     } catch (err: any) {
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false } : h));
       if (wasY) setYPressedIds(prev => new Set([...prev, habit.id]));
+      recomputeOptimisticScore(habitList);
       Alert.alert('Error', err.message);
     }
   }
@@ -225,11 +228,10 @@ export default function HabitsScreen() {
 
     try {
       await habits.uncomplete(token, habit.name);
-      const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-      if (disc) setDiscipline(disc);
     } catch (err: any) {
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false } : h));
       setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
+      recomputeOptimisticScore(habitList);
       Alert.alert('Error', err.message);
     }
   }
@@ -252,10 +254,9 @@ export default function HabitsScreen() {
       recomputeOptimisticScore(updatedList);
       try {
         await habits.complete(token, habit.name, habit.id, num, true); // failed=true
-        const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-        if (disc) setDiscipline(disc);
       } catch (err: any) {
         setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: false, count: null } : h));
+        recomputeOptimisticScore(habitList);
         Alert.alert('Error', err.message);
       }
     } else {
@@ -265,10 +266,9 @@ export default function HabitsScreen() {
       recomputeOptimisticScore(updatedList);
       try {
         await habits.complete(token, habit.name, habit.id, num);
-        const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-        if (disc) setDiscipline(disc);
       } catch (err: any) {
         setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, count: null } : h));
+        recomputeOptimisticScore(habitList);
         Alert.alert('Error', err.message);
       }
     }
@@ -350,6 +350,7 @@ export default function HabitsScreen() {
       >
         {/* Gauge + status */}
         <ArcGauge value={overallScore} theme={theme} />
+
         <View style={s.momentumWrap}>
           <MomentumPill score={overallScore} theme={theme} />
         </View>
@@ -1394,3 +1395,4 @@ const s = StyleSheet.create({
   submitBtn:   { paddingVertical: 16, alignItems: 'center', borderRadius: 0, marginTop: 8 },
   submitBtnText: { fontSize: 12, letterSpacing: 4 },
 });
+

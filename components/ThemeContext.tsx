@@ -59,22 +59,22 @@ function buildTheme(mode: ThemeMode): AppTheme {
     isDark,
     mode,
 
-    // Warm Coach palette in light mode: cream bg, ink near-black, lime hype.
-    bg:           isDark ? '#000000' : '#F5F1E8',
-    bgGradient:   isDark ? ['#000000', '#1F1E1E'] : ['#F5F1E8', '#ECE8DC'],
+    // Warm Coach palette in light mode: parchment bg matching Mirror design.
+    bg:           isDark ? '#000000' : '#ECE8DC',
+    bgGradient:   isDark ? ['#000000', '#1F1E1E'] : ['#ECE8DC', '#ECE8DC'],
 
     text:          isDark ? '#FFFFFF' : '#14110D',
     textSecondary: isDark ? '#888888' : '#5C544A',
     textTertiary:  isDark ? '#666666' : '#A39B8E',
     textMuted:     isDark ? 'rgba(255,255,255,0.4)' : '#A39B8E',
 
-    border:        isDark ? 'rgba(255,255,255,0.10)' : '#E8E0CE',
-    borderStrong:  isDark ? 'rgba(255,255,255,0.18)' : '#D4C9B0',
+    border:        isDark ? 'rgba(255,255,255,0.10)' : '#E7E1D1',
+    borderStrong:  isDark ? 'rgba(255,255,255,0.18)' : '#D8D0BC',
 
-    surface:       isDark ? 'rgba(255,255,255,0.05)' : '#EFE8D7',
-    surfaceStrong: isDark ? 'rgba(255,255,255,0.08)' : '#E8E0CE',
-    card:          isDark ? '#111111' : '#FFFFFF',
-    cardElevated:  isDark ? '#141414' : '#FFFBEC',
+    surface:       isDark ? 'rgba(255,255,255,0.05)' : '#E5DFD0',
+    surfaceStrong: isDark ? 'rgba(255,255,255,0.08)' : '#DAD3C2',
+    card:          isDark ? '#111111' : '#FBF9F2',
+    cardElevated:  isDark ? '#141414' : '#F5F1E8',
 
     overlay:       isDark ? 'rgba(255,255,255,0.06)' : '#EFE8D7',
     overlayMid:    isDark ? 'rgba(255,255,255,0.15)' : 'rgba(20,17,13,0.10)',
@@ -112,7 +112,7 @@ const ThemeContext = createContext<ThemeContextType>({
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeState] = useState<ThemeMode>('dark');
+  const [mode, setModeState] = useState<ThemeMode>('light');
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)

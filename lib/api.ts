@@ -659,3 +659,88 @@ export const challenges = {
 export function today(): string {
   return new Date().toISOString().split('T')[0];
 }
+
+// ── Mirror ────────────────────────────────────────────────────────────────────
+
+export type MirrorHero = {
+  archetype: string;
+  becoming: string;
+  outlook: 'up' | 'flat' | 'down';
+  chips: { momentum: number; consistency: number; streak: number };
+};
+
+export type MirrorTrait = {
+  key: string;
+  name: string;
+  score: number;
+  delta: number;
+  deltaText: string;
+  evidence: string;
+};
+
+export type MirrorHorizon = {
+  k: string;
+  label: string;
+  score: number;
+  caption: string;
+};
+
+export type MirrorForming = {
+  daysLogged: number;
+  daysNeeded: number;
+  pct: number;
+  streakDays: number;
+  message: string;
+};
+
+export type MirrorPayload =
+  | {
+      state: 'forming';
+      updatedAt: string;
+      forming: MirrorForming;
+      meta: { narrated: boolean };
+    }
+  | {
+      state: 'teaser';
+      updatedAt: string;
+      hero: MirrorHero;
+      teaserTrait: MirrorTrait;
+      traitCount: number;
+      meta: { narrated: boolean };
+    }
+  | {
+      state: 'full';
+      updatedAt: string;
+      windowDays: number;
+      hero: MirrorHero;
+      selfScore: { value: number; deltaVsLastMonth: number; caption: string };
+      stats: {
+        streak: { current: number; best: number };
+        perfectDays: { count: number; of: number; delta: number };
+        bounceBack: { days: number; was: number; caption: string } | null;
+      };
+      traits: MirrorTrait[];
+      consistency: { offDays: number; days: Array<{ date: string; score: number }> };
+      buildControl: { build: number; control: number };
+      projection: { selected: string; horizons: MirrorHorizon[] };
+      risks: Array<{ title: string; body: string; fix: string }>;
+      recommendations: Array<{ title: string; impact: string; why: string; action: string }>;
+      meta: { narrated: boolean };
+    };
+
+export const mirror = {
+  get: (token: string, params?: { preview?: 'forming' | 'teaser' | 'full'; fresh?: '1'; today?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.preview) qs.set('preview', params.preview);
+    if (params?.fresh)   qs.set('fresh', params.fresh);
+    if (params?.today)   qs.set('today', params.today);
+    const q = qs.toString();
+    return request<MirrorPayload>(`/mirror${q ? `?${q}` : ''}`, {}, token);
+  },
+
+  setPremium: (token: string, premium: boolean) =>
+    request<{ isPremium: boolean }>('/mirror/premium', {
+      method: 'POST',
+      body: JSON.stringify({ premium }),
+    }, token),
+};
