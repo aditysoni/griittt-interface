@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from './ThemeContext';
+import { useAuth } from '../lib/auth';
+import { today as getToday, toDateStr } from '../lib/api';
 
 const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const CELL_W = 48;
@@ -18,7 +20,7 @@ function buildDays() {
     return {
       letter: DAY_LETTERS[d.getDay()],
       date:   d.getDate(),
-      full:   d.toISOString().slice(0, 10),
+      full:   toDateStr(d), // LOCAL date — must match today()/selectedDate elsewhere
     };
   });
 }
@@ -27,9 +29,14 @@ type Props = { selectedDate: string; onSelect: (date: string) => void };
 
 export function DaySelector({ selectedDate, onSelect }: Props) {
   const { theme } = useTheme();
+  const { user }  = useAuth();
   const scrollRef = useRef<ScrollView>(null);
-  const today     = new Date().toISOString().slice(0, 10);
-  const days      = buildDays();
+  const today     = getToday();
+  // Never let users navigate to (or see) days before they joined — nothing was
+  // tracked then, so those days are empty and meaningless. Use the LOCAL date of
+  // the account-created timestamp so it lines up with today()/selectedDate.
+  const joinDay   = user?.created_at ? toDateStr(new Date(user.created_at)) : null;
+  const days      = buildDays().filter(d => !joinDay || d.full >= joinDay);
 
   useEffect(() => {
     const idx = days.findIndex(d => d.full === today);

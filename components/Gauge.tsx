@@ -122,6 +122,8 @@ export function Gauge({ value, max, label, subLabel }: Props) {
 
 const s = StyleSheet.create({
   root: {
+    width: W,               // definite width so the absolutely-positioned
+    alignSelf: 'center',    // labels below can span the full gauge and center
     alignItems: 'center',
     marginBottom: 0,
     height: W / 2 + 24,
@@ -139,14 +141,18 @@ const s = StyleSheet.create({
   },
   labels: {
     position: 'absolute',
-    bottom: 28,
+    left: 0,
+    right: 0,
+    bottom: 24,
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
+    paddingHorizontal: 20,
   },
   value: {
-    fontSize: 64,
+    fontSize: 60,
     letterSpacing: -3,
-    lineHeight: 68,
+    lineHeight: 62,
+    textAlign: 'center',
   },
   sublabel: {
     fontSize: 11,
@@ -155,8 +161,8 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
   },
   tier: {
-    fontSize: 8,
-    letterSpacing: 2.5,
+    fontSize: 10,
+    letterSpacing: 2,
     textTransform: 'uppercase',
     textAlign: 'center',
   },

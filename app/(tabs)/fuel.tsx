@@ -8,9 +8,11 @@ import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
-import { fuel, ai, FoodLog, FoodItem, MealTime, MacroTargets, today } from '../../lib/api';
+import { fuel, ai, FoodLog, FoodItem, MealTime, MacroTargets, today, shiftDate } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
+import { ErrorState } from '../../components/ErrorState';
 import { DaySelector } from '../../components/DaySelector';
+import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -23,10 +25,12 @@ export default function FuelScreen() {
   const router = useRouter();
 
   const [selectedDate, setSelectedDate] = useState(today());
+  const { goPrev, goNext, canPrev, canNext } = useDateNav(selectedDate, setSelectedDate);
   const [mode, setMode]                 = useState<TabMode>('quick');
   const [identity, setIdentity]         = useState<any>(null);
   const [logs, setLogs]                 = useState<FoodLog[]>([]);
   const [loading, setLoading]           = useState(true);
+  const [loadError, setLoadError]       = useState(false);
   const [refreshing, setRefreshing]     = useState(false);
   const [submitting, setSubmitting]     = useState(false);
   const [history, setHistory]           = useState<Array<{ date: string; score: number | null }>>([]);
@@ -72,18 +76,31 @@ export default function FuelScreen() {
     );
   }, [stuckToMeal, foodQuality, hadJunk]);
 
-  const todayScore = logs.length > 0 ? Math.max(...logs.map(l => l.score)) : (isToday ? liveScore : 0);
+  const todayScore = logs.length > 0
+    ? Math.max(...logs.map(l => l.score ?? 0))
+    : (isToday ? liveScore : 0);
 
   async function load(date: string) {
     if (!token) return;
-    const from = new Date(Date.now() - 13 * 86400000).toISOString().split('T')[0];
-    const [id, dayLogs, items, hist] = await Promise.all([
-      fuel.identity(token).catch(() => null),
-      fuel.logs(token, date).catch(() => []),
-      fuel.items(token, date).catch(() => []),
-      fuel.history(token, from, date).catch(() => []),
+    const from = shiftDate(today(), -13);
+    const results = await Promise.allSettled([
+      fuel.identity(token),
+      fuel.logs(token, date),
+      fuel.items(token, date),
+      fuel.history(token, from, date),
     ]);
-    setIdentity(id); setLogs(dayLogs); setFoodItems(items); setHistory(hist);
+    // Items + logs are the core of this screen — if both fail it's a load error.
+    if (results[1].status === 'rejected' && results[2].status === 'rejected') {
+      setLoadError(true);
+      return;
+    }
+    setLoadError(false);
+    const val = <T,>(i: number, fb: T): T =>
+      results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fb;
+    setIdentity(val(0, null as any));
+    setLogs(val(1, [] as any));
+    setFoodItems(val(2, [] as any));
+    setHistory(val(3, [] as any));
   }
 
   function resetDetailedForm() {
@@ -106,7 +123,9 @@ export default function FuelScreen() {
 
     setScanning(true);
     try {
-      const data = await ai.snapTrack(token!, result.assets[0].base64!);
+      // Send a data URI to match the AI tab's call site. The backend accepts
+      // both raw base64 and a data URI, so this is purely for consistency.
+      const data = await ai.snapTrack(token!, `data:image/jpeg;base64,${result.assets[0].base64!}`);
       setItemName(data.name);
       setItemCalories(data.calories ? String(Math.round(data.calories)) : '');
       setItemProtein(data.protein  ? String(Math.round(data.protein))  : '');
@@ -189,11 +208,20 @@ export default function FuelScreen() {
         <DaySelector selectedDate={selectedDate} onSelect={setSelectedDate} />
       </View>
 
+      <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}>
         <FuelScoreCard score={todayScore} history={history} selectedDate={selectedDate} theme={theme} />
 
+        {loadError && (
+          <ErrorState
+            message="Couldn't load your fuel log."
+            onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }}
+          />
+        )}
+
         {/* QUICK / DETAILED toggle — directly under score card */}
+        {!loadError && <>
         <View
           style={[s.tabToggle, { backgroundColor: theme.surface }]}
           onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
@@ -446,8 +474,10 @@ export default function FuelScreen() {
             )}
           </>
         )}
+        </>}
 
       </ScrollView>
+      </DateSwipe>
     </SafeAreaView></DarkBackground>
   );
 }
@@ -465,7 +495,7 @@ function FuelScoreCard({ score, history, selectedDate, theme }: {
   const last7 = React.useMemo(() => {
     const days: { date: string; score: number | null }[] = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
+      const d = shiftDate(today(), -i);
       const found = history.find(h => h.date === d);
       days.push({ date: d, score: found?.score ?? null });
     }

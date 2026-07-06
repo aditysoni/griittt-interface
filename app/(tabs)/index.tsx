@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -17,12 +17,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
-import { habits, Task, tasks, today, CONTROL_PRESETS, challenges } from '../../lib/api';
+import { habits, Task, tasks, today, toDateStr, CONTROL_PRESETS, challenges } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
+import { ErrorState } from '../../components/ErrorState';
 import Svg, { Circle, G } from 'react-native-svg';
 import { DaySelector } from '../../components/DaySelector';
+import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { DayCompleteCelebration } from '../../components/DayCompleteCelebration';
 
 type HabitType = 'build' | 'control';
 type TimeSlot  = 'morning' | 'afternoon' | 'evening' | 'night' | 'allday';
@@ -37,8 +40,8 @@ const TIME_SLOTS: { key: TimeSlot; label: string; color: string }[] = [
 ];
 
 function shiftDate(base: string, days: number): string {
-  const d = new Date(base); d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
+  const d = new Date(base + 'T00:00:00'); d.setDate(d.getDate() + days);
+  return toDateStr(d);
 }
 
 function toughnessColor(score: number, isDark: boolean): string {
@@ -49,10 +52,28 @@ function toughnessColor(score: number, isDark: boolean): string {
 
 const TOUGHNESS_OPTIONS = [1,2,3,4,5,6,7,8,9,10];
 
+// Discipline score derived purely from the current checklist — mirrors the
+// server's /discipline/day formula. Deriving it from habitList (instead of a
+// separately-fetched score) means the gauge always matches what's checked and
+// can never be clobbered back to 0 by a racing fetch.
+function computeOverall(list: HabitWithStatus[]): number {
+  const w = (arr: HabitWithStatus[]) => arr.reduce((s, h) => s + Math.max(Number(h.score) || 1, 1), 0);
+  const build   = list.filter(h => h.category !== 'control');
+  const control = list.filter(h => h.category === 'control');
+  const bTotal = w(build);   const bDone = w(build.filter(h => h.done));
+  const cTotal = w(control); const cDone = w(control.filter(h => h.done));
+  const bScore = bTotal > 0 ? Math.round((bDone / bTotal) * 100) : 0;
+  const cScore = cTotal > 0 ? Math.round((cDone / cTotal) * 100) : 0;
+  if (control.length === 0) return bScore;
+  if (build.length === 0)   return cScore;
+  return Math.round(bScore * 0.6 + cScore * 0.4);
+}
+
 export default function HabitsScreen() {
   const { token } = useAuth();
   const { theme } = useTheme();
   const [selectedDate, setSelectedDate] = useState(today());
+  const { goPrev, goNext, canPrev, canNext } = useDateNav(selectedDate, setSelectedDate);
   const [activeTab, setActiveTab]       = useState<HabitType>('build');
   const [tabContainerW, setTabContainerW] = useState(0);
   const tabAnim = useRef(new Animated.Value(0)).current; // 0 = build (left), 1 = control (right)
@@ -69,8 +90,8 @@ export default function HabitsScreen() {
   }
   const [habitList, setHabitList]       = useState<HabitWithStatus[]>([]);
   const [challengeNames, setChallengeNames] = useState<Set<string>>(new Set());
-  const [discipline, setDiscipline]     = useState<any>(null);
   const [loading, setLoading]           = useState(true);
+  const [loadError, setLoadError]       = useState(false);
   const [refreshing, setRefreshing]     = useState(false);
   const [timeSlot, setTimeSlot]         = useState<TimeSlot>('morning');
   const [showAdd, setShowAdd]           = useState(false);
@@ -92,14 +113,16 @@ export default function HabitsScreen() {
   const [countIsY,   setCountIsY]       = useState(false); // true = Y-press (failed), false = N/build
 
   const isToday = selectedDate === today();
+  // Set by the completion handlers so the day-complete celebration only fires from
+  // a user action — never from loading or refreshing an already-complete day.
+  const justCompleted = useRef(false);
 
   async function load(date: string) {
     if (!token) return;
     try {
-      const [taskList, statusList, disc] = await Promise.all([
+      const [taskList, statusList] = await Promise.all([
         tasks.list(token),
         habits.allStatus(token, date),
-        habits.disciplineDay(token, date).catch(() => null),
       ]);
       const statusMap = new Map(statusList.map(s => [s.id, s]));
       const merged = taskList
@@ -112,8 +135,8 @@ export default function HabitsScreen() {
           count:   statusMap.get(t.id)?.count   ?? null,
         }));
       setHabitList(merged);
-      setDiscipline(disc);
-    } catch (err: any) { Alert.alert('Error', err.message); }
+      setLoadError(false);
+    } catch (err: any) { setLoadError(true); }
 
     // Challenges fetched separately so a slow or failing /challenges call
     // can never block the habits screen from rendering. Yellow borders just
@@ -143,15 +166,36 @@ export default function HabitsScreen() {
     setRefreshing(true); await load(selectedDate); setRefreshing(false);
   }, [token, selectedDate]);
 
-  function recomputeOptimisticScore(list: HabitWithStatus[]) {
-    const bw  = list.filter(h => h.category !== 'control').reduce((s, h) => s + (h.score || 1), 0);
-    const bdw = list.filter(h => h.category !== 'control' && h.done).reduce((s, h) => s + (h.score || 1), 0);
-    const cw  = list.filter(h => h.category === 'control').reduce((s, h) => s + (h.score || 1), 0);
-    const cdw = list.filter(h => h.category === 'control' && h.done).reduce((s, h) => s + (h.score || 1), 0);
-    const bScore = bw > 0 ? Math.round((bdw / bw) * 100) : 0;
-    const cScore = cw > 0 ? Math.round((cdw / cw) * 100) : 0;
-    const overall = cw > 0 ? Math.round(bScore * 0.6 + cScore * 0.4) : bScore;
-    setDiscipline((prev: any) => ({ ...(prev ?? {}), buildScore: bScore, controlScore: cScore, overallScore: overall }));
+  // Long-press a habit → quick Edit / Delete menu (works for build + control rows).
+  function handleHabitMenu(habit: HabitWithStatus) {
+    Alert.alert(habit.name, 'What would you like to do?', [
+      { text: 'Edit', onPress: () => setDetailHabit(habit) },
+      { text: 'Delete', style: 'destructive', onPress: () => confirmDeleteHabit(habit) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  function confirmDeleteHabit(habit: HabitWithStatus) {
+    Alert.alert(
+      'Delete habit?',
+      `"${habit.name}" will be removed from your list. Your past completions are kept.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            if (!token) return;
+            setHabitList(l => l.filter(h => h.id !== habit.id)); // optimistic removal
+            try {
+              await tasks.delete(token, habit.id);
+            } catch (err: any) {
+              Alert.alert('Could not delete', err?.message ?? 'Delete failed.');
+              load(selectedDate); // restore from server on failure
+            }
+          },
+        },
+      ]
+    );
   }
 
   async function toggleHabit(habit: HabitWithStatus) {
@@ -167,15 +211,14 @@ export default function HabitsScreen() {
     const nowDone = !habit.done;
 
     // Optimistic UI
+    justCompleted.current = true;
     setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: nowDone, count: nowDone ? h.count : null } : h));
-    const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: nowDone } : h);
-    recomputeOptimisticScore(updatedList);
 
     try {
-      if (nowDone) await habits.complete(token, habit.name, habit.id);
-      else await habits.uncomplete(token, habit.name);
-      const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-      if (disc) setDiscipline(disc);
+      if (nowDone) await habits.complete(token, habit.name, habit.id, undefined, undefined, selectedDate);
+      else await habits.uncomplete(token, habit.name, selectedDate);
+      // The gauge derives its score from habitList (updated optimistically above),
+      // so there's nothing to refetch here — load() reconciles with the server.
     } catch (err: any) {
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: habit.done } : h));
       Alert.alert('Error', err.message);
@@ -189,14 +232,13 @@ export default function HabitsScreen() {
     if (habit.done) return; // already N-selected
 
     // Clear count — N means controlled (0 violations), so any Y-entered count is wiped
+    justCompleted.current = true;
     setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false, count: null } : h));
-    const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: true } : h);
-    recomputeOptimisticScore(updatedList);
 
     try {
-      await habits.complete(token, habit.name, habit.id);
-      const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-      if (disc) setDiscipline(disc);
+      await habits.complete(token, habit.name, habit.id, undefined, undefined, selectedDate);
+      // The gauge derives its score from habitList (updated optimistically above),
+      // so there's nothing to refetch here — load() reconciles with the server.
     } catch (err: any) {
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false } : h));
       if (wasY) setYPressedIds(prev => new Set([...prev, habit.id]));
@@ -220,13 +262,11 @@ export default function HabitsScreen() {
     if (!habit.done && !habit.yFailed) return; // already unanswered
 
     setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: false } : h));
-    const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: false } : h);
-    recomputeOptimisticScore(updatedList);
 
     try {
-      await habits.uncomplete(token, habit.name);
-      const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-      if (disc) setDiscipline(disc);
+      await habits.uncomplete(token, habit.name, selectedDate);
+      // The gauge derives its score from habitList (updated optimistically above),
+      // so there's nothing to refetch here — load() reconciles with the server.
     } catch (err: any) {
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false } : h));
       setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
@@ -248,25 +288,20 @@ export default function HabitsScreen() {
     if (isY) {
       // Y path: store count as a "failed" completion — no discipline point
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: true, count: num } : h));
-      const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: false } : h);
-      recomputeOptimisticScore(updatedList);
       try {
-        await habits.complete(token, habit.name, habit.id, num, true); // failed=true
-        const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-        if (disc) setDiscipline(disc);
+        await habits.complete(token, habit.name, habit.id, num, true, selectedDate); // failed=true
+        // Optimistic score already applied above; skip the refetch (see toggleHabit).
       } catch (err: any) {
         setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: false, count: null } : h));
         Alert.alert('Error', err.message);
       }
     } else {
       // N / build path: normal completion
+      justCompleted.current = true;
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false, count: num } : h));
-      const updatedList = habitList.map(h => h.id === habit.id ? { ...h, done: true } : h);
-      recomputeOptimisticScore(updatedList);
       try {
-        await habits.complete(token, habit.name, habit.id, num);
-        const disc = await habits.disciplineDay(token, selectedDate).catch(() => null);
-        if (disc) setDiscipline(disc);
+        await habits.complete(token, habit.name, habit.id, num, undefined, selectedDate);
+        // Optimistic score already applied above; skip the refetch (see toggleHabit).
       } catch (err: any) {
         setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, count: null } : h));
         Alert.alert('Error', err.message);
@@ -301,8 +336,22 @@ export default function HabitsScreen() {
   const visibleHabits = isControl ? controlHabits : buildHabits;
   const slotColor     = TIME_SLOTS.find(t => t.key === timeSlot)?.color ?? '#FFFFFF';
 
-  const overallScore  = discipline?.overallScore ?? 0;
+  const overallScore  = useMemo(() => computeOverall(habitList), [habitList]);
   const totalDone     = habitList.filter(h => h.done).length;
+
+  // ── Day-complete celebration ──────────────────────────────────────────────
+  // Fires the fanfare + score animation the instant the user's own action
+  // completes the day (every task done). Gated on `justCompleted` so it never
+  // fires just from loading/refreshing an already-complete day — but it does
+  // replay if you re-complete (uncheck, then recheck the last task).
+  const allTasksDone  = habitList.length > 0 && habitList.every(h => h.done);
+  const [celebrateScore, setCelebrateScore] = useState<number | null>(null);
+  useEffect(() => {
+    if (isToday && allTasksDone && justCompleted.current) {
+      setCelebrateScore(overallScore || 100);
+    }
+    justCompleted.current = false; // consume the flag every render
+  }, [allTasksDone, isToday, overallScore]);
 
   const router = useRouter();
 
@@ -342,6 +391,7 @@ export default function HabitsScreen() {
         <DaySelector selectedDate={selectedDate} onSelect={setSelectedDate} />
       </View>
 
+      <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={s.scroll}
@@ -353,6 +403,38 @@ export default function HabitsScreen() {
         <View style={s.momentumWrap}>
           <MomentumPill score={overallScore} theme={theme} />
         </View>
+
+        {/* ── The Mirror entry card ── */}
+        <Pressable
+          onPress={() => router.push('/(tabs)/mirror' as any)}
+          style={({ pressed }) => ({
+            marginHorizontal: 16,
+            marginBottom: 22,
+            borderRadius: 24,
+            backgroundColor: '#14110D',
+            paddingVertical: 20,
+            paddingHorizontal: 20,
+            overflow: 'hidden',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 14,
+            borderWidth: 1,
+            borderColor: theme.accent + '33',
+            opacity: pressed ? 0.9 : 1,
+          })}
+        >
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="sparkles" size={12} color={theme.accent} />
+              <Text style={{ fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 10, letterSpacing: 2, color: theme.accent }}>THE MIRROR · PREMIUM</Text>
+            </View>
+            <Text style={{ fontFamily: 'BricolageGrotesque_800ExtraBold', fontSize: 22, lineHeight: 26, color: '#F5F2E9', marginTop: 10 }}>See who you’re becoming</Text>
+            <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 12.5, color: '#F5F2E9', opacity: 0.6, marginTop: 5 }}>one tap → your reflection</Text>
+          </View>
+          <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="arrow-forward" size={20} color="#14110D" />
+          </View>
+        </Pressable>
 
         {/* ── BUILD / CONTROL segmented control ── */}
         <View
@@ -398,7 +480,12 @@ export default function HabitsScreen() {
         </View>
 
         {/* Habit list */}
-        {visibleHabits.length === 0 ? (
+        {loadError && habitList.length === 0 ? (
+          <ErrorState
+            message="Couldn't load your habits."
+            onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }}
+          />
+        ) : visibleHabits.length === 0 ? (
           <View style={s.empty}>
             <Text style={[s.emptyText, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
               No {isControl ? 'control' : 'build'} habits yet.{'\n'}Tap + to add one.
@@ -418,10 +505,12 @@ export default function HabitsScreen() {
               onPressN={isControl ? () => handleControlN(habit) : undefined}
               onPressY={isControl ? () => handleControlY(habit) : undefined}
               onInfo={() => setDetailHabit(habit)}
+              onLongPress={() => handleHabitMenu(habit)}
             />
           ))
         )}
       </ScrollView>
+      </DateSwipe>
 
       {/* Habit Detail Modal */}
       {detailHabit && (
@@ -667,6 +756,13 @@ export default function HabitsScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <DayCompleteCelebration
+        visible={celebrateScore !== null}
+        score={celebrateScore ?? 0}
+        theme={theme}
+        onClose={() => setCelebrateScore(null)}
+      />
     </SafeAreaView>
     </DarkBackground>
   );
@@ -775,7 +871,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
   for (let i = 0; i < 28; i++) {
     const d = new Date(baseDate);
     d.setDate(baseDate.getDate() + i);
-    cells.push(d.toISOString().slice(0, 10));
+    cells.push(toDateStr(d));
   }
   while (cells.length % 7 !== 0) cells.push('');
 
@@ -1181,7 +1277,7 @@ function MomentumPill({ score, theme }: { score: number; theme: any }) {
   );
 }
 
-function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected, onToggle, onPressY, onPressN, onInfo }: {
+function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected, onToggle, onPressY, onPressN, onInfo, onLongPress }: {
   habit: HabitWithStatus; theme: any; canToggle: boolean; isControl: boolean;
   fromChallenge?: boolean;
   ySelected?: boolean;
@@ -1189,6 +1285,7 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
   onPressY?: () => void;
   onPressN?: () => void;
   onInfo: () => void;
+  onLongPress?: () => void;
 }) {
   const impact = habit.score || 1;
   const accentColor = theme.isDark ? '#B8F23A' : '#16A34A';
@@ -1211,6 +1308,8 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
         borderWidth: fromChallenge ? 1.5 : 1,
       }]}
       onPress={(!isControl && canToggle) ? onToggle : undefined}
+      onLongPress={onLongPress}
+      delayLongPress={300}
       activeOpacity={(!isControl && canToggle) ? 0.75 : 1}
     >
       {/* Build habit: lime checkbox on left */}

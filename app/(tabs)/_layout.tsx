@@ -69,10 +69,11 @@ export default function TabsLayout() {
   return (
     <Tabs
       tabBar={(props) => <TabBar {...props} />}
-      screenOptions={{ headerShown: false }}
+      screenOptions={{ headerShown: false, animation: 'shift' }}
     >
       {TABS.map(t => <Tabs.Screen key={t.name} name={t.name} />)}
       <Tabs.Screen name="ai" options={{ href: null }} />
+      <Tabs.Screen name="mirror" options={{ href: null }} />
     </Tabs>
   );
 }

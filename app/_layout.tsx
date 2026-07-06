@@ -17,6 +17,11 @@ import {
   SpaceGrotesk_600SemiBold,
   SpaceGrotesk_700Bold,
 } from '@expo-google-fonts/space-grotesk';
+import {
+  BricolageGrotesque_600SemiBold,
+  BricolageGrotesque_700Bold,
+  BricolageGrotesque_800ExtraBold,
+} from '@expo-google-fonts/bricolage-grotesque';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { ThemeProvider, useTheme } from '../components/ThemeContext';
 import { LoadingScreen } from '../components/LoadingScreen';
@@ -33,10 +38,11 @@ function InitialLayout() {
     const onOnboarding = segments[1] === 'onboarding';
 
     if (!user) {
-      // Not logged in — start them in onboarding (which has a "Sign in" link
-      // for returning users). Allow them to be on login/signup if they
-      // navigated there manually.
-      if (!inAuth) router.replace('/(auth)/onboarding' as any);
+      // Not logged in — land on the LOGIN screen. Returning users (the common
+      // case after logout) see sign-in first; new users reach the guided
+      // onboarding via the "New to Grittt? Get started" CTA on that screen.
+      // Allow them to stay on any auth screen they navigated to manually.
+      if (!inAuth) router.replace('/(auth)/login' as any);
       return;
     }
 
@@ -102,6 +108,9 @@ export default function RootLayout() {
     SpaceGrotesk_500Medium,
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
+    BricolageGrotesque_600SemiBold,
+    BricolageGrotesque_700Bold,
+    BricolageGrotesque_800ExtraBold,
   });
 
   // ready = fonts loaded + AsyncStorage checked

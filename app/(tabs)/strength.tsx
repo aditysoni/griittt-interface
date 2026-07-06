@@ -9,12 +9,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import {
-  strength, WorkoutLog, today,
+  strength, WorkoutLog, today, shiftDate,
   BodyPart, SetEntry, ExerciseEntry, TrainingType,
   BODY_PARTS, EXERCISE_SUGGESTIONS, SPORTS_SUGGESTIONS,
 } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
+import { ErrorState } from '../../components/ErrorState';
 import { DaySelector } from '../../components/DaySelector';
+import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
 
 const RATING_LABELS = ['Rest','Very light','Light','Easy','Moderate','Medium','Good','Strong','Very strong','Excellent','Elite'];
@@ -50,10 +52,7 @@ const RATING_TIERS = [
   { upTo: 10, label: 'ELITE',   color: '#22A664', copy: "Top tier. Don't stop now." },
 ];
 
-function shiftDateStr(base: string, days: number) {
-  const d = new Date(base); d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
-}
+const shiftDateStr = shiftDate;
 
 export default function StrengthScreen() {
   const { token } = useAuth();
@@ -61,10 +60,12 @@ export default function StrengthScreen() {
   const router = useRouter();
 
   const [selectedDate, setSelectedDate] = useState(today());
+  const { goPrev, goNext, canPrev, canNext } = useDateNav(selectedDate, setSelectedDate);
   const [logs, setLogs]                 = useState<WorkoutLog[]>([]);
   // date → max strength score for that day (null when no session logged)
   const [history, setHistory]           = useState<Record<string, number | null>>({});
   const [loading, setLoading]           = useState(true);
+  const [loadError, setLoadError]       = useState(false);
   const [refreshing, setRefreshing]     = useState(false);
   const [submitting, setSubmitting]     = useState(false);
 
@@ -98,8 +99,14 @@ export default function StrengthScreen() {
 
   async function load(date: string) {
     if (!token) return;
-    const dayLogs = await strength.logs(token, date).catch(() => []);
-    setLogs(dayLogs);
+    try {
+      const dayLogs = await strength.logs(token, date);
+      setLogs(dayLogs);
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
+      return;
+    }
 
     // 14-day history via the bulk endpoint — one round-trip instead of the
     // 14 parallel /strength/logs calls we used before. Backgrounded so the
@@ -254,6 +261,7 @@ export default function StrengthScreen() {
 
       <View style={s.datesRow}><DaySelector selectedDate={selectedDate} onSelect={setSelectedDate} /></View>
 
+      <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
       >
@@ -265,6 +273,14 @@ export default function StrengthScreen() {
           theme={theme}
         />
 
+        {loadError && (
+          <ErrorState
+            message="Couldn't load your training log."
+            onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }}
+          />
+        )}
+
+        {!loadError && <>
         {/* Rating hero card */}
         {isToday && (() => {
           const tier = RATING_TIERS.find(t => rating <= t.upTo) ?? RATING_TIERS[4];
@@ -275,7 +291,11 @@ export default function StrengthScreen() {
               {/* Hero number with glow halo */}
               <TouchableOpacity style={s.heroNumWrap} onPress={() => setShowRatingPicker(true)} activeOpacity={0.85}>
                 <View style={[s.heroHalo, { backgroundColor: tier.color + '25' }]} />
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', gap: 4 }}>
+                  {/* Transparent mirror of "/10" balances the suffix so the big
+                      digit stays centered under the halo (and doesn't shift
+                      between single-digit ratings and 10). */}
+                  <Text style={[s.heroDenom, { fontFamily: 'Inter_500Medium', opacity: 0 }]}>/10</Text>
                   <Text style={[s.heroNum, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{rating}</Text>
                   <Text style={[s.heroDenom, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>/10</Text>
                 </View>
@@ -284,20 +304,28 @@ export default function StrengthScreen() {
               <Text style={[s.heroTierLabel, { color: tier.color, fontFamily: 'Inter_900Black' }]}>{tier.label}</Text>
               <Text style={[s.heroTierCopy, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{tier.copy}</Text>
 
-              {/* Sculpted ramping bars */}
+              {/* Rating scale — tap a segment to set your rating */}
               <View style={s.heroBarWrap}>
                 {Array.from({ length: 10 }).map((_, i) => {
                   const n = i + 1;
                   const filled = n <= rating;
                   const isActive = n === rating;
-                  const h = 16 + (i / 9) * 36;
                   const band = n <= 2 ? '#E84A4A' : n <= 4 ? '#F08560' : n <= 6 ? '#F0A12E' : n <= 8 ? '#7BC95E' : '#22A664';
                   return (
-                    <View key={i} style={{
-                      flex: 1, height: h, borderRadius: 6,
-                      backgroundColor: filled ? band : theme.surface,
-                      ...(isActive ? { borderWidth: 2, borderColor: theme.text } : {}),
-                    }} />
+                    <TouchableOpacity
+                      key={i}
+                      activeOpacity={0.7}
+                      onPress={() => setRating(n)}
+                      style={[
+                        s.heroBar,
+                        { backgroundColor: filled ? band : theme.surface },
+                        isActive && { borderWidth: 2.5, borderColor: theme.text, transform: [{ scale: 1.12 }] },
+                      ]}
+                    >
+                      {isActive && (
+                        <Text style={[s.heroBarNum, { color: filled ? '#FFFFFF' : theme.text, fontFamily: 'Inter_900Black' }]}>{n}</Text>
+                      )}
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -498,7 +526,9 @@ export default function StrengthScreen() {
             {logs.map(log => <SessionCard key={log.id} log={log} theme={theme} />)}
           </>
         )}
+        </>}
       </ScrollView>
+      </DateSwipe>
 
       {/* ── GYM body-part / multi-set exercise modal ── */}
       <Modal visible={!!activeBodyPart} transparent animationType="slide" onRequestClose={() => setActiveBodyPart(null)}>
@@ -783,11 +813,13 @@ const s = StyleSheet.create({
   heroNumWrap:     { alignItems: 'center', justifyContent: 'center', paddingVertical: 12, position: 'relative' },
   heroHalo:        { position: 'absolute', width: 130, height: 130, borderRadius: 65 },
   heroNum:         { fontSize: 84, letterSpacing: -4, lineHeight: 84 },
-  heroDenom:       { fontSize: 22, letterSpacing: -0.5, paddingBottom: 12 },
+  heroDenom:       { fontSize: 22, letterSpacing: -0.5 },
   heroTierLabel:   { fontSize: 14, letterSpacing: 3, textAlign: 'center', marginTop: 2 },
   heroTierCopy:    { fontSize: 12, textAlign: 'center', lineHeight: 17, marginTop: 6, marginBottom: 16, paddingHorizontal: 16, opacity: 0.8 },
-  heroBarWrap:     { flexDirection: 'row', alignItems: 'flex-end', gap: 5, height: 56 },
-  heroBarTicks:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, marginBottom: 16 },
+  heroBarWrap:     { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  heroBar:         { flex: 1, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  heroBarNum:      { fontSize: 13 },
+  heroBarTicks:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, marginBottom: 18, paddingHorizontal: 2 },
   heroBarTick:     { fontSize: 9, letterSpacing: 1 },
   heroLogBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14 },
   heroLogBtnText:  { fontSize: 12, letterSpacing: 3 },

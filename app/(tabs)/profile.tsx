@@ -9,8 +9,9 @@ import { DarkBackground } from '../../components/DarkBackground';
 import Svg, { Rect, Line, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
-import { habits, strength, fuel, today } from '../../lib/api';
+import { habits, strength, fuel, today, toDateStr } from '../../lib/api';
 import { HawkEyeModal } from '../../components/HawkEye';
+import { ErrorState } from '../../components/ErrorState';
 import { Gauge } from '../../components/Gauge';
 import { useTheme } from '../../components/ThemeContext';
 
@@ -19,8 +20,8 @@ const CARD_W   = SCREEN_W - 32;
 const CHART_W  = SCREEN_W - 64; // card margin 16+16 + card padding 16+16
 
 function shiftDate(base: string, days: number) {
-  const d = new Date(base); d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
+  const d = new Date(base + 'T00:00:00'); d.setDate(d.getDate() + days);
+  return toDateStr(d);
 }
 
 function formatDayLabel(dateStr: string): string {
@@ -289,6 +290,7 @@ export default function ProfileScreen() {
   const [fuelId, setFuelId]         = useState<any>(null);
   const [shields, setShields]       = useState<any>(null);
   const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [hawkEye, setHawkEye]       = useState(false);
 
@@ -297,14 +299,29 @@ export default function ProfileScreen() {
     const from = DAYS[0];
     const to   = DAYS[DAYS.length - 1];
     // Three bulk range fetches instead of 21 parallel per-day calls.
-    const [discRange, fuelRange, strRange, s, f, sh] = await Promise.all([
-      habits.disciplineRange(token, from, to).catch(() => []),
-      fuel.history(token, from, to).catch(() => []),
-      strength.history(token, from, to).catch(() => []),
-      strength.identity(token).catch(() => null),
-      fuel.identity(token).catch(() => null),
-      habits.shields(token).catch(() => null),
+    // allSettled so one failure doesn't drop the rest — but if *every* call
+    // fails we treat it as a connectivity error rather than "no data".
+    const results = await Promise.allSettled([
+      habits.disciplineRange(token, from, to),
+      fuel.history(token, from, to),
+      strength.history(token, from, to),
+      strength.identity(token),
+      fuel.identity(token),
+      habits.shields(token),
     ]);
+    if (results.every(r => r.status === 'rejected')) {
+      setLoadError(true);
+      return;
+    }
+    setLoadError(false);
+    const val = <T,>(i: number, fallback: T): T =>
+      results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback;
+    const discRange = val(0, [] as Awaited<ReturnType<typeof habits.disciplineRange>>);
+    const fuelRange = val(1, [] as Awaited<ReturnType<typeof fuel.history>>);
+    const strRange  = val(2, [] as Awaited<ReturnType<typeof strength.history>>);
+    const s  = val(3, null as Awaited<ReturnType<typeof strength.identity>> | null);
+    const f  = val(4, null as Awaited<ReturnType<typeof fuel.identity>> | null);
+    const sh = val(5, null as Awaited<ReturnType<typeof habits.shields>> | null);
 
     const discByDate = new Map(discRange.map(r => [r.date, r]));
     const fuelByDate = new Map(fuelRange.map(r => [r.date, r.score ?? 0]));
@@ -358,6 +375,9 @@ export default function ProfileScreen() {
         <TouchableOpacity style={[s.topIcon, { borderColor: '#34C759' }]} onPress={() => router.push('/(tabs)/ai')}>
           <Ionicons name="sparkles" size={15} color="#34C759" />
         </TouchableOpacity>
+        <TouchableOpacity style={[s.topIcon, { borderColor: theme.border }]} onPress={() => router.push('/edit-profile')}>
+          <Ionicons name="create-outline" size={15} color={theme.textSecondary} />
+        </TouchableOpacity>
         <TouchableOpacity style={[s.topIcon, { borderColor: theme.border }]} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={15} color={theme.textSecondary} />
         </TouchableOpacity>
@@ -367,7 +387,14 @@ export default function ProfileScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}>
 
         {/* ── D_Dashboard design ── */}
-        {cardData.length >= 2 && <DashSection cardData={cardData} theme={theme} onHawkEye={() => setHawkEye(true)} />}
+        {loadError ? (
+          <ErrorState
+            message="Couldn't load your dashboard."
+            onRetry={() => { setLoading(true); load().finally(() => setLoading(false)); }}
+          />
+        ) : (
+          cardData.length >= 2 && <DashSection cardData={cardData} theme={theme} onHawkEye={() => setHawkEye(true)} />
+        )}
         <HawkEyeModal visible={hawkEye} onClose={() => setHawkEye(false)} token={token!} />
 
 

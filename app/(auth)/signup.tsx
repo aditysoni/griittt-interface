@@ -14,14 +14,31 @@ import { Link, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../lib/auth';
 import { COLORS } from '../../components/theme';
+import { GoogleSignInButton } from '../../components/GoogleSignInButton';
 
 export default function SignupScreen() {
-  const { signup } = useAuth();
+  const { signup, loginWithGoogle } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  async function handleGoogle() {
+    setGoogleLoading(true);
+    try {
+      await loginWithGoogle();
+      // New Google users land on onboarding; returning ones go to the app —
+      // the root layout decides based on `onboardingDone`.
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error('Google sign-in error', err);
+      Alert.alert('Google Sign-In', err?.message || 'Could not sign in with Google.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
 
   async function handleSignup() {
     if (!name.trim() || !email.trim() || !password) {
@@ -113,6 +130,14 @@ export default function SignupScreen() {
               </LinearGradient>
             </Pressable>
 
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <GoogleSignInButton onPress={handleGoogle} loading={googleLoading} label="Sign up with Google" />
+
             <View style={styles.footer}>
               <Text style={styles.footerText}>Already have an account? </Text>
               <Link href="/(auth)/login" asChild>
@@ -187,6 +212,23 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 4,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.border,
+  },
+  dividerText: {
+    color: COLORS.textTertiary,
+    fontSize: 12,
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
   footer: {
