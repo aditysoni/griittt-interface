@@ -568,6 +568,23 @@ export const fuel = {
     fat: number | null; carbs: number | null;
   }>) =>
     request<FoodItem>(`/fuel/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }, token),
+
+  monthlyAnalysis: (token: string, month?: string) =>
+    request<FuelMonthlyAnalysis>(`/fuel/analysis/monthly${month ? `?month=${month}` : ''}`, {}, token),
+};
+
+export type FuelMonthlyAnalysis = {
+  month: string;
+  totalDaysTracked: number;
+  totalNutrition: { calories: number; protein: number; carbs: number; fat: number };
+  topFoods: Array<{
+    rank: number;
+    name: string;
+    count: number;
+    daysEaten: number;
+    nutrition: { calories: number; protein: number; carbs: number; fat: number };
+    contribution: { caloriesPct: number; proteinPct: number; carbsPct: number; fatPct: number };
+  }>;
 };
 
 // AI

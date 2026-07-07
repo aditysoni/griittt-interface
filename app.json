@@ -16,14 +16,23 @@
       "bundleIdentifier": "com.grittt.app",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow Grittt to access your photos to track your food.",
-        "NSCameraUsageDescription": "Allow Grittt to use your camera to snap and track food."
-      }
+        "NSCameraUsageDescription": "Allow Grittt to use your camera to snap and track food.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "runtimeVersion": "1.0.0"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#0F0F14"
       },
-      "package": "com.grittt.app"
+      "package": "com.grittt.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "web": {
       "bundler": "metro",
@@ -43,6 +52,15 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4344d3a6-60dc-4ecd-909f-0fe591ed926b"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/4344d3a6-60dc-4ecd-909f-0fe591ed926b"
     }
   }
 }

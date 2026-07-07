@@ -109,13 +109,19 @@ export default function FuelScreen() {
 
     setScanning(true);
     try {
-      const data = await ai.snapTrack(token!, result.assets[0].base64!);
+      const b64 = result.assets[0].base64!;
+      const data = await ai.snapTrack(token!, `data:image/jpeg;base64,${b64}`);
+      console.log('[snap-track] response:', JSON.stringify(data));
       setItemName(data.name);
       setItemCalories(data.calories ? String(Math.round(data.calories)) : '');
       setItemProtein(data.protein  ? String(Math.round(data.protein))  : '');
       setItemCarbs(data.carbs    ? String(Math.round(data.carbs))    : '');
       setItemFat(data.fats     ? String(Math.round(data.fats))     : '');
-    } catch (err: any) { Alert.alert('Snap failed', err.message); }
+      setShowManualInput(true);
+    } catch (err: any) {
+      console.log('[snap-track] error:', err.message, err.status);
+      Alert.alert('Snap failed', err.message);
+    }
     finally { setScanning(false); }
   }
 
