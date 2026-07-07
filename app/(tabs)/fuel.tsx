@@ -112,11 +112,11 @@ export default function FuelScreen() {
       const b64 = result.assets[0].base64!;
       const data = await ai.snapTrack(token!, `data:image/jpeg;base64,${b64}`);
       setItemName(data.name);
-      setItemCalories(data.calories != null ? String(Math.round(data.calories)) : '');
-      setItemProtein(data.protein   != null ? String(Math.round(data.protein))  : '');
-      setItemCarbs(data.carbs       != null ? String(Math.round(data.carbs))    : '');
-      const fatVal = (data as any).fat ?? data.fats;
-      setItemFat(fatVal != null ? String(Math.round(fatVal)) : '');
+      setItemCalories(String(Math.round(data.calories ?? 0)));
+      setItemProtein(String(Math.round(data.protein   ?? 0)));
+      setItemCarbs(String(Math.round(data.carbs       ?? 0)));
+      const fatVal = (data as any).fat ?? data.fats ?? 0;
+      setItemFat(String(Math.round(fatVal)));
       setShowManualInput(true);
     } catch (err: any) { Alert.alert('Snap failed', err.message); }
     finally { setScanning(false); }
