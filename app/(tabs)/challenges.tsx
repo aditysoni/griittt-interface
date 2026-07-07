@@ -20,6 +20,7 @@ import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 import { challenges, Challenge, DurationStats, tasks } from '../../lib/api';
+import { ChallengeJourney } from '../../components/ChallengeJourney';
 import { LoadingScreen } from '../../components/LoadingScreen';
 import { ErrorState } from '../../components/ErrorState';
 import { useTheme, AppTheme } from '../../components/ThemeContext';
@@ -802,24 +803,18 @@ function ChallengeDetailModal({
   onJoin: (c: Challenge) => void;
   onAbandon: (c: Challenge) => void;
 }) {
-  const [showHeatmap, setShowHeatmap] = useState(false);
-  const [stats, setStats]             = useState<DurationStats | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
+  const [stats, setStats] = useState<DurationStats | null>(null);
 
-  // Reset state whenever the modal opens for a new challenge.
-  useEffect(() => { setShowHeatmap(false); setStats(null); }, [c?.id]);
-
-  // Fetch the real drop-off distribution lazily, the first time the heatmap is opened.
+  // Reset + fetch the real cohort distribution whenever the modal opens.
   useEffect(() => {
-    if (!showHeatmap || !token || !c || stats) return;
+    setStats(null);
+    if (!token || !c) return;
     let alive = true;
-    setStatsLoading(true);
     challenges.durationStats(token, c.id)
       .then(r => { if (alive) setStats(r); })
-      .catch(() => {})
-      .finally(() => { if (alive) setStatsLoading(false); });
+      .catch(() => {});
     return () => { alive = false; };
-  }, [showHeatmap, token, c?.id]);
+  }, [token, c?.id]);
 
   if (!c) return null;
   const t            = themeForDomain(c.domain);
@@ -828,9 +823,6 @@ function ChallengeDetailModal({
   const participants = c.participantCount;
   const isActive     = c.joined && c.status === 'active';
   const pct          = isActive ? Math.min(c.daysDone / c.durationDays, 1) : 0;
-  const histogram    = stats?.histogram ?? [];
-  const peakBucket   = histogram.length ? histogram.reduce((a, b) => b.users > a.users ? b : a, histogram[0]) : null;
-  const maxUsers     = Math.max(1, ...histogram.map(b => b.users));
 
   return (
     <Modal
@@ -936,88 +928,10 @@ function ChallengeDetailModal({
             </View>
           )}
 
-          {/* Participants footer line — real count from the backend */}
-          {participants > 0 && (
-            <Text style={[dm.participantsLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-              <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>{participants.toLocaleString()}</Text>
-              {participants === 1 ? ' person has' : ' people have'} joined this challenge
-            </Text>
-          )}
-
-          {/* Heatmap toggle */}
-          <TouchableOpacity
-            style={[dm.heatmapBtn, { borderColor: theme.text }]}
-            onPress={() => setShowHeatmap(v => !v)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="bar-chart-outline" size={14} color={theme.text} />
-            <Text style={[dm.heatmapBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-              {showHeatmap ? 'HIDE HEATMAP' : 'SHOW HEATMAP'}
-            </Text>
-            <Ionicons
-              name={showHeatmap ? 'chevron-up' : 'chevron-down'}
-              size={14}
-              color={theme.text}
-            />
-          </TouchableOpacity>
-
-          {showHeatmap && (
-            <View style={[dm.heatmapCard, { borderColor: theme.text, backgroundColor: theme.card }]}>
-              <Text style={[dm.heatmapTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-                HOW LONG OTHERS STUCK WITH IT
-              </Text>
-
-              {statsLoading && (
-                <Text style={[dm.heatmapSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                  Loading the real numbers…
-                </Text>
-              )}
-
-              {!statsLoading && (!stats || stats.total === 0) && (
-                <Text style={[dm.heatmapSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                  No one has logged enough days yet — be the first to set the curve.
-                </Text>
-              )}
-
-              {!statsLoading && stats && stats.total > 0 && (
-                <>
-                  {peakBucket && (
-                    <Text style={[dm.heatmapSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                      Most people are around{' '}
-                      <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>
-                        {peakBucket.label}
-                      </Text>
-                      .
-                    </Text>
-                  )}
-                  <View style={dm.heatRows}>
-                    {histogram.map((b, i) => {
-                      const w        = (b.users / maxUsers) * 100;
-                      const isPeak   = peakBucket != null && b.users === peakBucket.users && b.users > 0;
-                      const barColor = isPeak ? t.dot : t.dot + '70';
-                      return (
-                        <View key={i} style={dm.heatRow}>
-                          <Text style={[dm.heatLabel, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-                            {b.label}
-                          </Text>
-                          <View style={[dm.heatTrack, { backgroundColor: theme.overlay }]}>
-                            <View style={[dm.heatFill, { width: `${w}%`, backgroundColor: barColor }]} />
-                          </View>
-                          <Text style={[dm.heatCount, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-                            {b.users}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                  <Text style={[dm.heatmapFootnote, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>
-                    Based on {stats.total.toLocaleString()} {stats.total === 1 ? 'participant' : 'participants'}
-                    {' · '}{stats.completed} completed · {stats.active} active · {stats.abandoned} dropped
-                  </Text>
-                </>
-              )}
-            </View>
-          )}
+          {/* The Journey — live cohort presence + the climb */}
+          <View style={dm.section}>
+            <ChallengeJourney challenge={c} stats={stats} theme={theme} accent={t.dot} active={isActive} />
+          </View>
 
           {/* Primary action */}
           {isActive ? (
@@ -1038,7 +952,7 @@ function ChallengeDetailModal({
               activeOpacity={0.85}
             >
               <Text style={[dm.btnPrimaryText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>
-                START THIS CHALLENGE →
+                ACCEPT THE CHALLENGE →
               </Text>
             </TouchableOpacity>
           )}
