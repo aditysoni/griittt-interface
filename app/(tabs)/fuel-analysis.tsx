@@ -485,7 +485,8 @@ function LogFoodModal({ open, token, theme, onClose, onSaved }: {
       setCalories(data.calories ? String(Math.round(data.calories)) : '');
       setProtein(data.protein   ? String(Math.round(data.protein))  : '');
       setCarbs(data.carbs       ? String(Math.round(data.carbs))    : '');
-      setFat(data.fats          ? String(Math.round(data.fats))     : '');
+      const fatVal = (data as any).fat ?? data.fats;
+      setFat(fatVal ? String(Math.round(fatVal)) : '');
     } catch (e: any) { Alert.alert('Snap failed', e.message); }
     finally { setScanning(false); }
   }
