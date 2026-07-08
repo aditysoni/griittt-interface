@@ -24,9 +24,9 @@ export default function MirrorScreen() {
   const [preview, setPreview] = useState<Preview>(undefined);
   const [horizon, setHorizon] = useState('today');
   const [unlocking, setUnlocking] = useState(false);
-  const [window, setWindow] = useState<7 | 30>(30);
+  const [window, setWindow] = useState<7 | 30>(7);
 
-  const load = useCallback(async (pv: Preview, win: 7 | 30 = 30) => {
+  const load = useCallback(async (pv: Preview, win: 7 | 30 = 7) => {
     if (!token) return;
     try {
       setError(false);
