@@ -124,13 +124,28 @@ export default function FuelScreen() {
     setScanning(true);
     try {
       const data = await ai.snapTrack(token!, `data:image/jpeg;base64,${result.assets[0].base64!}`);
+
+      if (!data.name || data.name === 'Unknown food') {
+        Alert.alert('No food detected', 'Try a clearer photo with better lighting, or enter the food manually.');
+        return;
+      }
+
       setItemName(data.name);
-      setItemCalories(String(Math.round(data.calories ?? 0)));
-      setItemProtein(String(Math.round(data.protein   ?? 0)));
-      setItemCarbs(String(Math.round(data.carbs       ?? 0)));
+      setItemCalories(data.calories > 0 ? String(Math.round(data.calories)) : '');
+      setItemProtein(data.protein   > 0 ? String(Math.round(data.protein))  : '');
+      setItemCarbs(data.carbs       > 0 ? String(Math.round(data.carbs))    : '');
       const fatVal = (data as any).fat ?? data.fats ?? 0;
-      setItemFat(String(Math.round(fatVal)));
-    } catch (err: any) { Alert.alert('Snap failed', err.message); }
+      setItemFat(fatVal > 0 ? String(Math.round(fatVal)) : '');
+
+      if (!data.calories && !data.protein && !data.carbs) {
+        Alert.alert('Food identified', `Found "${data.name}" but couldn't estimate nutrition. Fill in the values manually.`);
+      }
+    } catch (err: any) {
+      const msg = err.message?.includes('No food') || err.status === 422
+        ? 'No food detected. Try a clearer photo or better lighting.'
+        : `Scan failed: ${err.message}`;
+      Alert.alert('Snap Track', msg);
+    }
     finally { setScanning(false); }
   }
 

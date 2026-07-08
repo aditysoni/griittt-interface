@@ -1,15 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 
-// Play the chime even when the phone's silent switch is on (iOS). Runs once.
-let audioModeSet = false;
-function ensureAudioMode() {
-  if (audioModeSet) return;
-  audioModeSet = true;
-  setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
-}
 
 /**
  * Full-screen celebration shown when the user completes every task of the day.
@@ -28,7 +20,6 @@ export function DayCompleteCelebration({
   theme: any;
   onClose: () => void;
 }) {
-  const player = useAudioPlayer(require('../assets/sounds/fanfare-major.wav'));
   const count   = useRef(new Animated.Value(0)).current;
   const scale   = useRef(new Animated.Value(0.6)).current;
   const opacity = useRef(new Animated.Value(0)).current;
@@ -38,9 +29,7 @@ export function DayCompleteCelebration({
     if (!visible) return;
 
     // fire the tune + haptic at the same instant the animation starts
-    ensureAudioMode();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    try { player.seekTo(0); player.play(); } catch {}
 
     count.setValue(0);
     scale.setValue(0.6);
