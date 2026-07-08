@@ -19,6 +19,7 @@ import { useAuth } from '../../lib/auth';
 import { ai, habits, tasks, today } from '../../lib/api';
 import { COLORS } from '../../components/theme';
 import { useTheme } from '../../components/ThemeContext';
+import { useRouter } from 'expo-router';
 
 type SnapResult = {
   name: string;
@@ -39,6 +40,7 @@ type DebriefResult = {
 export default function AIScreen() {
   const { token } = useAuth();
   const { theme } = useTheme();
+  const router = useRouter();
 
   const [debriefLoading, setDebriefLoading] = useState(false);
   const [debrief, setDebrief] = useState<DebriefResult | null>(null);
@@ -155,6 +157,14 @@ export default function AIScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
+        <TouchableOpacity
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={[styles.backBtn, { borderColor: theme.border }]}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="arrow-back" size={20} color={theme.text} />
+        </TouchableOpacity>
         <Text style={[styles.screenTitle, { color: theme.text }]}>AI Coach</Text>
         <Text style={[styles.screenSub, { color: theme.textSecondary }]}>Your personal AI-powered habit & health coach</Text>
 
@@ -337,6 +347,10 @@ function DebriefSection({ icon, title, body, theme }: { icon: string; title: str
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, gap: 16 },
+  backBtn: {
+    width: 40, height: 40, borderRadius: 12, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+  },
   screenTitle: { fontSize: 28, fontWeight: '800' },
   screenSub: { fontSize: 13, marginTop: -8 },
   card: {

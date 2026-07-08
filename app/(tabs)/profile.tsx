@@ -6,11 +6,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DarkBackground } from '../../components/DarkBackground';
-import Svg, { Rect, Line, Text as SvgText, Defs, LinearGradient, Stop, Path } from 'react-native-svg';
+import Svg, { Rect, Line, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
-import { habits, strength, fuel, today } from '../../lib/api';
+import { habits, strength, fuel, today, toDateStr } from '../../lib/api';
 import { HawkEyeModal } from '../../components/HawkEye';
+import { ErrorState } from '../../components/ErrorState';
 import { Gauge } from '../../components/Gauge';
 import { useTheme } from '../../components/ThemeContext';
 
@@ -19,8 +20,8 @@ const CARD_W   = SCREEN_W - 32;
 const CHART_W  = SCREEN_W - 64; // card margin 16+16 + card padding 16+16
 
 function shiftDate(base: string, days: number) {
-  const d = new Date(base); d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
+  const d = new Date(base + 'T00:00:00'); d.setDate(d.getDate() + days);
+  return toDateStr(d);
 }
 
 function formatDayLabel(dateStr: string): string {
@@ -289,6 +290,7 @@ export default function ProfileScreen() {
   const [fuelId, setFuelId]         = useState<any>(null);
   const [shields, setShields]       = useState<any>(null);
   const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [hawkEye, setHawkEye]       = useState(false);
 
@@ -297,14 +299,29 @@ export default function ProfileScreen() {
     const from = DAYS[0];
     const to   = DAYS[DAYS.length - 1];
     // Three bulk range fetches instead of 21 parallel per-day calls.
-    const [discRange, fuelRange, strRange, s, f, sh] = await Promise.all([
-      habits.disciplineRange(token, from, to).catch(() => []),
-      fuel.history(token, from, to).catch(() => []),
-      strength.history(token, from, to).catch(() => []),
-      strength.identity(token).catch(() => null),
-      fuel.identity(token).catch(() => null),
-      habits.shields(token).catch(() => null),
+    // allSettled so one failure doesn't drop the rest — but if *every* call
+    // fails we treat it as a connectivity error rather than "no data".
+    const results = await Promise.allSettled([
+      habits.disciplineRange(token, from, to),
+      fuel.history(token, from, to),
+      strength.history(token, from, to),
+      strength.identity(token),
+      fuel.identity(token),
+      habits.shields(token),
     ]);
+    if (results.every(r => r.status === 'rejected')) {
+      setLoadError(true);
+      return;
+    }
+    setLoadError(false);
+    const val = <T,>(i: number, fallback: T): T =>
+      results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback;
+    const discRange = val(0, [] as Awaited<ReturnType<typeof habits.disciplineRange>>);
+    const fuelRange = val(1, [] as Awaited<ReturnType<typeof fuel.history>>);
+    const strRange  = val(2, [] as Awaited<ReturnType<typeof strength.history>>);
+    const s  = val(3, null as Awaited<ReturnType<typeof strength.identity>> | null);
+    const f  = val(4, null as Awaited<ReturnType<typeof fuel.identity>> | null);
+    const sh = val(5, null as Awaited<ReturnType<typeof habits.shields>> | null);
 
     const discByDate = new Map(discRange.map(r => [r.date, r]));
     const fuelByDate = new Map(fuelRange.map(r => [r.date, r.score ?? 0]));
@@ -358,6 +375,9 @@ export default function ProfileScreen() {
         <TouchableOpacity style={[s.topIcon, { borderColor: '#34C759' }]} onPress={() => router.push('/(tabs)/ai')}>
           <Ionicons name="sparkles" size={15} color="#34C759" />
         </TouchableOpacity>
+        <TouchableOpacity style={[s.topIcon, { borderColor: theme.border }]} onPress={() => router.push('/edit-profile')}>
+          <Ionicons name="create-outline" size={15} color={theme.textSecondary} />
+        </TouchableOpacity>
         <TouchableOpacity style={[s.topIcon, { borderColor: theme.border }]} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={15} color={theme.textSecondary} />
         </TouchableOpacity>
@@ -367,23 +387,16 @@ export default function ProfileScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}>
 
         {/* ── D_Dashboard design ── */}
-        {cardData.length >= 2 && <DashSection cardData={cardData} theme={theme} onHawkEye={() => setHawkEye(true)} />}
+        {loadError ? (
+          <ErrorState
+            message="Couldn't load your dashboard."
+            onRetry={() => { setLoading(true); load().finally(() => setLoading(false)); }}
+          />
+        ) : (
+          cardData.length >= 2 && <DashSection cardData={cardData} theme={theme} onHawkEye={() => setHawkEye(true)} />
+        )}
         <HawkEyeModal visible={hawkEye} onClose={() => setHawkEye(false)} token={token!} />
 
-        {/* ── Mirror entry card ── */}
-        <MirrorEntryCard onPress={() => router.navigate('/(tabs)/mirror')} />
-
-        {/* ── Fuel Analysis button ── */}
-        <TouchableOpacity
-          style={[s.appearanceRow, { borderColor: theme.border }]}
-          onPress={() => router.push('/(tabs)/fuel-analysis')}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="nutrition-outline" size={18} color={theme.text} />
-          <Text style={[s.appearanceLabel, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>Fuel Analysis</Text>
-          <View style={{ flex: 1 }} />
-          <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
-        </TouchableOpacity>
 
         {/* Appearance toggle */}
         <View style={[s.appearanceRow, { borderColor: theme.border }]}>
@@ -711,64 +724,4 @@ const s = StyleSheet.create({
   appearanceLabel: { fontSize: 14 },
   themeToggle: { flexDirection: 'row', borderWidth: 1, borderRadius: 8, padding: 2, gap: 2 },
   themeOpt: { width: 32, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 6 },
-});
-
-// ── Mirror Entry Card ──────────────────────────────────────────────────────────
-
-function MirrorEntryCard({ onPress }: { onPress: () => void }) {
-  const cardW = SCREEN_W - 32;
-  const d = `M0 52 L${cardW * 0.18} 42 L${cardW * 0.4} 28 L${cardW * 0.65} 18 L${cardW} 8`;
-  const area = `${d} L${cardW} 64 L0 64 Z`;
-
-  return (
-    <TouchableOpacity style={mc.card} onPress={onPress} activeOpacity={0.87}>
-      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-        <Svg width={cardW} height={64}>
-          <Defs>
-            <LinearGradient id="mcGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#B8F23A" stopOpacity="0.07" />
-              <Stop offset="1" stopColor="#B8F23A" stopOpacity="0" />
-            </LinearGradient>
-          </Defs>
-          <Path d={area} fill="url(#mcGrad)" />
-          <Path d={d} stroke="#B8F23A" strokeWidth={1.5} fill="none" strokeOpacity={0.4} strokeLinecap="round" strokeLinejoin="round" />
-        </Svg>
-      </View>
-
-      <View style={mc.topRow}>
-        <View style={mc.mirrorLabel}>
-          <Ionicons name="star" size={9} color="#B8F23A" />
-          <Text style={mc.mirrorText}>MIRROR</Text>
-        </View>
-        <View style={mc.premiumBadge}>
-          <Ionicons name="lock-closed" size={8} color="rgba(245,241,232,0.45)" />
-          <Text style={mc.premiumText}>PREMIUM</Text>
-        </View>
-      </View>
-
-      <Text style={mc.eyebrow}>YOUR FUTURE SELF</Text>
-      <Text style={mc.headline}>See who you're{'\n'}becoming.</Text>
-
-      <View style={mc.ctaRow}>
-        <Text style={mc.ctaText}>Open the Mirror</Text>
-        <View style={mc.ctaArrow}>
-          <Ionicons name="arrow-forward" size={14} color="#14110D" />
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-const mc = StyleSheet.create({
-  card:         { marginHorizontal: 16, marginBottom: 14, backgroundColor: '#14110D', borderRadius: 22, padding: 20, overflow: 'hidden' },
-  topRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
-  mirrorLabel:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  mirrorText:   { fontSize: 9, letterSpacing: 3.5, color: '#B8F23A', fontFamily: 'Inter_700Bold' },
-  premiumBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(245,241,232,0.07)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
-  premiumText:  { fontSize: 8, letterSpacing: 2, color: 'rgba(245,241,232,0.45)', fontFamily: 'Inter_700Bold' },
-  eyebrow:      { fontSize: 8, letterSpacing: 2.5, color: 'rgba(245,241,232,0.30)', fontFamily: 'Inter_700Bold', marginBottom: 6 },
-  headline:     { fontSize: 22, letterSpacing: -0.5, color: '#ECE8DC', fontFamily: 'Inter_900Black', lineHeight: 26, marginBottom: 20 },
-  ctaRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  ctaText:      { fontSize: 12, color: 'rgba(245,241,232,0.50)', fontFamily: 'Inter_500Medium' },
-  ctaArrow:     { width: 34, height: 34, borderRadius: 999, backgroundColor: '#B8F23A', alignItems: 'center', justifyContent: 'center' },
 });

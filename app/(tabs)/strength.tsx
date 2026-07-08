@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable,
+  Alert, KeyboardAvoidingView, Modal, Platform, Pressable,
   RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,12 +9,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import {
-  strength, WorkoutLog, today,
+  strength, WorkoutLog, today, shiftDate,
   BodyPart, SetEntry, ExerciseEntry, TrainingType,
   BODY_PARTS, EXERCISE_SUGGESTIONS, SPORTS_SUGGESTIONS,
 } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
+import { ErrorState } from '../../components/ErrorState';
 import { DaySelector } from '../../components/DaySelector';
+import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
 
 const RATING_LABELS = ['Rest','Very light','Light','Easy','Moderate','Medium','Good','Strong','Very strong','Excellent','Elite'];
@@ -43,112 +45,14 @@ const TRAINING_TYPES: { key: TrainingType; label: string; icon: string; sub: str
 ];
 
 const RATING_TIERS = [
-  { upTo: 2,  label: 'WRECKED', copy: 'Tough one. Recovery is the work today.' },
-  { upTo: 4,  label: 'LOW',     copy: 'Showed up. That counts.' },
-  { upTo: 6,  label: 'STEADY',  copy: 'Solid effort — kept the streak alive.' },
-  { upTo: 8,  label: 'STRONG',  copy: 'Real work today. You earned this.' },
-  { upTo: 10, label: 'ELITE',   copy: "Top tier. Don't stop now." },
+  { upTo: 2,  label: 'WRECKED', color: '#E84A4A', copy: 'Tough one. Recovery is the work today.' },
+  { upTo: 4,  label: 'LOW',     color: '#E84A4A', copy: 'Showed up. That counts.' },
+  { upTo: 6,  label: 'STEADY',  color: '#F0A12E', copy: 'Solid effort — kept the streak alive.' },
+  { upTo: 8,  label: 'STRONG',  color: '#22A664', copy: 'Real work today. You earned this.' },
+  { upTo: 10, label: 'ELITE',   color: '#22A664', copy: "Top tier. Don't stop now." },
 ];
 
-function RatingDial({ value, max = 10, eyebrow, label, copy, lowLabel, highLabel, big = true, theme, onPress, onChange }: {
-  value: number; max?: number; eyebrow: string; label: string;
-  copy?: string; lowLabel: string; highLabel: string;
-  big?: boolean; theme: any; onPress?: () => void; onChange?: (v: number) => void;
-}) {
-  const pct   = value / max;
-  const numSz = big ? 68 : 36;
-
-  // Refs so PanResponder closure always sees latest values
-  const barRef    = useRef<View>(null);
-  const barX      = useRef(0);
-  const barW      = useRef(0);
-  const changeRef = useRef(onChange);
-  const maxRef    = useRef(max);
-  useEffect(() => { changeRef.current = onChange; }, [onChange]);
-  useEffect(() => { maxRef.current    = max;      }, [max]);
-
-  const calcVal = (pageX: number) => {
-    const pct2 = Math.max(0, Math.min(1, (pageX - barX.current) / barW.current));
-    return Math.max(1, Math.min(maxRef.current, Math.round(pct2 * (maxRef.current - 1)) + 1));
-  };
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: ()        => true,
-      onMoveShouldSetPanResponder:  (_, s)    => Math.abs(s.dx) > 2,
-      onPanResponderTerminationRequest:       () => false,
-      onPanResponderGrant: (e) => { changeRef.current?.(calcVal(e.nativeEvent.pageX)); },
-      onPanResponderMove:  (e) => { changeRef.current?.(calcVal(e.nativeEvent.pageX)); },
-    })
-  ).current;
-
-  const onBarLayout = useCallback(() => {
-    barRef.current?.measure((_, __, w, ___, px) => { barX.current = px; barW.current = w; });
-  }, []);
-
-  return (
-    <View>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={{ fontSize: 9, letterSpacing: 2.5, color: theme.textMuted, fontFamily: 'Inter_700Bold' }}>{eyebrow}</Text>
-        <View style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999, backgroundColor: theme.surface }}>
-          <Text style={{ fontSize: 9, letterSpacing: 2, color: theme.text, fontFamily: 'Inter_900Black' }}>{label}</Text>
-        </View>
-      </View>
-
-      <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4, marginTop: big ? 10 : 6 }}>
-        <Text style={{ fontSize: numSz, letterSpacing: -3, lineHeight: numSz, color: theme.text, fontFamily: 'Inter_900Black' }}>{value}</Text>
-        <Text style={{ fontSize: big ? 20 : 14, color: theme.textMuted, paddingBottom: big ? 8 : 4, fontFamily: 'Inter_500Medium' }}>/{max}</Text>
-      </TouchableOpacity>
-
-      {copy && (
-        <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 8, lineHeight: 17, fontFamily: 'Inter_500Medium' }}>{copy}</Text>
-      )}
-
-      {/* Slideable dial */}
-      <View style={{ marginTop: big ? 18 : 12 }}>
-        <View
-          ref={barRef}
-          style={{ height: 44 }}
-          onLayout={onBarLayout}
-          {...pan.panHandlers}
-        >
-          {/* Track */}
-          <View style={{ position: 'absolute', left: 0, right: 0, top: 20, height: 4, borderRadius: 2, backgroundColor: theme.surface }} />
-          {/* Fill */}
-          <View style={{ position: 'absolute', left: 0, top: 20, height: 4, borderRadius: 2, width: `${pct * 100}%` as any, backgroundColor: theme.text }} />
-          {/* Ticks */}
-          <View style={{ position: 'absolute', left: 0, right: 0, top: 18, flexDirection: 'row', justifyContent: 'space-between' }}>
-            {Array.from({ length: max + 1 }).map((_, i) => (
-              <View key={i} style={{ width: 1.5, height: 8, borderRadius: 1, backgroundColor: i / max <= pct ? theme.text : theme.surface }} />
-            ))}
-          </View>
-          {/* Knob */}
-          {barW.current > 0 && (
-            <View style={{
-              position: 'absolute',
-              left: `${pct * 100}%` as any,
-              marginLeft: -11,
-              top: 11,
-              width: 22, height: 22, borderRadius: 11,
-              backgroundColor: theme.card, borderWidth: 2.5, borderColor: theme.text,
-              shadowColor: '#000', shadowOpacity: 0.16, shadowRadius: 6,
-              shadowOffset: { width: 0, height: 2 }, elevation: 5,
-            }} />
-          )}
-        </View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-          <Text style={{ fontSize: 9, letterSpacing: 1.5, color: theme.textMuted, fontFamily: 'Inter_700Bold' }}>{lowLabel}</Text>
-          <Text style={{ fontSize: 9, letterSpacing: 1.5, color: theme.textMuted, fontFamily: 'Inter_700Bold' }}>{highLabel}</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function shiftDateStr(base: string, days: number) {
-  const d = new Date(base); d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
-}
+const shiftDateStr = shiftDate;
 
 export default function StrengthScreen() {
   const { token } = useAuth();
@@ -156,20 +60,18 @@ export default function StrengthScreen() {
   const router = useRouter();
 
   const [selectedDate, setSelectedDate] = useState(today());
+  const { goPrev, goNext, canPrev, canNext } = useDateNav(selectedDate, setSelectedDate);
   const [logs, setLogs]                 = useState<WorkoutLog[]>([]);
   // date → max strength score for that day (null when no session logged)
   const [history, setHistory]           = useState<Record<string, number | null>>({});
   const [loading, setLoading]           = useState(true);
+  const [loadError, setLoadError]       = useState(false);
   const [refreshing, setRefreshing]     = useState(false);
   const [submitting, setSubmitting]     = useState(false);
 
   // Rating
   const [rating, setRating] = useState(7);
-  const [detailLog, setDetailLog] = useState<WorkoutLog | null>(null);
   const [showRatingPicker, setShowRatingPicker] = useState(false);
-
-  // QUICK = rating dial, DETAILED = full session (gym/sports/cardio)
-  const [strengthMode, setStrengthMode] = useState<'quick' | 'detailed'>('quick');
 
   // Training type selected from the inline row
   const [trainingType, setTrainingType] = useState<TrainingType | null>(null);
@@ -197,8 +99,14 @@ export default function StrengthScreen() {
 
   async function load(date: string) {
     if (!token) return;
-    const dayLogs = await strength.logs(token, date).catch(() => []);
-    setLogs(dayLogs);
+    try {
+      const dayLogs = await strength.logs(token, date);
+      setLogs(dayLogs);
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
+      return;
+    }
 
     // 14-day history via the bulk endpoint — one round-trip instead of the
     // 14 parallel /strength/logs calls we used before. Backgrounded so the
@@ -353,6 +261,7 @@ export default function StrengthScreen() {
 
       <View style={s.datesRow}><DaySelector selectedDate={selectedDate} onSelect={setSelectedDate} /></View>
 
+      <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
       >
@@ -364,46 +273,78 @@ export default function StrengthScreen() {
           theme={theme}
         />
 
-        {/* ── QUICK / DETAILED toggle ── */}
-        {isToday && (
-          <View style={[s.modeToggle, { backgroundColor: theme.surface }]}>
-            {(['quick', 'detailed'] as const).map(m => (
-              <TouchableOpacity
-                key={m}
-                style={[s.modeBtn, strengthMode === m && { backgroundColor: theme.card }]}
-                onPress={() => { setStrengthMode(m); setTrainingType(null); }}
-                activeOpacity={0.8}
-              >
-                <Text style={[s.modeBtnText, {
-                  color: strengthMode === m ? theme.text : theme.textSecondary,
-                  fontFamily: 'Inter_900Black',
-                }]}>{m.toUpperCase()}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+        {loadError && (
+          <ErrorState
+            message="Couldn't load your training log."
+            onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }}
+          />
         )}
 
-        {/* QUICK — rating dial */}
-        {isToday && strengthMode === 'quick' && (() => {
+        {!loadError && <>
+        {/* Rating hero card */}
+        {isToday && (() => {
           const tier = RATING_TIERS.find(t => rating <= t.upTo) ?? RATING_TIERS[4];
           return (
-            <View style={[s.dialCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <RatingDial
-                value={rating} max={10}
-                eyebrow="HOW DID IT GO?" label={tier.label} copy={tier.copy}
-                lowLabel="1 · COOKED" highLabel="ELITE · 10"
-                big theme={theme}
-                onPress={() => setShowRatingPicker(true)}
-                onChange={setRating}
-              />
+            <View style={[s.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[s.heroEyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>HOW DID IT GO?</Text>
+
+              {/* Hero number with glow halo */}
+              <TouchableOpacity style={s.heroNumWrap} onPress={() => setShowRatingPicker(true)} activeOpacity={0.85}>
+                <View style={[s.heroHalo, { backgroundColor: tier.color + '25' }]} />
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', gap: 4 }}>
+                  {/* Transparent mirror of "/10" balances the suffix so the big
+                      digit stays centered under the halo (and doesn't shift
+                      between single-digit ratings and 10). */}
+                  <Text style={[s.heroDenom, { fontFamily: 'Inter_500Medium', opacity: 0 }]}>/10</Text>
+                  <Text style={[s.heroNum, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{rating}</Text>
+                  <Text style={[s.heroDenom, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>/10</Text>
+                </View>
+              </TouchableOpacity>
+
+              <Text style={[s.heroTierLabel, { color: tier.color, fontFamily: 'Inter_900Black' }]}>{tier.label}</Text>
+              <Text style={[s.heroTierCopy, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{tier.copy}</Text>
+
+              {/* Rating scale — tap a segment to set your rating */}
+              <View style={s.heroBarWrap}>
+                {Array.from({ length: 10 }).map((_, i) => {
+                  const n = i + 1;
+                  const filled = n <= rating;
+                  const isActive = n === rating;
+                  const band = n <= 2 ? '#E84A4A' : n <= 4 ? '#F08560' : n <= 6 ? '#F0A12E' : n <= 8 ? '#7BC95E' : '#22A664';
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      activeOpacity={0.7}
+                      onPress={() => setRating(n)}
+                      style={[
+                        s.heroBar,
+                        { backgroundColor: filled ? band : theme.surface },
+                        isActive && { borderWidth: 2.5, borderColor: theme.text, transform: [{ scale: 1.12 }] },
+                      ]}
+                    >
+                      {isActive && (
+                        <Text style={[s.heroBarNum, { color: filled ? '#FFFFFF' : theme.text, fontFamily: 'Inter_900Black' }]}>{n}</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={s.heroBarTicks}>
+                <Text style={[s.heroBarTick, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>1 · COOKED</Text>
+                <Text style={[s.heroBarTick, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>10 · ELITE</Text>
+              </View>
+
+              {/* LOG RATING button */}
               <TouchableOpacity
-                style={[s.dialLogBtn, { backgroundColor: theme.text, opacity: submitting ? 0.4 : 1 }]}
-                onPress={submitQuick} disabled={submitting} activeOpacity={0.85}
+                style={[s.heroLogBtn, { backgroundColor: theme.text, opacity: submitting ? 0.4 : 1 }]}
+                onPress={submitQuick}
+                disabled={submitting}
+                activeOpacity={0.8}
               >
-                <Text style={[s.dialLogText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>
+                <Text style={[s.heroLogBtnText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>
                   {submitting ? 'LOGGING...' : 'LOG RATING'}
                 </Text>
-                <View style={s.dialLogArrow}>
+                <View style={s.heroLogArrow}>
                   <Ionicons name="arrow-forward" size={12} color={theme.text} />
                 </View>
               </TouchableOpacity>
@@ -416,7 +357,7 @@ export default function StrengthScreen() {
           <View style={[bs.sheet, { backgroundColor: theme.cardElevated }]}>
             <View style={[bs.handle, { backgroundColor: theme.border }]} />
             <Text style={[bs.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>PHYSICAL ACTIVITY</Text>
-            <Text style={[bs.sub, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{RATING_LABELS[rating]}</Text>
+            <Text style={[bs.sub, { color: '#34C759', fontFamily: 'Inter_700Bold' }]}>{RATING_LABELS[rating]}</Text>
             <RatingScroll value={rating} onChange={setRating} theme={theme} />
             <TouchableOpacity style={[bs.doneBtn, { backgroundColor: theme.text }]} onPress={() => setShowRatingPicker(false)}>
               <Text style={[bs.doneBtnText, { color: theme.bg, fontFamily: 'Inter_900Black' }]}>DONE</Text>
@@ -424,9 +365,10 @@ export default function StrengthScreen() {
           </View>
         </Modal>
 
-        {/* DETAILED — training type buttons */}
-        {isToday && strengthMode === 'detailed' && (
+        {/* ── Training type buttons (Gym / Sports / Run) ── */}
+        {isToday && (
           <>
+            <Text style={[s.sectionHint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>OR LOG A FULL SESSION</Text>
             <View style={s.trainingRow}>
               {TRAINING_TYPES.map(tt => {
                 const active = trainingType === tt.key;
@@ -435,13 +377,13 @@ export default function StrengthScreen() {
                     key={tt.key}
                     style={[s.trainingCard, {
                       borderColor: active ? theme.text : theme.border,
-                      backgroundColor: theme.card,
+                      backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF',
                       borderWidth: active ? 2 : 1,
                     }]}
                     onPress={() => setTrainingType(active ? null : tt.key)}
                     activeOpacity={0.7}
                   >
-                    <View style={[s.trainingIconBubble, { backgroundColor: theme.surface }]}>
+                    <View style={[s.trainingIconBubble, { backgroundColor: theme.isDark ? '#2A2A2A' : tt.tint }]}>
                       <Text style={s.trainingIcon}>{tt.icon}</Text>
                     </View>
                     <Text style={[s.trainingLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{tt.label}</Text>
@@ -461,13 +403,16 @@ export default function StrengthScreen() {
                     return (
                       <TouchableOpacity
                         key={bp.key}
-                        style={[s.bodyCard, { borderColor: theme.border, backgroundColor: theme.card }]}
+                        style={[s.bodyCard, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF' }]}
                         onPress={() => openBodyPart(bp.key)}
                         activeOpacity={0.75}
                       >
                         {/* Colored top strip */}
                         <View style={[s.bodyCardAccent, { backgroundColor: ac }]} />
                         <View style={s.bodyCardInner}>
+                          <View style={[s.bodyIconBubble, { backgroundColor: ac + '22' }]}>
+                            <Text style={s.bodyIcon}>{bp.icon}</Text>
+                          </View>
                           <View style={{ flex: 1 }}>
                             <Text style={[s.bodyLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{bp.label}</Text>
                             <Text style={[s.bodySubLabel, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Tap to log</Text>
@@ -483,7 +428,7 @@ export default function StrengthScreen() {
 
             {/* SPORTS inline form */}
             {trainingType === 'sports' && (
-              <View style={[s.inlineForm, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={[s.inlineForm, { backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF', borderColor: theme.border }]}>
                 <Text style={[s.formLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>SPORT</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
                   {SPORTS_SUGGESTIONS.map(sp => (
@@ -504,7 +449,7 @@ export default function StrengthScreen() {
                   ))}
                 </ScrollView>
                 <TextInput
-                  style={[s.input, { color: theme.text, borderColor: theme.border, fontFamily: 'Inter_700Bold', backgroundColor: theme.isDark ? '#2A2A2A' : '#EAE4D4' }]}
+                  style={[s.input, { color: theme.text, borderColor: theme.border, fontFamily: 'Inter_700Bold', backgroundColor: theme.isDark ? '#2A2A2A' : '#F5F5F5' }]}
                   value={sportName} onChangeText={setSportName}
                   placeholder="Or type your sport..."
                   placeholderTextColor={theme.textSecondary}
@@ -527,7 +472,7 @@ export default function StrengthScreen() {
 
             {/* CARDIO inline form */}
             {trainingType === 'cardio' && (
-              <View style={[s.inlineForm, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={[s.inlineForm, { backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF', borderColor: theme.border }]}>
                 <Text style={[s.formLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>ACTIVITY</Text>
                 <View style={s.dualRow}>
                   {(['Running', 'Walking'] as const).map(a => (
@@ -565,7 +510,7 @@ export default function StrengthScreen() {
               </View>
             )}
           </>
-        )}{/* end detailed */}
+        )}
 
         {/* Read-only state for past days */}
         {!isToday && logs.length === 0 && (
@@ -574,28 +519,16 @@ export default function StrengthScreen() {
 
         {logs.length > 0 && (
           <>
-            <View style={[s.sectionHeader, { marginTop: 20 }]}>
+            <View style={s.sectionHeader}>
               <Text style={[s.sectionTitle, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{isToday ? "TODAY'S SESSIONS" : 'SESSIONS'}</Text>
               <Text style={[s.sectionCount, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_500Medium' }]}>{String(logs.length).padStart(2,'0')} LOGGED</Text>
             </View>
-            {/* Compact log rows in a single card */}
-            <View style={[s.logCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              {logs.map((log, idx) => (
-                <SLogRow
-                  key={log.id} log={log} theme={theme}
-                  last={idx === logs.length - 1}
-                  onPress={() => setDetailLog(log)}
-                />
-              ))}
-            </View>
+            {logs.map(log => <SessionCard key={log.id} log={log} theme={theme} />)}
           </>
         )}
-
-        {/* LOG ANOTHER — shown when sessions already logged today */}
-        {isToday && logs.length > 0 && strengthMode === 'detailed' && (
-          <Text style={[s.sectionHint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold', marginTop: 20 }]}>LOG ANOTHER</Text>
-        )}
+        </>}
       </ScrollView>
+      </DateSwipe>
 
       {/* ── GYM body-part / multi-set exercise modal ── */}
       <Modal visible={!!activeBodyPart} transparent animationType="slide" onRequestClose={() => setActiveBodyPart(null)}>
@@ -603,23 +536,6 @@ export default function StrengthScreen() {
           <Pressable style={[ef.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setActiveBodyPart(null)} />
           <View style={[ef.sheet, { backgroundColor: theme.cardElevated }]}>
             <View style={[ef.handle, { backgroundColor: theme.border }]} />
-
-            {/* SESSION IN PROGRESS banner */}
-            {exerciseList.length > 0 && (
-              <View style={[ef.sessionBanner, { backgroundColor: theme.text }]}>
-                <Text style={{ fontSize: 20 }}>🏋️</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 9, letterSpacing: 2.5, color: '#B8F23A', fontFamily: 'Inter_700Bold' }}>SESSION IN PROGRESS</Text>
-                  <Text style={{ fontSize: 15, color: '#FFFFFF', fontFamily: 'Inter_900Black', marginTop: 2 }}>
-                    {activeBodyPartMeta?.label} · {exerciseList.length} exercise{exerciseList.length !== 1 ? 's' : ''}
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 13, color: '#B8F23A', fontFamily: 'Inter_900Black' }}>
-                  {exerciseList.reduce((s, e) => s + e.sets.length, 0)} sets
-                </Text>
-              </View>
-            )}
-
             <View style={ef.header}>
               <Text style={ef.headerIcon}>{activeBodyPartMeta?.icon}</Text>
               <Text style={[ef.headerTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{activeBodyPartMeta?.label}</Text>
@@ -636,7 +552,7 @@ export default function StrengthScreen() {
                 {suggestions.map(sg => (
                   <TouchableOpacity
                     key={sg}
-                    style={[ef.suggestChip, { borderColor: exName === sg ? theme.text : theme.border, backgroundColor: exName === sg ? theme.text : (theme.isDark ? '#2A2A2A' : '#FBF9F2') }]}
+                    style={[ef.suggestChip, { borderColor: exName === sg ? theme.text : theme.border, backgroundColor: exName === sg ? theme.text : (theme.isDark ? '#2A2A2A' : '#FFFFFF') }]}
                     onPress={() => setExName(sg)}
                     activeOpacity={0.7}
                   >
@@ -648,48 +564,28 @@ export default function StrengthScreen() {
                 ))}
               </ScrollView>
               <TextInput
-                style={[ef.nameInput, { color: theme.text, borderColor: theme.border, fontFamily: 'Inter_700Bold', backgroundColor: theme.isDark ? '#2A2A2A' : '#FBF9F2' }]}
+                style={[ef.nameInput, { color: theme.text, borderColor: theme.border, fontFamily: 'Inter_700Bold', backgroundColor: theme.isDark ? '#2A2A2A' : '#FFFFFF' }]}
                 value={exName} onChangeText={setExName}
                 placeholder="Or type the exercise..."
                 placeholderTextColor={theme.textSecondary}
                 autoCapitalize="words"
               />
 
-              {/* Stats summary + redesigned set rows */}
+              {/* Sets list (already added for the current exercise) */}
               {exSets.length > 0 && (
                 <>
-                  {/* Mini stats bar */}
-                  <View style={[ef.statsBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                    {[
-                      { v: String(exSets.length), l: 'SETS' },
-                      { v: String(exSets.reduce((s, r) => s + r.reps, 0)), l: 'REPS' },
-                      { v: `${exSets.reduce((s, r) => s + r.reps * r.weight, 0)} kg`, l: 'TOTAL' },
-                    ].map((x, i) => (
-                      <View key={i} style={[ef.statCell, i < 2 && { borderRightWidth: 1, borderRightColor: theme.border }]}>
-                        <Text style={[ef.statVal, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{x.v}</Text>
-                        <Text style={[ef.statLbl, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>{x.l}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  <Text style={[ef.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>LOGGED SETS</Text>
+                  <Text style={[ef.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                    SETS — {exSets.length} added
+                  </Text>
                   {exSets.map((st, i) => (
-                    <View key={i} style={[ef.setRowNew, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                      <View style={[ef.setNumBadge, { backgroundColor: theme.text }]}>
-                        <Text style={[ef.setNumText, { color: '#B8F23A', fontFamily: 'Inter_900Black' }]}>{i + 1}</Text>
-                      </View>
-                      <Text style={[ef.setRepsVal, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{st.reps}</Text>
-                      <Text style={[ef.setUnit, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>reps</Text>
-                      {st.weight > 0 && (
-                        <>
-                          <View style={[ef.setSep, { backgroundColor: theme.border }]} />
-                          <Text style={[ef.setWeightVal, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{st.weight}</Text>
-                          <Text style={[ef.setUnit, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>kg</Text>
-                        </>
-                      )}
+                    <View key={i} style={[ef.setRow, { borderColor: theme.border, backgroundColor: theme.isDark ? '#2A2A2A' : '#FFFFFF' }]}>
+                      <Text style={[ef.setIdx, { color: theme.textSecondary, fontFamily: 'Inter_900Black' }]}>{i + 1}</Text>
+                      <Text style={[ef.setMeta, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                        {st.reps} reps{st.weight > 0 ? ` · ${st.weight} kg` : ''}
+                      </Text>
                       <View style={{ flex: 1 }} />
                       <TouchableOpacity onPress={() => removeSet(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <Ionicons name="trash-outline" size={13} color={theme.textMuted} />
+                        <Ionicons name="close" size={14} color={theme.textSecondary} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -763,35 +659,9 @@ export default function StrengthScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-      {/* ── Session detail bottom sheet ── */}
-      <Modal visible={!!detailLog} transparent animationType="slide" onRequestClose={() => setDetailLog(null)}>
-        <Pressable style={[sd.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setDetailLog(null)} />
-        <View style={[sd.sheet, { backgroundColor: theme.cardElevated }]}>
-          <View style={[sd.handle, { backgroundColor: theme.border }]} />
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
-            {detailLog && <SessionCard log={detailLog} theme={theme} />}
-          </ScrollView>
-          <TouchableOpacity
-            style={[sd.closeBtn, { backgroundColor: theme.surface }]}
-            onPress={() => setDetailLog(null)}
-            activeOpacity={0.8}
-          >
-            <Text style={[sd.closeBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>CLOSE</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
-
     </SafeAreaView></DarkBackground>
   );
 }
-
-const sd = StyleSheet.create({
-  backdrop:     { flex: 1 },
-  sheet:        { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, maxHeight: '80%' },
-  handle:       { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
-  closeBtn:     { marginHorizontal: 16, marginTop: 8, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  closeBtnText: { fontSize: 11, letterSpacing: 3 },
-});
 
 // ── Rating scroll picker ──────────────────────────────────────────────────────
 const ITEM_W = 56;
@@ -833,7 +703,7 @@ const bs = StyleSheet.create({
 // ── Numeric field ────────────────────────────────────────────────────────────
 function NumField({ label, value, onChange, unit, theme }: { label: string; value: string; onChange: (v: string) => void; unit?: string; theme: any }) {
   return (
-    <View style={[ef.numField, { borderColor: theme.border, backgroundColor: theme.isDark ? '#2A2A2A' : '#EAE4D4' }]}>
+    <View style={[ef.numField, { borderColor: theme.border, backgroundColor: theme.isDark ? '#2A2A2A' : '#F5F5F5' }]}>
       <Text style={[ef.numLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
         {label}{unit ? ` (${unit})` : ''}
       </Text>
@@ -928,61 +798,6 @@ function SessionCard({ log, theme }: { log: WorkoutLog; theme: any }) {
   );
 }
 
-// ── Session log row ───────────────────────────────────────────────────────────
-function SLogRow({ log, theme, last, onPress }: { log: WorkoutLog; theme: any; last?: boolean; onPress?: () => void }) {
-  const time = new Date(log.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-
-  let emoji = '⚡', tag = 'QUICK';
-  if (log.bodyPart) {
-    emoji = BODY_PARTS.find(b => b.key === log.bodyPart)?.icon ?? '🏋️';
-    tag = 'GYM';
-  } else if (log.category === 'cardio') { emoji = '🏃'; tag = 'RUN'; }
-  else if (log.category === 'games')   { emoji = '🏀'; tag = 'SPORT'; }
-
-  const bp    = BODY_PARTS.find(b => b.key === log.bodyPart);
-  const title = log.activity ?? bp?.label ?? 'Session';
-  const sub   = log.exercises?.length
-    ? `${log.exercises.length} exercise${log.exercises.length !== 1 ? 's' : ''} · ${log.exercises.reduce((s, e) => s + e.sets.length, 0)} sets`
-    : log.durationMins ? `${log.durationMins} min${log.distanceKm ? ` · ${log.distanceKm} km` : ''}` : '';
-
-  const hasDetail = !!(log.exercises?.length || log.durationMins || log.distanceKm || log.intensity || log.rating);
-
-  return (
-    <TouchableOpacity
-      style={[slr.row, !last && { borderBottomWidth: 1, borderBottomColor: theme.border }]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <Text style={[slr.time, { color: theme.textMuted, fontFamily: 'SpaceGrotesk_500Medium' }]}>{time}</Text>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={[slr.tagBadge, { backgroundColor: theme.surface }]}>
-          <Text style={[slr.tagText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{emoji} {tag}</Text>
-        </View>
-        <Text style={[slr.title, { color: theme.text, fontFamily: 'Inter_900Black' }]} numberOfLines={1}>{title}</Text>
-        {sub.length > 0 && (
-          <Text style={[slr.sub, { color: theme.textMuted, fontFamily: 'SpaceGrotesk_500Medium' }]}>{sub}</Text>
-        )}
-      </View>
-      <View style={{ alignItems: 'flex-end', gap: 4 }}>
-        {log.rating != null && (
-          <Text style={[slr.metric, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{log.rating}/10</Text>
-        )}
-        {hasDetail && <Ionicons name="chevron-forward" size={13} color={theme.textMuted} />}
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-const slr = StyleSheet.create({
-  row:      { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  time:     { fontSize: 10, letterSpacing: 0.5, minWidth: 38 },
-  tagBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, alignSelf: 'flex-start', marginBottom: 4 },
-  tagText:  { fontSize: 8, letterSpacing: 1.5 },
-  title:    { fontSize: 14, letterSpacing: -0.2 },
-  sub:      { fontSize: 10, letterSpacing: 0.3, marginTop: 2 },
-  metric:   { fontSize: 16, letterSpacing: -0.5, minWidth: 40, textAlign: 'right' },
-});
-
 // ── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   safe:           { flex: 1 },
@@ -992,18 +807,23 @@ const s = StyleSheet.create({
   datesRow:       { paddingHorizontal: 14, paddingBottom: 8 },
   scroll:         { paddingBottom: 120 },
 
-  // QUICK/DETAILED mode toggle
-  modeToggle:  { flexDirection: 'row', marginHorizontal: 16, marginTop: 14, marginBottom: 2, padding: 4, borderRadius: 14, height: 46 },
-  modeBtn:     { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
-  modeBtnText: { fontSize: 11, letterSpacing: 2.5 },
-  // Dial card
-  dialCard:     { marginHorizontal: 16, marginTop: 12, borderWidth: 1, borderRadius: 20, padding: 20, gap: 20 },
-  dialLogBtn:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14 },
-  dialLogText:  { fontSize: 12, letterSpacing: 3 },
-  dialLogArrow: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#B8F23A', alignItems: 'center', justifyContent: 'center' },
-
-  // Log card (sessions / food items)
-  logCard:        { marginHorizontal: 16, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  // Rating hero card
+  heroCard:        { marginHorizontal: 16, marginTop: 14, borderWidth: 1, borderRadius: 20, padding: 20 },
+  heroEyebrow:     { fontSize: 9, letterSpacing: 3, textAlign: 'center', marginBottom: 4 },
+  heroNumWrap:     { alignItems: 'center', justifyContent: 'center', paddingVertical: 12, position: 'relative' },
+  heroHalo:        { position: 'absolute', width: 130, height: 130, borderRadius: 65 },
+  heroNum:         { fontSize: 84, letterSpacing: -4, lineHeight: 84 },
+  heroDenom:       { fontSize: 22, letterSpacing: -0.5 },
+  heroTierLabel:   { fontSize: 14, letterSpacing: 3, textAlign: 'center', marginTop: 2 },
+  heroTierCopy:    { fontSize: 12, textAlign: 'center', lineHeight: 17, marginTop: 6, marginBottom: 16, paddingHorizontal: 16, opacity: 0.8 },
+  heroBarWrap:     { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  heroBar:         { flex: 1, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  heroBarNum:      { fontSize: 13 },
+  heroBarTicks:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, marginBottom: 18, paddingHorizontal: 2 },
+  heroBarTick:     { fontSize: 9, letterSpacing: 1 },
+  heroLogBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14 },
+  heroLogBtnText:  { fontSize: 12, letterSpacing: 3 },
+  heroLogArrow:    { width: 22, height: 22, borderRadius: 11, backgroundColor: '#B8F23A', alignItems: 'center', justifyContent: 'center' },
 
   // Training type chooser
   sectionHint:    { fontSize: 9, letterSpacing: 3, paddingHorizontal: 24, paddingTop: 16, paddingBottom: 10 },
@@ -1081,58 +901,51 @@ function StrengthScoreCard({ score, history, selectedDate, theme }: {
     return            { trend: { label: 'CONSISTENT',      color: '#0A84FF', icon: '→' }, delta: diff };
   }, [last7, score]);
 
-  const isToday = selectedDate === today();
+  const scoreColor = score >= 70 ? '#22A664' : score >= 50 ? '#F0A12E' : score > 0 ? '#E84A4A' : theme.textMuted;
+  const isToday    = selectedDate === today();
 
   return (
-    <View style={[ssc.card, { backgroundColor: '#14110D', borderColor: 'rgba(255,255,255,0.07)' }]}>
+    <View style={[ssc.card, { backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF', borderColor: scoreColor }]}>
       {/* Top row: score left, trend + delta right */}
       <View style={ssc.top}>
         <View style={ssc.left}>
-          <Text style={[ssc.eyebrow, { color: 'rgba(245,241,232,0.45)', fontFamily: 'Inter_700Bold' }]}>
+          <Text style={[ssc.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
             {isToday ? "TODAY'S STRENGTH" : 'STRENGTH SCORE'}
           </Text>
-          <Text style={[ssc.scoreNum, { color: '#F5F1E8', fontFamily: 'SpaceGrotesk_700Bold', opacity: score === 0 ? 0.22 : 1 }]}>{score}</Text>
+          <Text style={[ssc.scoreNum, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
         </View>
         <View style={ssc.right}>
-          <View style={[ssc.trendPill, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
-            <Text style={[ssc.trendText, { color: '#F5F1E8', fontFamily: 'Inter_900Black' }]}>
-              {trend.label}
+          <View style={[ssc.trendPill, { backgroundColor: trend.color + '25' }]}>
+            <Text style={[ssc.trendText, { color: trend.color, fontFamily: 'Inter_900Black' }]}>
+              {trend.icon}  {trend.label}
             </Text>
           </View>
           {delta != null && (
-            <Text style={[ssc.deltaText, { color: 'rgba(245,241,232,0.50)', fontFamily: 'Inter_500Medium' }]}>
+            <Text style={[ssc.deltaText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
               {delta > 0 ? '+' : ''}{delta} vs last 7 days
             </Text>
           )}
         </View>
       </View>
 
-      {/* Lime progress bar */}
-      <View style={[ssc.progressBg, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
-        <View style={[ssc.progressFill, { width: `${score}%` as any, backgroundColor: '#B8F23A' }]} />
-      </View>
-
       {/* Divider */}
-      <View style={[ssc.divider, { backgroundColor: 'rgba(255,255,255,0.07)' }]} />
+      <View style={[ssc.divider, { backgroundColor: theme.border }]} />
 
-      {/* 7-day squares — white opacity scales with score */}
+      {/* 7-day coloured squares */}
       <View style={ssc.gridRow}>
         {last7.map(day => {
-          const s = day.score;
+          const s          = day.score;
           const isSelected = day.date === selectedDate;
-          const inkOpacity = s == null ? 0 : Math.min(1, 0.28 + (s / 100) * 0.72);
           const bg = s == null
-            ? 'rgba(255,255,255,0.06)'
-            : `rgba(255,255,255,${inkOpacity * 0.9})`;
-          const textColor = s == null
-            ? 'rgba(245,241,232,0.25)'
-            : (inkOpacity > 0.55 ? '#14110D' : 'rgba(245,241,232,0.70)');
+            ? (theme.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)')
+            : s >= 70 ? '#22A664' : s >= 50 ? '#F0A12E' : '#E84A4A';
+          const textColor = s == null ? theme.textSecondary : '#FFFFFF';
           return (
             <View key={day.date} style={[ssc.square, {
               backgroundColor: bg,
               borderWidth: isSelected ? 2 : 0,
-              borderColor: '#B8F23A',
-              opacity: s == null ? 0.45 : 1,
+              borderColor: theme.text,
+              opacity: s == null ? 0.5 : 1,
             }]}>
               <Text style={[ssc.squareNum, { color: textColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
                 {s ?? '·'}
@@ -1158,8 +971,6 @@ const ssc = StyleSheet.create({
   trendPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
   trendText: { fontSize: 10, letterSpacing: 1.5 },
   deltaText: { fontSize: 11 },
-  progressBg:  { height: 4, marginHorizontal: 16, marginBottom: 14, borderRadius: 2, overflow: 'hidden' },
-  progressFill:{ height: 4, borderRadius: 2 },
   divider:   { height: 1 },
   gridRow:   { flexDirection: 'row', padding: 12, gap: 6 },
   square:    { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: 'center', gap: 3 },
@@ -1180,22 +991,6 @@ const ef = StyleSheet.create({
   suggestChip:     { paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderRadius: 8 },
   suggestText:     { fontSize: 10, letterSpacing: 1 },
   nameInput:       { marginHorizontal: 20, marginTop: 10, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
-  // Session in progress banner
-  sessionBanner:   { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 8, padding: 14, borderRadius: 14 },
-  // Stats bar above sets
-  statsBar:        { flexDirection: 'row', marginHorizontal: 20, marginTop: 6, marginBottom: 2, borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
-  statCell:        { flex: 1, alignItems: 'center', paddingVertical: 10 },
-  statVal:         { fontSize: 18, letterSpacing: -0.5 },
-  statLbl:         { fontSize: 8, letterSpacing: 1.5, marginTop: 2 },
-  // Redesigned set rows
-  setRowNew:       { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 20, marginBottom: 6, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderRadius: 12 },
-  setNumBadge:     { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  setNumText:      { fontSize: 12 },
-  setRepsVal:      { fontSize: 18, letterSpacing: -0.5 },
-  setWeightVal:    { fontSize: 18, letterSpacing: -0.5 },
-  setUnit:         { fontSize: 10, paddingBottom: 2 },
-  setSep:          { width: 1, height: 18 },
-  // Legacy (kept for compat)
   setRow:          { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 20, marginTop: 6, paddingHorizontal: 14, paddingVertical: 11, borderWidth: 1, borderRadius: 10 },
   setIdx:          { fontSize: 13, width: 18 },
   setMeta:         { fontSize: 14 },

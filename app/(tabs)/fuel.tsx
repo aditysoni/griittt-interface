@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Animated, Modal, PanResponder, Platform, Pressable,
+  ActivityIndicator, Alert, Animated, Modal, Platform, Pressable,
   RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,9 +8,11 @@ import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
-import { fuel, ai, FoodLog, FoodItem, MealTime, MacroTargets, today } from '../../lib/api';
+import { fuel, ai, FoodLog, FoodItem, MealTime, MacroTargets, today, shiftDate } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
+import { ErrorState } from '../../components/ErrorState';
 import { DaySelector } from '../../components/DaySelector';
+import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -23,16 +25,17 @@ export default function FuelScreen() {
   const router = useRouter();
 
   const [selectedDate, setSelectedDate] = useState(today());
+  const { goPrev, goNext, canPrev, canNext } = useDateNav(selectedDate, setSelectedDate);
   const [mode, setMode]                 = useState<TabMode>('quick');
   const [identity, setIdentity]         = useState<any>(null);
   const [logs, setLogs]                 = useState<FoodLog[]>([]);
   const [loading, setLoading]           = useState(true);
+  const [loadError, setLoadError]       = useState(false);
   const [refreshing, setRefreshing]     = useState(false);
   const [submitting, setSubmitting]     = useState(false);
   const [history, setHistory]           = useState<Array<{ date: string; score: number | null }>>([]);
 
-  const tabAnim   = useRef(new Animated.Value(0)).current;
-  const mainScroll = useRef<import('react-native').ScrollView>(null);
+  const tabAnim = useRef(new Animated.Value(0)).current;
   const [tabContainerW, setTabContainerW] = useState(0);
 
   function switchMode(tab: TabMode) {
@@ -60,10 +63,8 @@ export default function FuelScreen() {
   const [itemProtein, setItemProtein]   = useState('');
   const [itemFat, setItemFat]           = useState('');
   const [itemCarbs, setItemCarbs]       = useState('');
-  const [itemFibre, setItemFibre]       = useState('');
   const [addingItem, setAddingItem]     = useState(false);
   const [scanning, setScanning]         = useState(false);
-  const [showManualInput, setShowManualInput] = useState(false);
 
   const isToday = selectedDate === today();
 
@@ -75,23 +76,36 @@ export default function FuelScreen() {
     );
   }, [stuckToMeal, foodQuality, hadJunk]);
 
-  const todayScore = logs.length > 0 ? Math.max(...logs.map(l => l.score)) : (isToday ? liveScore : 0);
+  const todayScore = logs.length > 0
+    ? Math.max(...logs.map(l => l.score ?? 0))
+    : (isToday ? liveScore : 0);
 
   async function load(date: string) {
     if (!token) return;
-    const from = new Date(Date.now() - 13 * 86400000).toISOString().split('T')[0];
-    const [id, dayLogs, items, hist] = await Promise.all([
-      fuel.identity(token).catch(() => null),
-      fuel.logs(token, date).catch(() => []),
-      fuel.items(token, date).catch(() => []),
-      fuel.history(token, from, date).catch(() => []),
+    const from = shiftDate(today(), -13);
+    const results = await Promise.allSettled([
+      fuel.identity(token),
+      fuel.logs(token, date),
+      fuel.items(token, date),
+      fuel.history(token, from, date),
     ]);
-    setIdentity(id); setLogs(dayLogs); setFoodItems(items); setHistory(hist);
+    // Items + logs are the core of this screen — if both fail it's a load error.
+    if (results[1].status === 'rejected' && results[2].status === 'rejected') {
+      setLoadError(true);
+      return;
+    }
+    setLoadError(false);
+    const val = <T,>(i: number, fb: T): T =>
+      results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fb;
+    setIdentity(val(0, null as any));
+    setLogs(val(1, [] as any));
+    setFoodItems(val(2, [] as any));
+    setHistory(val(3, [] as any));
   }
 
   function resetDetailedForm() {
     setItemName(''); setItemMealTime('morning');
-    setItemCalories(''); setItemProtein(''); setItemFat(''); setItemCarbs(''); setItemFibre('');
+    setItemCalories(''); setItemProtein(''); setItemFat(''); setItemCarbs('');
   }
 
   async function handleSnapTrack(source: 'camera' | 'gallery') {
@@ -109,15 +123,13 @@ export default function FuelScreen() {
 
     setScanning(true);
     try {
-      const b64 = result.assets[0].base64!;
-      const data = await ai.snapTrack(token!, `data:image/jpeg;base64,${b64}`);
+      const data = await ai.snapTrack(token!, `data:image/jpeg;base64,${result.assets[0].base64!}`);
       setItemName(data.name);
       setItemCalories(String(Math.round(data.calories ?? 0)));
       setItemProtein(String(Math.round(data.protein   ?? 0)));
       setItemCarbs(String(Math.round(data.carbs       ?? 0)));
       const fatVal = (data as any).fat ?? data.fats ?? 0;
       setItemFat(String(Math.round(fatVal)));
-      setShowManualInput(true);
     } catch (err: any) { Alert.alert('Snap failed', err.message); }
     finally { setScanning(false); }
   }
@@ -136,7 +148,6 @@ export default function FuelScreen() {
         carbs:    itemCarbs    ? Number(itemCarbs)    : undefined,
       });
       resetDetailedForm();
-      setShowManualInput(false);
       await load(selectedDate);
     } catch (err: any) { Alert.alert('Error', err.message); }
     finally { setAddingItem(false); }
@@ -196,11 +207,20 @@ export default function FuelScreen() {
         <DaySelector selectedDate={selectedDate} onSelect={setSelectedDate} />
       </View>
 
-      <ScrollView ref={mainScroll} style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
+      <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}>
         <FuelScoreCard score={todayScore} history={history} selectedDate={selectedDate} theme={theme} />
 
+        {loadError && (
+          <ErrorState
+            message="Couldn't load your fuel log."
+            onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }}
+          />
+        )}
+
         {/* QUICK / DETAILED toggle — directly under score card */}
+        {!loadError && <>
         <View
           style={[s.tabToggle, { backgroundColor: theme.surface }]}
           onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
@@ -220,9 +240,20 @@ export default function FuelScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Daily total — DETAILED mode only, shown when items exist */}
-        {mode === 'detailed' && foodItems.length > 0 && (
-          <DailyTotalCard items={foodItems} theme={theme} />
+        {/* Macro tracker — DETAILED mode only. QUICK stays focused on diet/junk/quality questions. */}
+        {mode === 'detailed' && (
+          <MacroTracker
+            items={foodItems}
+            theme={theme}
+            targets={user?.macroTargets ?? MACRO_TARGETS}
+            onQuickLog={isToday ? async (macros) => {
+              if (!token) return;
+              try {
+                await fuel.addItem(token, { date: selectedDate, name: 'Quick entry', mealTime: 'lunch', ...macros });
+                await load(selectedDate);
+              } catch (err: any) { Alert.alert('Error', err.message); }
+            } : undefined}
+          />
         )}
 
         {/* QUICK */}
@@ -252,20 +283,35 @@ export default function FuelScreen() {
               theme={theme}
             />
 
-            {/* Food Quality — monochrome dial */}
+            {/* Food Quality card */}
             <View style={[qcs.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <FuelRatingDial
-                value={foodQuality} max={10}
-                eyebrow="FOOD QUALITY"
-                label={QUALITY_LABELS[foodQuality].toUpperCase()}
-                lowLabel="POOR" highLabel="CLEAN"
-                theme={theme}
-                onPress={() => setShowQPicker(true)}
-                onChange={setFoodQuality}
-              />
-              <Text style={{ fontSize: 8, letterSpacing: 2, color: theme.textMuted, fontFamily: 'Inter_700Bold', opacity: 0.5, marginTop: 6, textAlign: 'center' }}>
-                TAP BAR TO ADJUST · TAP NUMBER FOR PICKER
-              </Text>
+              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                <View style={[qcs.iconBubble, { backgroundColor: theme.isDark ? '#2A2A2A' : '#FFF4D6' }]}>
+                  <Text style={{ fontSize: 18 }}>⭐</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>FOOD QUALITY</Text>
+                  <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                    {QUALITY_LABELS[foodQuality]} · tap to adjust
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 22, color: '#22A664', fontFamily: 'SpaceGrotesk_700Bold' }}>
+                  {foodQuality}<Text style={{ fontSize: 13, color: theme.textMuted, fontFamily: 'Inter_400Regular' }}>/10</Text>
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowQPicker(true)} activeOpacity={0.75} style={{ marginTop: 12 }}>
+                <View style={{ flexDirection: 'row', gap: 4 }}>
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <View key={i} style={{
+                      flex: 1, height: 8, borderRadius: 4,
+                      backgroundColor: i < foodQuality ? '#22A664' : theme.surface,
+                    }} />
+                  ))}
+                </View>
+                <Text style={[{ fontSize: 8, letterSpacing: 1.5, marginTop: 5, opacity: 0.5 }, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
+                  TAP TO ADJUST
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Quality bottom-sheet modal */}
@@ -307,7 +353,7 @@ export default function FuelScreen() {
             {/* Snap row */}
             <View style={s.snapRow}>
               <TouchableOpacity
-                style={[s.snapBtn, { borderColor: theme.border, backgroundColor: theme.card, opacity: scanning ? 0.6 : 1 }]}
+                style={[s.snapBtn, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF', opacity: scanning ? 0.6 : 1 }]}
                 onPress={() => handleSnapTrack('camera')}
                 disabled={scanning}
                 activeOpacity={0.7}
@@ -321,7 +367,7 @@ export default function FuelScreen() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.snapBtnSm, { borderColor: theme.border, backgroundColor: theme.card }]}
+                style={[s.snapBtnSm, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}
                 onPress={() => handleSnapTrack('gallery')}
                 disabled={scanning}
                 activeOpacity={0.7}
@@ -330,107 +376,56 @@ export default function FuelScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Manual input button */}
-            <TouchableOpacity
-              style={[s.manualInputBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
-              onPress={() => setShowManualInput(true)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="create-outline" size={16} color={theme.text} />
-              <Text style={[s.manualInputBtnText, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>MANUAL INPUT</Text>
-            </TouchableOpacity>
+            <View style={s.orRow}>
+              <View style={[s.orLine, { backgroundColor: theme.border }]} />
+              <Text style={[s.orText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>OR ENTER MANUALLY</Text>
+              <View style={[s.orLine, { backgroundColor: theme.border }]} />
+            </View>
 
-            {/* Manual entry modal */}
-            <Modal visible={showManualInput} transparent animationType="slide">
-              <Pressable style={[qs.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setShowManualInput(false)} />
-              <View style={[mi.sheet, { backgroundColor: theme.cardElevated }]}>
-                <View style={[qs.handle, { backgroundColor: theme.border }]} />
-                <Text style={[mi.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>LOG FOOD</Text>
+            {/* Food name */}
+            <View style={[s.foodNameBox, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
+              <Ionicons name="fast-food-outline" size={16} color={theme.textSecondary} style={{ marginRight: 8 }} />
+              <TextInput
+                style={[s.foodNameInput, { color: theme.text, fontFamily: 'Inter_700Bold' }]}
+                value={itemName}
+                onChangeText={setItemName}
+                placeholder="Food name..."
+                placeholderTextColor={theme.textSecondary}
+                autoCapitalize="words"
+              />
+            </View>
 
-                {/* Food name */}
-                <View style={[mi.nameBox, { borderColor: theme.border, backgroundColor: theme.surface }]}>
-                  <Ionicons name="fast-food-outline" size={15} color={theme.textSecondary} style={{ marginRight: 8 }} />
-                  <TextInput
-                    style={[mi.nameInput, { color: theme.text, fontFamily: 'Inter_700Bold' }]}
-                    value={itemName}
-                    onChangeText={setItemName}
-                    placeholder="Food name..."
-                    placeholderTextColor={theme.textSecondary}
-                    autoCapitalize="words"
-                  />
-                </View>
-
-                {/* Macro inputs 2×2 grid */}
-                <View style={[mi.macroGrid, { borderColor: theme.border }]}>
-                  {([
-                    { label: 'PROTEIN', icon: '💪', color: '#0A84FF', val: itemProtein,  set: setItemProtein  },
-                    { label: 'CARBS',   icon: '🌾', color: '#34C759', val: itemCarbs,    set: setItemCarbs    },
-                    { label: 'FIBRE',   icon: '🥦', color: '#30D158', val: itemFibre,    set: setItemFibre    },
-                    { label: 'FAT',     icon: '🥑', color: '#FFD60A', val: itemFat,      set: setItemFat      },
-                  ] as { label: string; icon: string; color: string; val: string; set: (v: string) => void }[]).map((m, i) => (
-                    <View key={m.label} style={[mi.macroCell,
-                      i % 2 === 1 && { borderLeftWidth: 1, borderLeftColor: theme.border },
-                      i >= 2      && { borderTopWidth: 1,  borderTopColor:  theme.border },
-                    ]}>
-                      <View style={mi.macroCellHeader}>
-                        <Text style={mi.macroCellIcon}>{m.icon}</Text>
-                        <Text style={[mi.macroCellLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{m.label}</Text>
-                      </View>
-                      <View style={mi.macroCellRow}>
-                        <TextInput
-                          style={[mi.macroCellInput, { color: m.color, fontFamily: 'SpaceGrotesk_700Bold' }]}
-                          value={m.val}
-                          onChangeText={m.set}
-                          placeholder="—"
-                          placeholderTextColor={theme.textMuted}
-                          keyboardType="decimal-pad"
-                        />
-                        <Text style={[mi.macroCellUnit, { color: theme.textMuted, fontFamily: 'Inter_400Regular' }]}>g</Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-
-                {/* Meal time */}
-                <Text style={[mi.whenLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>WHEN</Text>
-                <View style={mi.mealRow}>
-                  {([
-                    { label: 'MORNING',   value: 'morning' as MealTime, icon: '🌅' },
-                    { label: 'AFTERNOON', value: 'lunch'   as MealTime, icon: '☀️' },
-                    { label: 'EVENING',   value: 'evening' as MealTime, icon: '🌆' },
-                    { label: 'DINNER',    value: 'dinner'  as MealTime, icon: '🍽️' },
-                  ]).map(mt => (
-                    <TouchableOpacity
-                      key={mt.label}
-                      style={[mi.mealChip, {
-                        backgroundColor: itemMealTime === mt.value ? theme.text : theme.surface,
-                        borderColor:     itemMealTime === mt.value ? theme.text : theme.border,
-                      }]}
-                      onPress={() => setItemMealTime(mt.value)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={mi.mealChipIcon}>{mt.icon}</Text>
-                      <Text style={[mi.mealChipLabel, {
-                        color: itemMealTime === mt.value ? theme.bg : theme.textSecondary,
-                        fontFamily: 'Inter_700Bold',
-                      }]}>{mt.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* Log button */}
+            {/* Meal time chips */}
+            <Text style={[s.detailFieldLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>WHEN</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.mealTimeRow}>
+              {(['morning','brunch','lunch','evening','dinner','snacks'] as MealTime[]).map(mt => (
                 <TouchableOpacity
-                  style={[mi.logBtn, { backgroundColor: theme.text, opacity: (!itemName.trim() || addingItem) ? 0.4 : 1 }]}
-                  onPress={submitDetailedItem}
-                  disabled={!itemName.trim() || addingItem}
-                  activeOpacity={0.85}
+                  key={mt}
+                  style={[s.mealChip, {
+                    backgroundColor: itemMealTime === mt ? theme.text : (theme.isDark ? '#1E1E1E' : '#FFFFFF'),
+                    borderColor: itemMealTime === mt ? theme.text : theme.border,
+                  }]}
+                  onPress={() => setItemMealTime(mt)}
+                  activeOpacity={0.7}
                 >
-                  <Text style={[mi.logBtnText, { color: theme.bg, fontFamily: 'Inter_900Black' }]}>
-                    {addingItem ? 'LOGGING...' : 'LOG FOOD →'}
-                  </Text>
+                  <Text style={s.mealChipEmoji}>{MEAL_TIME_ICONS[mt]}</Text>
+                  <Text style={[s.mealChipLabel, {
+                    color: itemMealTime === mt ? theme.bg : theme.textSecondary,
+                    fontFamily: 'Inter_700Bold',
+                  }]}>{mt.toUpperCase()}</Text>
                 </TouchableOpacity>
-              </View>
-            </Modal>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[s.submitBtn, { backgroundColor: theme.tabActiveBg, opacity: (!itemName.trim() || addingItem) ? 0.4 : 1 }]}
+              onPress={submitDetailedItem}
+              disabled={!itemName.trim() || addingItem}
+            >
+              <Text style={[s.submitBtnText, { color: theme.tabActiveText, fontFamily: 'Inter_900Black' }]}>
+                {addingItem ? 'SAVING...' : 'LOG FOOD →'}
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -460,42 +455,28 @@ export default function FuelScreen() {
             )}
             {foodItems.length > 0 && (
               <>
-                {/* What you ate list */}
-                <View style={[s.sectionHeader, { marginTop: 20 }]}>
+                <View style={s.sectionHeader}>
                   <Text style={[s.sectionTitle, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>WHAT YOU ATE</Text>
                   <Text style={[s.sectionCount, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_500Medium' }]}>{String(foodItems.length).padStart(2,'0')} ITEMS</Text>
                 </View>
-
-                {/* Log rows in a single card */}
-                <View style={[s.logCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  {foodItems.map((item, idx) => (
-                    <FLogRow
-                      key={item.id}
-                      item={item}
-                      theme={theme}
-                      last={idx === foodItems.length - 1}
-                      onDelete={isToday ? () => deleteItem(item.id) : undefined}
-                    />
-                  ))}
-                </View>
-
-                {/* LOG ANOTHER — dashed */}
-                {isToday && (
-                  <TouchableOpacity
-                    style={[s.logAnotherBtn, { borderColor: theme.text }]}
-                    onPress={() => mainScroll.current?.scrollTo({ y: 0, animated: true })}
-                    activeOpacity={0.75}
-                  >
-                    <Ionicons name="add" size={14} color={theme.text} />
-                    <Text style={[s.logAnotherText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>LOG ANOTHER</Text>
-                  </TouchableOpacity>
-                )}
+                {foodItems.map(item => (
+                  <FoodItemCard
+                    key={item.id}
+                    item={item}
+                    theme={theme}
+                    onDelete={isToday ? () => deleteItem(item.id) : undefined}
+                    onUpdate={isToday ? (patch) => updateItem(item, patch) : undefined}
+                  />
+                ))}
+                <MacroTotalsBar items={foodItems} theme={theme} />
               </>
             )}
           </>
         )}
+        </>}
 
       </ScrollView>
+      </DateSwipe>
     </SafeAreaView></DarkBackground>
   );
 }
@@ -503,115 +484,6 @@ export default function FuelScreen() {
 function dayLetter(dateStr: string) {
   return ['M','T','W','T','F','S','S'][(new Date(dateStr + 'T12:00:00').getDay() + 6) % 7];
 }
-
-const MEAL_TAGS: Record<string, { emoji: string; label: string }> = {
-  morning: { emoji: '🌅', label: 'MORNING' },
-  brunch:  { emoji: '☕', label: 'BRUNCH'  },
-  lunch:   { emoji: '🥗', label: 'LUNCH'   },
-  evening: { emoji: '🌃', label: 'EVENING' },
-  dinner:  { emoji: '🍽️', label: 'DINNER'  },
-  snacks:  { emoji: '🥨', label: 'SNACKS'  },
-};
-
-// ── Compact log row — shown in the WHAT YOU ATE list ──────────────────
-function FLogRow({ item, theme, onDelete, last }: {
-  item: FoodItem; theme: any; onDelete?: () => void; last?: boolean;
-}) {
-  const time = item.createdAt
-    ? new Date(item.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
-    : '';
-  const mt = MEAL_TAGS[item.mealTime] ?? { emoji: '🍽️', label: item.mealTime.toUpperCase() };
-  const macros = [
-    item.calories != null ? `${item.calories} kcal` : null,
-    item.protein  != null ? `${item.protein}P`      : null,
-    item.carbs    != null ? `${item.carbs}C`         : null,
-    item.fat      != null ? `${item.fat}F`           : null,
-  ].filter(Boolean).join(' · ');
-
-  return (
-    <View style={[flr.row, !last && { borderBottomWidth: 1, borderBottomColor: theme.border }]}>
-      <Text style={[flr.time, { color: theme.textMuted, fontFamily: 'SpaceGrotesk_500Medium' }]}>{time}</Text>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={[flr.tagBadge, { backgroundColor: theme.surface }]}>
-          <Text style={[flr.tagText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{mt.emoji} {mt.label}</Text>
-        </View>
-        <Text style={[flr.title, { color: theme.text, fontFamily: 'Inter_900Black' }]} numberOfLines={1}>{item.name}</Text>
-        {macros.length > 0 && (
-          <Text style={[flr.sub, { color: theme.textMuted, fontFamily: 'SpaceGrotesk_500Medium' }]}>{macros}</Text>
-        )}
-      </View>
-      {onDelete && (
-        <TouchableOpacity onPress={onDelete} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Ionicons name="close" size={14} color={theme.textMuted} />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-}
-
-const flr = StyleSheet.create({
-  row:      { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  time:     { fontSize: 10, letterSpacing: 0.5, minWidth: 38 },
-  tagBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, alignSelf: 'flex-start', marginBottom: 4 },
-  tagText:  { fontSize: 8, letterSpacing: 1.5 },
-  title:    { fontSize: 14, letterSpacing: -0.2 },
-  sub:      { fontSize: 10, letterSpacing: 0.3, marginTop: 2 },
-});
-
-// ── Daily macro totals card ───────────────────────────────────────────
-function DailyTotalCard({ items, theme }: { items: FoodItem[]; theme: any }) {
-  const tot = items.reduce(
-    (a, it) => ({
-      cal:  a.cal  + (it.calories ?? 0),
-      pro:  a.pro  + (it.protein  ?? 0),
-      carb: a.carb + (it.carbs    ?? 0),
-      fat:  a.fat  + (it.fat      ?? 0),
-    }),
-    { cal: 0, pro: 0, carb: 0, fat: 0 }
-  );
-  const cols = [
-    { v: String(Math.round(tot.cal)),  l: 'CAL',   pct: Math.min(1, tot.cal  / 2000) },
-    { v: `${Math.round(tot.pro)}g`,   l: 'PRO',   pct: Math.min(1, tot.pro  / 150)  },
-    { v: `${Math.round(tot.carb)}g`,  l: 'CARBS', pct: Math.min(1, tot.carb / 250)  },
-    { v: `${Math.round(tot.fat)}g`,   l: 'FAT',   pct: Math.min(1, tot.fat  / 65)   },
-  ];
-  return (
-    <View style={[dtc.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      <View style={dtc.top}>
-        <Text style={[dtc.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>DAILY TOTAL</Text>
-        <Text style={[dtc.sub, { color: theme.textMuted, fontFamily: 'SpaceGrotesk_500Medium' }]}>
-          {Math.round(tot.cal)} / 2,000 kcal
-        </Text>
-      </View>
-      <View style={[dtc.divider, { backgroundColor: theme.border }]} />
-      <View style={dtc.grid}>
-        {cols.map((c, i) => (
-          <View key={i} style={[dtc.cell, i < 3 && { borderRightWidth: 1, borderRightColor: theme.border }]}>
-            <Text style={[dtc.val, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{c.v}</Text>
-            <View style={[dtc.barBg, { backgroundColor: theme.surface }]}>
-              <View style={[dtc.barFill, { width: `${c.pct * 100}%` as any, backgroundColor: '#B8F23A' }]} />
-            </View>
-            <Text style={[dtc.macroLbl, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>{c.l}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-const dtc = StyleSheet.create({
-  card:     { marginHorizontal: 16, marginTop: 12, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
-  top:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
-  label:    { fontSize: 10, letterSpacing: 2 },
-  sub:      { fontSize: 10 },
-  divider:  { height: 1 },
-  grid:     { flexDirection: 'row', paddingBottom: 14 },
-  cell:     { flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4 },
-  val:      { fontSize: 18, letterSpacing: -0.5, lineHeight: 20 },
-  barBg:    { width: '60%', height: 3, borderRadius: 2, marginVertical: 6, overflow: 'hidden' },
-  barFill:  { height: 3, borderRadius: 2 },
-  macroLbl: { fontSize: 9, letterSpacing: 1.5 },
-});
 
 function FuelScoreCard({ score, history, selectedDate, theme }: {
   score: number;
@@ -622,7 +494,7 @@ function FuelScoreCard({ score, history, selectedDate, theme }: {
   const last7 = React.useMemo(() => {
     const days: { date: string; score: number | null }[] = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
+      const d = shiftDate(today(), -i);
       const found = history.find(h => h.date === d);
       days.push({ date: d, score: found?.score ?? null });
     }
@@ -644,61 +516,54 @@ function FuelScoreCard({ score, history, selectedDate, theme }: {
     return { trend: { label: 'CONSISTENT', color: '#0A84FF', icon: '→' }, delta: diff };
   }, [last7, score]);
 
+  const scoreColor = score >= 70 ? '#22A664' : score >= 50 ? '#F0A12E' : '#E84A4A';
   const isToday = selectedDate === today();
 
   return (
-    <View style={[sc.card, { backgroundColor: '#14110D', borderColor: 'rgba(255,255,255,0.07)' }]}>
+    <View style={[sc.card, { backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF', borderColor: scoreColor }]}>
       {/* Top row: score left, trend+delta right */}
       <View style={sc.top}>
         <View style={sc.left}>
-          <Text style={[sc.eyebrow, { color: 'rgba(245,241,232,0.45)', fontFamily: 'Inter_700Bold' }]}>
+          <Text style={[sc.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
             {isToday ? "TODAY'S FUEL" : 'FUEL SCORE'}
           </Text>
-          <Text style={[sc.scoreNum, { color: '#F5F1E8', fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
+          <Text style={[sc.scoreNum, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
         </View>
 
         <View style={sc.right}>
           {trend && (
-            <View style={[sc.trendPill, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
-              <Text style={[sc.trendText, { color: '#F5F1E8', fontFamily: 'Inter_900Black' }]}>
-                {trend.label}
+            <View style={[sc.trendPill, { backgroundColor: trend.color + '25' }]}>
+              <Text style={[sc.trendText, { color: trend.color, fontFamily: 'Inter_900Black' }]}>
+                {trend.icon}  {trend.label}
               </Text>
             </View>
           )}
           {delta != null && (
-            <Text style={[sc.deltaText, { color: 'rgba(245,241,232,0.50)', fontFamily: 'Inter_500Medium' }]}>
+            <Text style={[sc.deltaText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
               {delta > 0 ? '+' : ''}{delta} vs last 7 days
             </Text>
           )}
         </View>
       </View>
 
-      {/* Lime progress bar */}
-      <View style={[sc.progressBg, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
-        <View style={[sc.progressFill, { width: `${score}%` as any, backgroundColor: '#B8F23A' }]} />
-      </View>
-
       {/* Divider */}
-      <View style={[sc.divider, { backgroundColor: 'rgba(255,255,255,0.07)' }]} />
+      <View style={[sc.divider, { backgroundColor: theme.border }]} />
 
-      {/* 7-day squares — white opacity scales with score */}
+      {/* 7-day coloured squares */}
       <View style={sc.gridRow}>
         {last7.map((day) => {
           const s = day.score;
           const isSelected = day.date === selectedDate;
-          const inkOpacity = s == null ? 0 : Math.min(1, 0.28 + (s / 100) * 0.72);
           const bg = s == null
-            ? 'rgba(255,255,255,0.06)'
-            : `rgba(255,255,255,${inkOpacity * 0.9})`;
-          const textColor = s == null
-            ? 'rgba(245,241,232,0.25)'
-            : (inkOpacity > 0.55 ? '#14110D' : 'rgba(245,241,232,0.70)');
+            ? (theme.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)')
+            : s >= 70 ? '#22A664' : s >= 50 ? '#F0A12E' : '#E84A4A';
+          const textColor = s == null ? theme.textSecondary : '#FFFFFF';
           return (
             <View key={day.date} style={[sc.square, {
               backgroundColor: bg,
               borderWidth: isSelected ? 2 : 0,
-              borderColor: '#B8F23A',
-              opacity: s == null ? 0.45 : 1,
+              borderColor: theme.text,
+              opacity: s == null ? 0.5 : 1,
             }]}>
               <Text style={[sc.squareNum, { color: textColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
                 {s ?? '·'}
@@ -724,8 +589,6 @@ const sc = StyleSheet.create({
   trendPill:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
   trendText:  { fontSize: 10, letterSpacing: 1.5 },
   deltaText:  { fontSize: 11 },
-  progressBg:  { height: 4, marginHorizontal: 16, marginBottom: 14, borderRadius: 2, overflow: 'hidden' },
-  progressFill:{ height: 4, borderRadius: 2 },
   divider:    { height: 1, marginHorizontal: 0 },
   gridRow:    { flexDirection: 'row', padding: 12, gap: 6 },
   square:     { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: 'center', gap: 3 },
@@ -735,91 +598,6 @@ const sc = StyleSheet.create({
 
 const ITEM_W = 56;
 const SCORES = [0,1,2,3,4,5,6,7,8,9,10];
-
-function FuelRatingDial({ value, max = 10, eyebrow, label, lowLabel, highLabel, theme, onPress, onChange }: {
-  value: number; max?: number; eyebrow: string; label: string;
-  lowLabel: string; highLabel: string; theme: any; onPress?: () => void; onChange?: (v: number) => void;
-}) {
-  const pct = value / max;
-
-  const barRef    = useRef<View>(null);
-  const barX      = useRef(0);
-  const barW      = useRef(0);
-  const changeRef = useRef(onChange);
-  const maxRef    = useRef(max);
-  useEffect(() => { changeRef.current = onChange; }, [onChange]);
-  useEffect(() => { maxRef.current    = max;      }, [max]);
-
-  const calcVal = (pageX: number) => {
-    const p = Math.max(0, Math.min(1, (pageX - barX.current) / barW.current));
-    return Math.max(1, Math.min(maxRef.current, Math.round(p * (maxRef.current - 1)) + 1));
-  };
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: ()     => true,
-      onMoveShouldSetPanResponder:  (_, s) => Math.abs(s.dx) > 2,
-      onPanResponderTerminationRequest:    () => false,
-      onPanResponderGrant: (e) => { changeRef.current?.(calcVal(e.nativeEvent.pageX)); },
-      onPanResponderMove:  (e) => { changeRef.current?.(calcVal(e.nativeEvent.pageX)); },
-    })
-  ).current;
-
-  const onBarLayout = useCallback(() => {
-    barRef.current?.measure((_, __, w, ___, px) => { barX.current = px; barW.current = w; });
-  }, []);
-
-  return (
-    <View>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={{ fontSize: 9, letterSpacing: 2.5, color: theme.textMuted, fontFamily: 'Inter_700Bold' }}>{eyebrow}</Text>
-        <View style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999, backgroundColor: theme.surface }}>
-          <Text style={{ fontSize: 9, letterSpacing: 2, color: theme.text, fontFamily: 'Inter_900Black' }}>{label}</Text>
-        </View>
-      </View>
-
-      <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4, marginTop: 8 }}>
-        <Text style={{ fontSize: 48, letterSpacing: -3, lineHeight: 48, color: theme.text, fontFamily: 'Inter_900Black' }}>{value}</Text>
-        <Text style={{ fontSize: 16, color: theme.textMuted, paddingBottom: 6, fontFamily: 'Inter_500Medium' }}>/{max}</Text>
-      </TouchableOpacity>
-
-      <View style={{ marginTop: 14 }}>
-        <View
-          ref={barRef}
-          style={{ height: 44 }}
-          onLayout={onBarLayout}
-          {...pan.panHandlers}
-        >
-          {/* Track */}
-          <View style={{ position: 'absolute', left: 0, right: 0, top: 20, height: 4, borderRadius: 2, backgroundColor: theme.surface }} />
-          {/* Fill */}
-          <View style={{ position: 'absolute', left: 0, top: 20, height: 4, borderRadius: 2, width: `${pct * 100}%` as any, backgroundColor: theme.text }} />
-          {/* Ticks */}
-          <View style={{ position: 'absolute', left: 0, right: 0, top: 18, flexDirection: 'row', justifyContent: 'space-between' }}>
-            {Array.from({ length: max + 1 }).map((_, i) => (
-              <View key={i} style={{ width: 1.5, height: 8, borderRadius: 1, backgroundColor: i / max <= pct ? theme.text : theme.surface }} />
-            ))}
-          </View>
-          {/* Knob */}
-          <View style={{
-            position: 'absolute',
-            left: `${pct * 100}%` as any,
-            marginLeft: -11,
-            top: 11,
-            width: 22, height: 22, borderRadius: 11,
-            backgroundColor: theme.card, borderWidth: 2.5, borderColor: theme.text,
-            shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4,
-            shadowOffset: { width: 0, height: 2 }, elevation: 3,
-          }} />
-        </View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-          <Text style={{ fontSize: 9, letterSpacing: 1.5, color: theme.textMuted, fontFamily: 'Inter_700Bold' }}>{lowLabel}</Text>
-          <Text style={{ fontSize: 9, letterSpacing: 1.5, color: theme.textMuted, fontFamily: 'Inter_700Bold' }}>{highLabel}</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
 
 function QualityScroll({ value, onChange, theme }: { value: number; onChange: (n: number) => void; theme: any }) {
   const scrollRef = React.useRef<ScrollView>(null);
@@ -937,7 +715,7 @@ function MacroTracker({ items, theme, targets, onQuickLog }: {
   ] as const;
 
   return (
-    <View style={[mt.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
+    <View style={[mt.card, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
       <View style={mt.grid}>
         {cells.map((cell, idx) => {
           const val    = Math.round(cell.total);
@@ -1071,7 +849,7 @@ function FoodItemCard({ item, theme, onDelete, onUpdate }: {
   ];
 
   return (
-    <View style={[fi.itemCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+    <View style={[fi.itemCard, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
       {/* Header */}
       <View style={fi.itemHeader}>
         <View style={[fi.mealTimeBadge, { backgroundColor: theme.surface }]}>
@@ -1175,7 +953,7 @@ function MacroTotalsBar({ items, theme }: { items: FoodItem[]; theme: any }) {
   ];
 
   return (
-    <View style={[fi.totalsBar, { borderColor: theme.border, backgroundColor: theme.card }]}>
+    <View style={[fi.totalsBar, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
       <Text style={[fi.totalsLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>DAILY TOTAL</Text>
       <View style={fi.totalsRow}>
         {cols.map((t, i) => (
@@ -1236,7 +1014,11 @@ function QuestionCard({ icon, iconBg, label, sub, state, onAnswer, yesColor, noC
 
   return (
     <View style={[qcs.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      <View style={{ flex: 1 }}>
+      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+        <View style={[qcs.iconBubble, { backgroundColor: iconBg }]}>
+          <Text style={{ fontSize: 18 }}>{icon}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
           <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{label}</Text>
           <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{sub}</Text>
           <View style={qcs.btnRow}>
@@ -1277,13 +1059,13 @@ function QuestionCard({ icon, iconBg, label, sub, state, onAnswer, yesColor, noC
               }]}>NO</Text>
             </TouchableOpacity>
           </View>
+        </View>
       </View>
     </View>
   );
 }
 
 const qcs = StyleSheet.create({
-  // Question cards
   card:       { marginHorizontal: 16, marginBottom: 10, borderWidth: 1, borderRadius: 16, padding: 14 },
   iconBubble: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   label:      { fontSize: 12, letterSpacing: 1 },
@@ -1291,7 +1073,6 @@ const qcs = StyleSheet.create({
   btnRow:     { flexDirection: 'row', gap: 8, marginTop: 10 },
   yesNoBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderWidth: 1.5, borderRadius: 10 },
   yesNoText:  { fontSize: 11, letterSpacing: 1.5 },
-
 });
 
 function MealRow({ log, theme }: { log: FoodLog; theme: any }) {
@@ -1417,29 +1198,6 @@ function LogStatRow({ label, value, unit, target, theme }: { label: string; valu
   );
 }
 
-// ── Manual input modal styles ────────────────────────────────────────────────
-const mi = StyleSheet.create({
-  sheet:          { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40, paddingTop: 12, paddingHorizontal: 20 },
-  title:          { fontSize: 13, letterSpacing: 3, textAlign: 'center', marginBottom: 20 },
-  nameBox:        { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, marginBottom: 16 },
-  nameInput:      { flex: 1, fontSize: 15 },
-  macroGrid:      { flexDirection: 'row', flexWrap: 'wrap', borderWidth: 1, borderRadius: 14, overflow: 'hidden', marginBottom: 20 },
-  macroCell:      { width: '50%', padding: 14, gap: 6 },
-  macroCellHeader:{ flexDirection: 'row', alignItems: 'center', gap: 6 },
-  macroCellIcon:  { fontSize: 13 },
-  macroCellLabel: { fontSize: 9, letterSpacing: 1.5 },
-  macroCellRow:   { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
-  macroCellInput: { fontSize: 26, letterSpacing: -0.5, lineHeight: 30, minWidth: 50, paddingVertical: 0 },
-  macroCellUnit:  { fontSize: 10 },
-  whenLabel:      { fontSize: 9, letterSpacing: 2.5, marginBottom: 10 },
-  mealRow:        { flexDirection: 'row', gap: 8, marginBottom: 22 },
-  mealChip:       { flex: 1, alignItems: 'center', paddingVertical: 10, borderWidth: 1, borderRadius: 10, gap: 4 },
-  mealChipIcon:   { fontSize: 14 },
-  mealChipLabel:  { fontSize: 8, letterSpacing: 1 },
-  logBtn:         { paddingVertical: 15, alignItems: 'center', borderRadius: 12 },
-  logBtnText:     { fontSize: 12, letterSpacing: 3 },
-});
-
 const mr = StyleSheet.create({
   card:       { marginHorizontal: 16, marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
   header:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, gap: 8 },
@@ -1500,16 +1258,11 @@ const s = StyleSheet.create({
   logFuelBtn:     { marginHorizontal: 16, marginTop: 14, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14 },
   logFuelBtnText: { fontSize: 12, letterSpacing: 3 },
   logFuelArrow:   { width: 22, height: 22, borderRadius: 11, backgroundColor: '#B8F23A', alignItems: 'center', justifyContent: 'center' },
-  logCard:        { marginHorizontal: 16, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
-  logAnotherBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 16, marginTop: 12, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5, borderStyle: 'dashed' },
-  logAnotherText: { fontSize: 12, letterSpacing: 2.5 },
   empty: { alignItems: 'center', paddingVertical: 48 },
   emptyText: { fontSize: 9, letterSpacing: 3 },
   // detailed form
-  detailedWrap:       { paddingBottom: 8 },
-  manualInputBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 16, marginTop: 14, paddingVertical: 15, borderRadius: 12, borderWidth: 1 },
-  manualInputBtnText: { fontSize: 12, letterSpacing: 2 },
-  snapRow:            { flexDirection: 'row', marginHorizontal: 16, marginTop: 16, gap: 10 },
+  detailedWrap:     { paddingBottom: 8 },
+  snapRow:          { flexDirection: 'row', marginHorizontal: 16, marginTop: 16, gap: 10 },
   snapBtn:          { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 14, backgroundColor: 'transparent' },
   snapBtnText:      { fontSize: 11, letterSpacing: 2 },
   snapBtnSm:        { width: 48, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: 12 },
