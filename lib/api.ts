@@ -741,8 +741,8 @@ export const challenges = {
 
 export const mirror = {
   // `preview` (forming|teaser|full) is a dev override for building all states.
-  get: (token: string, preview?: 'forming' | 'teaser' | 'full') => {
-    const qs = `?today=${today()}${preview ? `&preview=${preview}` : ''}`;
+  get: (token: string, preview?: 'forming' | 'teaser' | 'full', window?: 7 | 30) => {
+    const qs = `?today=${today()}${preview ? `&preview=${preview}` : ''}${window ? `&window=${window}` : ''}`;
     return request<MirrorPayload>(`/mirror${qs}`, {}, token);
   },
   // DEV UNLOCK STUB — flips premium so the paywall can be demoed. Real billing later.

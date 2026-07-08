@@ -24,19 +24,26 @@ export default function MirrorScreen() {
   const [preview, setPreview] = useState<Preview>(undefined);
   const [horizon, setHorizon] = useState('today');
   const [unlocking, setUnlocking] = useState(false);
+  const [window, setWindow] = useState<7 | 30>(30);
 
-  const load = useCallback(async (pv: Preview) => {
+  const load = useCallback(async (pv: Preview, win: 7 | 30 = 30) => {
     if (!token) return;
     try {
       setError(false);
-      const d = await mirror.get(token, pv);
+      const d = await mirror.get(token, pv, win);
       setData(d);
       if (d.projection) setHorizon(d.projection.selected || 'today');
     } catch { setError(true); }
     finally { setLoading(false); }
   }, [token]);
 
-  useFocusEffect(useCallback(() => { load(preview); }, [load, preview]));
+  useFocusEffect(useCallback(() => { load(preview, window); }, [load, preview, window]));
+
+  function switchWindow(w: 7 | 30) {
+    setWindow(w);
+    setLoading(true);
+    load(preview, w);
+  }
 
   const unlock = useCallback(async () => {
     if (!token) return;
@@ -52,14 +59,35 @@ export default function MirrorScreen() {
     <DarkBackground>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         <View style={s.topBar}>
-          <Text style={s.eyebrow}>{data?.state === 'forming' ? 'MIRROR' : 'MIRROR · LAST 30 DAYS'}</Text>
-          {data?.state !== 'forming' && data?.hero && (
-            <View style={[s.badge, { backgroundColor: data.state === 'full' ? theme.accent : theme.surfaceStrong }]}>
-              <Text style={[s.badgeText, { color: data.state === 'full' ? theme.accentText : theme.textSecondary }]}>
-                {data.state === 'full' ? 'PREMIUM' : 'FREE'}
-              </Text>
-            </View>
-          )}
+          <Text style={s.eyebrow}>
+            {data?.state === 'forming' ? 'MIRROR' : `MIRROR · LAST ${window} DAYS`}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            {/* Weekly / Monthly toggle */}
+            {data?.state !== 'forming' && (
+              <View style={[s.windowToggle, { backgroundColor: theme.surfaceStrong }]}>
+                <Pressable
+                  style={[s.windowBtn, window === 7 && { backgroundColor: theme.inverse }]}
+                  onPress={() => switchWindow(7)}
+                >
+                  <Text style={[s.windowBtnText, { color: window === 7 ? theme.inverseText : theme.textSecondary }]}>7D</Text>
+                </Pressable>
+                <Pressable
+                  style={[s.windowBtn, window === 30 && { backgroundColor: theme.inverse }]}
+                  onPress={() => switchWindow(30)}
+                >
+                  <Text style={[s.windowBtnText, { color: window === 30 ? theme.inverseText : theme.textSecondary }]}>30D</Text>
+                </Pressable>
+              </View>
+            )}
+            {data?.state !== 'forming' && data?.hero && (
+              <View style={[s.badge, { backgroundColor: data.state === 'full' ? theme.accent : theme.surfaceStrong }]}>
+                <Text style={[s.badgeText, { color: data.state === 'full' ? theme.accentText : theme.textSecondary }]}>
+                  {data.state === 'full' ? 'PREMIUM' : 'FREE'}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* Dev-only state switcher */}
@@ -412,6 +440,9 @@ function makeStyles(t: AppTheme) {
     eyebrow: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 11, letterSpacing: 2, color: t.textTertiary },
     badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
     badgeText: { fontFamily: 'Inter_800ExtraBold', fontSize: 9, letterSpacing: 1 },
+    windowToggle:   { flexDirection: 'row', borderRadius: 10, padding: 2, gap: 2 },
+    windowBtn:      { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 8 },
+    windowBtnText:  { fontFamily: 'Inter_700Bold', fontSize: 11, letterSpacing: 1 },
     devRow: { flexDirection: 'row', gap: 6, marginTop: 12 },
     devChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: t.surfaceStrong },
     devChipText: { fontFamily: 'Inter_700Bold', fontSize: 11, color: t.textSecondary },
