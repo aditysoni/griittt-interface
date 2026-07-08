@@ -3,6 +3,7 @@ import { Animated, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as Updates from 'expo-updates';
 import { useFonts } from 'expo-font';
 import {
   Inter_400Regular,
@@ -97,6 +98,21 @@ const sp = StyleSheet.create({
   label:   { fontSize: 11, color: 'rgba(255,255,255,0.45)', letterSpacing: 5, fontFamily: 'Inter_700Bold' },
 });
 
+// Check for OTA update on every launch and reload immediately if one is available.
+// This prevents users from seeing stale UI after an eas update is pushed.
+async function checkForUpdate() {
+  try {
+    if (!Updates.isEmbeddedLaunch) return; // dev mode — skip
+    const result = await Updates.checkForUpdateAsync();
+    if (result.isAvailable) {
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync();
+    }
+  } catch {
+    // network offline or check failed — silently ignore, stale bundle is fine
+  }
+}
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -116,6 +132,8 @@ export default function RootLayout() {
   // ready = fonts loaded + AsyncStorage checked
   const [ready, setReady]       = useState(false);
   const [daysLeft, setDaysLeft] = useState<number | null>(null);
+
+  useEffect(() => { checkForUpdate(); }, []);
 
   useEffect(() => {
     if (!fontsLoaded) return;
