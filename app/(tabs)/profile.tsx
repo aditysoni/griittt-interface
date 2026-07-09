@@ -398,6 +398,18 @@ export default function ProfileScreen() {
         <HawkEyeModal visible={hawkEye} onClose={() => setHawkEye(false)} token={token!} />
 
 
+        {/* Fuel Questions */}
+        <TouchableOpacity
+          style={[s.appearanceRow, { borderColor: theme.border }]}
+          onPress={() => router.push('/fuel-questions' as any)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="nutrition-outline" size={18} color={theme.text} />
+          <Text style={[s.appearanceLabel, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>Fuel Questions</Text>
+          <View style={{ flex: 1 }} />
+          <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
+        </TouchableOpacity>
+
         {/* Appearance toggle */}
         <View style={[s.appearanceRow, { borderColor: theme.border }]}>
           <Ionicons name={theme.isDark ? 'moon' : 'sunny'} size={18} color={theme.text} />

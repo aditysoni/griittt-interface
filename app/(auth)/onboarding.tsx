@@ -807,6 +807,76 @@ const tt = StyleSheet.create({
   sub: { fontSize: 15, marginTop: 12, lineHeight: 22 },
 });
 
+// ── S_QuestionPicker ─────────────────────────────────────
+const QUESTION_CATEGORIES = [
+  { key: 'Food',       icon: '🍽️', desc: 'Food quality, junk food, meal adherence' },
+  { key: 'Hydration',  icon: '💧', desc: 'Water intake throughout the day' },
+  { key: 'Sleep',      icon: '😴', desc: 'Sleep quality and duration' },
+  { key: 'Energy',     icon: '⚡', desc: 'Energy levels and focus' },
+  { key: 'Mindset',    icon: '🧠', desc: 'Mood, stress, and mental clarity' },
+  { key: 'Digestion',  icon: '🌿', desc: 'Gut comfort and digestion' },
+];
+
+function S_QuestionPicker({ selected, onToggle, onNext, onBack, step, total }: {
+  selected: string[];
+  onToggle: (key: string) => void;
+  onNext: () => void;
+  onBack: () => void;
+  step?: number;
+  total?: number;
+}) {
+  return (
+    <Shell step={step ?? 7} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
+      <Text style={[tt.eyebrow, { color: W.ink3 }]}>DAILY CHECK-IN</Text>
+      <Text style={[tt.title, { color: W.ink }]}>What do you{'\n'}want to track?</Text>
+      <Text style={[tt.sub, { color: W.ink2 }]}>
+        Each day you'll answer a few quick questions to build your fuel score. Pick the areas that matter to you.
+      </Text>
+
+      <View style={{ gap: 10, marginTop: 28 }}>
+        {QUESTION_CATEGORIES.map(cat => {
+          const active = selected.includes(cat.key);
+          return (
+            <TouchableOpacity
+              key={cat.key}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 14,
+                padding: 16, borderRadius: 14, borderWidth: 1.5,
+                backgroundColor: active ? W.ink : W.card,
+                borderColor: active ? W.ink : W.rule,
+              }}
+              onPress={() => onToggle(cat.key)}
+              activeOpacity={0.75}
+            >
+              <Text style={{ fontSize: 22 }}>{cat.icon}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: active ? '#FFF' : W.ink, marginBottom: 2 }}>
+                  {cat.key}
+                </Text>
+                <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: active ? 'rgba(255,255,255,0.65)' : W.ink3 }}>
+                  {cat.desc}
+                </Text>
+              </View>
+              <View style={{
+                width: 22, height: 22, borderRadius: 6, borderWidth: 1.5,
+                backgroundColor: active ? W.hype : 'transparent',
+                borderColor: active ? W.hype : W.rule,
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                {active && <Text style={{ fontSize: 13, color: W.ink }}>✓</Text>}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <Text style={{ fontSize: 12, color: W.ink3, fontFamily: 'Inter_400Regular', textAlign: 'center', marginTop: 16 }}>
+        You can add or remove questions anytime from your profile.
+      </Text>
+    </Shell>
+  );
+}
+
 // ── Main export ──────────────────────────────────────────
 export default function OnboardingScreen() {
   const { completeOnboarding, signup, login, user } = useAuth();
@@ -824,6 +894,9 @@ export default function OnboardingScreen() {
   const [pickedChallenges, setPickedChallenges] = useState<string[]>([]);
   const [logTime, setLogTime] = useState('evening');
   const [tone, setTone] = useState('bal');
+  // Question categories the user selects during onboarding
+  // Applied to real question IDs after signup via the API
+  const [selectedQCategories, setSelectedQCategories] = useState<string[]>(['Food', 'Hydration']);
 
   // Credentials only collected on the final screen when the user isn't logged in yet
   const [email, setEmail]       = useState('');
@@ -842,6 +915,9 @@ export default function OnboardingScreen() {
   }
   function toggleChallenge(title: string) {
     setPickedChallenges(p => p.includes(title) ? p.filter(x => x !== title) : [...p, title]);
+  }
+  function toggleQCategory(key: string) {
+    setSelectedQCategories(p => p.includes(key) ? p.filter(x => x !== key) : [...p, key]);
   }
 
   const [submitting, setSubmitting] = useState(false);
@@ -913,8 +989,21 @@ export default function OnboardingScreen() {
         coachingTone: tone as 'soft' | 'bal' | 'hard',
         notificationsEnabled: true,
       }, freshToken);
-      // Bridge through the First Win screen so the user completes one habit and
-      // sees their score/streak move before hitting the (otherwise empty) dashboard.
+
+      // Apply question selection — load catalog with fresh token, filter by
+      // chosen categories, set selection. Failure is non-blocking.
+      try {
+        const { fuelQuestions } = await import('../../lib/api');
+        const tok = freshToken ?? (await import('../../lib/storage').then(m => m.storage.getToken()));
+        if (tok) {
+          const catalog = await fuelQuestions.catalog(tok);
+          const ids = catalog
+            .filter(q => selectedQCategories.includes(q.category))
+            .map(q => q.id);
+          if (ids.length > 0) await fuelQuestions.setSelection(tok, ids);
+        }
+      } catch { /* non-blocking — user can configure from profile */ }
+
       router.replace('/first-win' as any);
     } catch (err: any) {
       Alert.alert('Could not finish setup', err?.message ?? 'Try again.');
@@ -955,6 +1044,13 @@ export default function OnboardingScreen() {
       key="ob_challenges"
       selected={pickedChallenges}
       onToggle={toggleChallenge}
+      onNext={next}
+      onBack={back}
+    />,
+    <S_QuestionPicker
+      key="ob_questions"
+      selected={selectedQCategories}
+      onToggle={toggleQCategory}
       onNext={next}
       onBack={back}
     />,

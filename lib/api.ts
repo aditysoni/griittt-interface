@@ -584,6 +584,72 @@ export type FoodItem = {
 };
 
 // Fuel
+// ── Fuel Questions ────────────────────────────────────────────────────────────
+export type FuelQuestion = {
+  id: string;
+  category: string;
+  prompt: string;
+  options: string[];
+  reverseScoring: boolean;
+  weight: number;
+  required: boolean;
+  isPreset: boolean;
+  isCustom: boolean;
+  selected: boolean;
+};
+
+export type FuelQuestionAnswer = {
+  questionId: string;
+  prompt?: string;
+  optionIndex: number;
+  optionLabel?: string;
+  score?: number;
+  weight?: number;
+};
+
+export type FuelQuestionResponses = {
+  date: string;
+  answers: FuelQuestionAnswer[];
+  checklistScore?: number;
+};
+
+export const fuelQuestions = {
+  catalog: (token: string) =>
+    request<FuelQuestion[]>('/fuel/questions/catalog', {}, token),
+
+  setSelection: (token: string, questionIds: string[]) =>
+    request<{ ok: boolean; selected: number; skipped: number }>(
+      '/fuel/questions/selection',
+      { method: 'PUT', body: JSON.stringify({ questionIds }) },
+      token,
+    ),
+
+  createCustom: (token: string, data: {
+    prompt: string; options: string[]; weight?: number;
+    reverseScoring?: boolean; required?: boolean;
+  }) =>
+    request<FuelQuestion>('/fuel/questions/custom', { method: 'POST', body: JSON.stringify(data) }, token),
+
+  updateCustom: (token: string, id: string, data: Partial<{
+    prompt: string; options: string[]; weight: number; reverseScoring: boolean; required: boolean;
+  }>) =>
+    request<FuelQuestion>(`/fuel/questions/${id}`, { method: 'PUT', body: JSON.stringify(data) }, token),
+
+  deleteCustom: (token: string, id: string) =>
+    request<null>(`/fuel/questions/${id}`, { method: 'DELETE' }, token),
+
+  submitResponses: (token: string, data: { date: string; answers: { questionId: string; optionIndex: number }[] }) =>
+    request<FuelQuestionResponses>('/fuel/questions/responses', { method: 'POST', body: JSON.stringify(data) }, token),
+
+  getResponses: (token: string, date: string) =>
+    request<FuelQuestionResponses>(`/fuel/questions/responses?date=${date}`, {}, token),
+
+  getScore: (token: string, date: string) =>
+    request<{ date: string; checklistScore: number | null; answeredCount: number }>(
+      `/fuel/questions/score?date=${date}`, {}, token,
+    ),
+};
+
 export const fuel = {
   identity: (token: string) =>
     request<FuelIdentity>('/fuel/identity', {}, token),

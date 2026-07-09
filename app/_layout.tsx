@@ -101,15 +101,15 @@ const sp = StyleSheet.create({
 // Check for OTA update on every launch and reload immediately if one is available.
 // This prevents users from seeing stale UI after an eas update is pushed.
 async function checkForUpdate() {
+  if (__DEV__) return; // skip in local dev
   try {
-    if (!Updates.isEmbeddedLaunch) return; // dev mode — skip
     const result = await Updates.checkForUpdateAsync();
     if (result.isAvailable) {
       await Updates.fetchUpdateAsync();
-      await Updates.reloadAsync();
+      await Updates.reloadAsync(); // instant reload before user sees anything
     }
   } catch {
-    // network offline or check failed — silently ignore, stale bundle is fine
+    // network offline or check failed — silently ignore
   }
 }
 
