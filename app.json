@@ -2,7 +2,7 @@
   "expo": {
     "name": "Grittt",
     "slug": "grittt-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "grittt",
@@ -19,7 +19,7 @@
         "NSCameraUsageDescription": "Allow Grittt to use your camera to snap and track food.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "runtimeVersion": "1.0.0"
+      "runtimeVersion": "1.0.1"
     },
     "android": {
       "adaptiveIcon": {
