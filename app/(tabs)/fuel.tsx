@@ -329,20 +329,24 @@ export default function FuelScreen() {
               </View>
             </Modal>
 
+            {/* Primary action for the screen, so it takes the accent. It used to fill
+                with theme.text and label itself #FFFFFF — white on cream in dark
+                mode — with a cream arrow on a hardcoded lime disc. The disc now
+                inverts against the lime fill instead of disappearing into it. */}
             <TouchableOpacity
               style={[s.logFuelBtn, {
-                backgroundColor: theme.text,
+                backgroundColor: theme.accent,
                 opacity: (stuckToMeal === null || hadJunk === null || submitting) ? 0.4 : 1,
               }]}
               onPress={submitQuick}
               disabled={stuckToMeal === null || hadJunk === null || submitting}
               activeOpacity={0.85}
             >
-              <Text style={[s.logFuelBtnText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>
+              <Text style={[s.logFuelBtnText, { color: theme.accentText, fontFamily: 'Inter_900Black' }]}>
                 {submitting ? 'LOGGING...' : 'LOG FUEL'}
               </Text>
-              <View style={s.logFuelArrow}>
-                <Ionicons name="arrow-forward" size={12} color={theme.text} />
+              <View style={[s.logFuelArrow, { backgroundColor: theme.accentText }]}>
+                <Ionicons name="arrow-forward" size={12} color={theme.accent} />
               </View>
             </TouchableOpacity>
           </>
@@ -521,7 +525,9 @@ function FuelScoreCard({ score, history, selectedDate, theme }: {
   const isToday = selectedDate === today();
 
   return (
-    <View style={[sc.card, { backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF', borderColor: scoreColor }]}>
+    // #1A1A1A was a cool grey card sitting on a warm carbon ground; theme.card
+    // keeps it in the same family. The border stays score-coloured on purpose.
+    <View style={[sc.card, { backgroundColor: theme.card, borderColor: scoreColor }]}>
       {/* Top row: score left, trend+delta right */}
       <View style={sc.top}>
         <View style={sc.left}>
@@ -1258,7 +1264,7 @@ const s = StyleSheet.create({
   submitBtnText:  { fontSize: 10, letterSpacing: 4 },
   logFuelBtn:     { marginHorizontal: 16, marginTop: 14, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14 },
   logFuelBtnText: { fontSize: 12, letterSpacing: 3 },
-  logFuelArrow:   { width: 22, height: 22, borderRadius: 11, backgroundColor: '#B8F23A', alignItems: 'center', justifyContent: 'center' },
+  logFuelArrow:   { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   empty: { alignItems: 'center', paddingVertical: 48 },
   emptyText: { fontSize: 9, letterSpacing: 3 },
   // detailed form
