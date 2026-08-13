@@ -324,7 +324,12 @@ export default function HabitsScreen() {
       });
       setHabitList(l => [...l, { ...task, done: false, yFailed: false, streak: 0, count: null }]);
       setShowAdd(false);
-      setNewName(''); setNewType('build'); setNewScore(5);
+      // Land on the tab the habit was actually created in. Without this, picking a
+      // type in the sheet that differs from the current tab creates the habit off
+      // screen and it reads as if nothing happened.
+      switchTab(newType);
+      // newType is not reset here — the FAB reseeds it from the active tab on open.
+      setNewName(''); setNewScore(5);
       setNewTrackCount(false); setNewUnit(''); setNewDays([0,1,2,3,4,5,6]);
     } catch (err: any) { Alert.alert('Error', err.message); }
     finally { setAdding(false); }
@@ -541,7 +546,10 @@ export default function HabitsScreen() {
           primary action, and accent is the token for exactly that. */}
       <TouchableOpacity
         style={[s.fab, { backgroundColor: theme.accent }]}
-        onPress={() => setShowAdd(true)}
+        // Default the sheet to the tab being viewed. It used to always open on
+        // 'build', so adding from the Control tab silently filed the habit under
+        // Build unless you noticed the type picker.
+        onPress={() => { setNewType(activeTab); setShowAdd(true); }}
         activeOpacity={0.85}
       >
         <Ionicons name="add" size={28} color={theme.accentText} />
