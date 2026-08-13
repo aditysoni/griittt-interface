@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
+  Easing,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,12 +13,17 @@ import {
   View,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../lib/auth';
-import { COLORS } from '../../components/theme';
+import { useTheme, AppTheme } from '../../components/ThemeContext';
+import { DarkBackground } from '../../components/DarkBackground';
 import { GoogleSignInButton } from '../../components/GoogleSignInButton';
 
+type Field = 'name' | 'email' | 'password';
+
 export default function SignupScreen() {
+  const { theme } = useTheme();
+  const s = React.useMemo(() => makeStyles(theme), [theme]);
+
   const { signup, loginWithGoogle } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
@@ -24,6 +31,39 @@ export default function SignupScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [focused, setFocused] = useState<Field | null>(null);
+
+  // ── Animations — mirrors the login screen so the pair feels like one flow ──
+  const steps = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
+  const btnScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.stagger(
+      110,
+      steps.map((v) =>
+        Animated.timing(v, {
+          toValue: 1,
+          duration: 620,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        })
+      )
+    ).start();
+  }, []);
+
+  const enter = (i: number) => ({
+    opacity: steps[i],
+    transform: [
+      { translateY: steps[i].interpolate({ inputRange: [0, 1], outputRange: [26, 0] }) },
+    ],
+  });
+
+  function pressIn() {
+    Animated.spring(btnScale, { toValue: 0.96, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
+  }
+  function pressOut() {
+    Animated.spring(btnScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 8 }).start();
+  }
 
   async function handleGoogle() {
     setGoogleLoading(true);
@@ -62,187 +102,211 @@ export default function SignupScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <LinearGradient colors={['#0F0F14', '#0F0F14', '#051526']} style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <View style={styles.header}>
-            <Text style={styles.logo}>GRITTT</Text>
-            <Text style={styles.title}>Create your account</Text>
-          </View>
+    <DarkBackground>
+      <KeyboardAvoidingView
+        style={s.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
+          {/* ── Hero ── */}
+          <Animated.View style={[s.hero, enter(0)]}>
+            <Text style={s.logo}>
+              GRITT<Text style={s.logoAccent}>T</Text>
+            </Text>
+            <Text style={s.kicker}>DISCIPLINE · IDENTITY · MOMENTUM</Text>
+            <Text style={s.title}>Start your first streak</Text>
+            <Text style={s.subtitle}>Day one is the hardest. Let's get it on the board.</Text>
+          </Animated.View>
 
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Name</Text>
+          {/* ── Credentials ── */}
+          <Animated.View style={[s.form, enter(1)]}>
+            <View style={s.inputGroup}>
+              <Text style={s.label}>NAME</Text>
               <TextInput
-                style={styles.input}
+                style={[s.input, focused === 'name' && s.inputFocused]}
                 value={name}
                 onChangeText={setName}
+                onFocus={() => setFocused('name')}
+                onBlur={() => setFocused(null)}
                 placeholder="Your name"
-                placeholderTextColor={COLORS.textTertiary}
+                placeholderTextColor={theme.textTertiary}
                 autoCapitalize="words"
+                autoComplete="name"
                 returnKeyType="next"
               />
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email</Text>
+            <View style={s.inputGroup}>
+              <Text style={s.label}>EMAIL</Text>
               <TextInput
-                style={styles.input}
+                style={[s.input, focused === 'email' && s.inputFocused]}
                 value={email}
                 onChangeText={setEmail}
+                onFocus={() => setFocused('email')}
+                onBlur={() => setFocused(null)}
                 placeholder="you@example.com"
-                placeholderTextColor={COLORS.textTertiary}
+                placeholderTextColor={theme.textTertiary}
                 autoCapitalize="none"
                 keyboardType="email-address"
+                autoComplete="email"
                 returnKeyType="next"
               />
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password</Text>
+            <View style={s.inputGroup}>
+              <Text style={s.label}>PASSWORD</Text>
               <TextInput
-                style={styles.input}
+                style={[s.input, focused === 'password' && s.inputFocused]}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="Min 8 characters"
-                placeholderTextColor={COLORS.textTertiary}
+                onFocus={() => setFocused('password')}
+                onBlur={() => setFocused(null)}
+                placeholder="At least 8 characters"
+                placeholderTextColor={theme.textTertiary}
                 secureTextEntry
                 returnKeyType="done"
                 onSubmitEditing={handleSignup}
               />
             </View>
 
-            <Pressable
-              style={[styles.btn, loading && styles.btnDisabled]}
-              onPress={handleSignup}
-              disabled={loading}
-            >
-              <LinearGradient
-                colors={[COLORS.primary, '#6D28D9']}
-                style={styles.btnGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
+            <Animated.View style={{ transform: [{ scale: btnScale }], marginTop: 4 }}>
+              <Pressable
+                onPress={handleSignup}
+                onPressIn={pressIn}
+                onPressOut={pressOut}
+                disabled={loading}
+                style={[s.btn, loading && s.btnDisabled]}
               >
-                <Text style={styles.btnText}>{loading ? 'Creating account...' : 'Create Account'}</Text>
-              </LinearGradient>
-            </Pressable>
+                <Text style={s.btnText}>{loading ? 'Creating account…' : 'Create Account'}</Text>
+              </Pressable>
+            </Animated.View>
+          </Animated.View>
 
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
+          {/* ── Alternatives ── */}
+          <Animated.View style={[s.altGroup, enter(2)]}>
+            <View style={s.divider}>
+              <View style={s.dividerLine} />
+              <Text style={s.dividerText}>OR</Text>
+              <View style={s.dividerLine} />
             </View>
 
             <GoogleSignInButton onPress={handleGoogle} loading={googleLoading} label="Sign up with Google" />
 
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>Already have an account? </Text>
+            <View style={s.footer}>
+              <Text style={s.footerText}>Already have an account? </Text>
               <Link href="/(auth)/login" asChild>
-                <Pressable>
-                  <Text style={styles.footerLink}>Sign in</Text>
+                <Pressable hitSlop={8}>
+                  <Text style={s.footerLink}>Sign in</Text>
                 </Pressable>
               </Link>
             </View>
-          </View>
+          </Animated.View>
         </ScrollView>
-      </LinearGradient>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </DarkBackground>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 80,
-    paddingBottom: 40,
-  },
-  header: {
-    marginBottom: 48,
-  },
-  logo: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: COLORS.primary,
-    letterSpacing: 4,
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: COLORS.text,
-  },
-  form: {
-    gap: 20,
-  },
-  inputGroup: {
-    gap: 6,
-  },
-  label: {
-    color: COLORS.textSecondary,
-    fontSize: 13,
-    fontWeight: '500',
-    letterSpacing: 0.5,
-  },
-  input: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: COLORS.text,
-    fontSize: 16,
-  },
-  btn: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginTop: 8,
-  },
-  btnDisabled: { opacity: 0.6 },
-  btnGradient: {
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  btnText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 4,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: COLORS.border,
-  },
-  dividerText: {
-    color: COLORS.textTertiary,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 8,
-  },
-  footerText: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-  },
-  footerLink: {
-    color: COLORS.primaryLight,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-});
+function makeStyles(t: AppTheme) {
+  return StyleSheet.create({
+    flex: { flex: 1 },
+    container: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      paddingHorizontal: 26,
+      paddingTop: 72,
+      paddingBottom: 40,
+      gap: 26,
+    },
+
+    // Hero
+    hero: { alignItems: 'center', marginBottom: 4 },
+    logo: {
+      fontFamily: 'BricolageGrotesque_800ExtraBold',
+      fontSize: 44,
+      color: t.text,
+      letterSpacing: 1,
+    },
+    logoAccent: { color: t.accent },
+    kicker: {
+      fontFamily: 'SpaceGrotesk_600SemiBold',
+      color: t.textTertiary,
+      fontSize: 10.5,
+      letterSpacing: 2.6,
+      marginTop: 12,
+    },
+    title: {
+      fontFamily: 'BricolageGrotesque_700Bold',
+      fontSize: 29,
+      color: t.text,
+      letterSpacing: -0.4,
+      marginTop: 26,
+      textAlign: 'center',
+    },
+    subtitle: {
+      fontFamily: 'Inter_400Regular',
+      fontSize: 14.5,
+      color: t.textSecondary,
+      marginTop: 6,
+      textAlign: 'center',
+    },
+
+    // Form
+    form: { gap: 16 },
+    inputGroup: { gap: 8 },
+    label: {
+      fontFamily: 'Inter_700Bold',
+      color: t.textTertiary,
+      fontSize: 11,
+      letterSpacing: 1.4,
+    },
+    input: {
+      backgroundColor: t.surface,
+      borderWidth: 1.5,
+      borderColor: t.border,
+      borderRadius: 14,
+      paddingHorizontal: 16,
+      paddingVertical: 15,
+      color: t.text,
+      fontSize: 16,
+      fontFamily: 'Inter_500Medium',
+    },
+    inputFocused: {
+      borderColor: t.accent,
+      backgroundColor: t.surfaceStrong,
+    },
+    btn: {
+      backgroundColor: t.accent,
+      borderRadius: 14,
+      paddingVertical: 17,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: t.accent,
+      shadowOpacity: t.isDark ? 0.45 : 0.35,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 6,
+    },
+    btnDisabled: { opacity: 0.55 },
+    btnText: {
+      fontFamily: 'Inter_800ExtraBold',
+      color: t.accentText,
+      fontSize: 16,
+      letterSpacing: 0.3,
+    },
+
+    // Alternatives
+    altGroup: { gap: 18 },
+    divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    dividerLine: { flex: 1, height: 1, backgroundColor: t.border },
+    dividerText: {
+      fontFamily: 'Inter_700Bold',
+      color: t.textTertiary,
+      fontSize: 11,
+      letterSpacing: 1.5,
+    },
+    footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+    footerText: { fontFamily: 'Inter_400Regular', color: t.textSecondary, fontSize: 14 },
+    footerLink: { fontFamily: 'Inter_700Bold', color: t.text, fontSize: 14 },
+  });
+}

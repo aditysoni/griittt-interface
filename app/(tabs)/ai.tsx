@@ -17,7 +17,6 @@ import * as FileSystem from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 import { ai, habits, tasks, today } from '../../lib/api';
-import { COLORS } from '../../components/theme';
 import { useTheme } from '../../components/ThemeContext';
 import { useRouter } from 'expo-router';
 
@@ -220,10 +219,11 @@ export default function AIScreen() {
               <Text style={[styles.snapFoodName, { color: theme.text }]}>{snapResult.name}</Text>
               <Text style={[styles.snapServing, { color: theme.textSecondary }]}>{snapResult.servingNote}</Text>
               <View style={styles.macroRow}>
-                <Macro label="Calories" value={snapResult.calories} unit="kcal" color={COLORS.warning} theme={theme} />
-                <Macro label="Protein" value={snapResult.protein} unit="g" color="#10B981" theme={theme} />
-                <Macro label="Carbs" value={snapResult.carbs} unit="g" color={COLORS.primary} theme={theme} />
-                <Macro label="Fats" value={snapResult.fats} unit="g" color={COLORS.error} theme={theme} />
+                {/* Macro hues match the Fuel tab so the same nutrient reads the same colour app-wide. */}
+                <Macro label="Calories" value={snapResult.calories} unit="kcal" color={theme.heat} theme={theme} />
+                <Macro label="Protein" value={snapResult.protein} unit="g" color={theme.cool} theme={theme} />
+                <Macro label="Carbs" value={snapResult.carbs} unit="g" color={theme.warning} theme={theme} />
+                <Macro label="Fats" value={snapResult.fats} unit="g" color={theme.success} theme={theme} />
               </View>
             </View>
           )}
@@ -249,7 +249,7 @@ export default function AIScreen() {
           <ScrollView contentContainerStyle={styles.modalBody}>
             {debriefLoading ? (
               <View style={styles.modalLoading}>
-                <ActivityIndicator size="large" color={COLORS.primary} />
+                <ActivityIndicator size="large" color={theme.accent} />
                 <Text style={[styles.modalLoadingText, { color: theme.textSecondary }]}>Generating your debrief...</Text>
               </View>
             ) : debrief ? (
@@ -277,7 +277,7 @@ export default function AIScreen() {
           <ScrollView contentContainerStyle={styles.modalBody}>
             {patternsLoading ? (
               <View style={styles.modalLoading}>
-                <ActivityIndicator size="large" color={COLORS.secondary} />
+                <ActivityIndicator size="large" color={theme.accent} />
                 <Text style={[styles.modalLoadingText, { color: theme.textSecondary }]}>Analyzing 30 days of data...</Text>
               </View>
             ) : patterns.length > 0 ? (
@@ -285,7 +285,7 @@ export default function AIScreen() {
                 {patterns.map((p, i) => (
                   <View key={i} style={[styles.patternCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                     <Text style={[styles.patternInsight, { color: theme.text }]}>💡 {p.insight}</Text>
-                    <Text style={[styles.patternActionable, { color: COLORS.secondary }]}>→ {p.actionable}</Text>
+                    <Text style={[styles.patternActionable, { color: theme.cool }]}>→ {p.actionable}</Text>
                   </View>
                 ))}
               </View>

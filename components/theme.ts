@@ -1,18 +1,7 @@
-export const COLORS = {
-  bg: '#0F0F14',
-  surface: '#1C1C28',
-  card: '#252535',
-  border: '#2D2D42',
-  primary: '#8B5CF6',
-  primaryLight: '#A78BFA',
-  secondary: '#06B6D4',
-  success: '#10B981',
-  warning: '#F59E0B',
-  error: '#EF4444',
-  text: '#FFFFFF',
-  textSecondary: '#9CA3AF',
-  textTertiary: '#6B7280',
-};
+// Colours live in components/ThemeContext.tsx (`useTheme()`), which is the single
+// source of truth and supports light/dark. The old violet `COLORS` object that used
+// to live here is gone — it only reached the auth screens, which meant new users saw
+// a different app than the one they signed up for.
 
 export const CATEGORY_EMOJI: Record<string, string> = {
   health: '❤️',

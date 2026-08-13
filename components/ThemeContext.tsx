@@ -44,6 +44,16 @@ export type AppTheme = {
   // Hype accent — lime in light mode, used for wins / signature highlights
   accent: string;
   accentText: string;
+  accentSoft: string;     // tinted bg for lime pills/badges
+
+  // Heat — streaks, "on fire", intensity. Never used for errors.
+  heat: string;
+  heatText: string;
+  heatSoft: string;
+
+  // Cool — secondary data, info, hydration. Readable as text in both modes.
+  cool: string;
+  coolSoft: string;
 
   // Tab/pill active states
   tabActiveBg: string;
@@ -59,29 +69,33 @@ function buildTheme(mode: ThemeMode): AppTheme {
     isDark,
     mode,
 
-    // Warm Coach palette in light mode: cream bg, ink near-black, lime hype.
-    bg:           isDark ? '#000000' : '#F5F1E8',
-    bgGradient:   isDark ? ['#000000', '#1F1E1E'] : ['#F5F1E8', '#ECE8DC'],
+    // Warm Coach: cream bg + ink in light, warm carbon in dark, lime hype in both.
+    // Dark mode is deliberately NOT pure black — a warm carbon keeps it in the same
+    // family as the cream side, and stops the lime from reading as neon-on-void.
+    bg:           isDark ? '#0E0C09' : '#F5F1E8',
+    bgGradient:   isDark ? ['#0E0C09', '#1A1613'] : ['#F5F1E8', '#ECE8DC'],
 
-    text:          isDark ? '#FFFFFF' : '#14110D',
-    textSecondary: isDark ? '#888888' : '#5C544A',
-    textTertiary:  isDark ? '#666666' : '#A39B8E',
-    textMuted:     isDark ? 'rgba(255,255,255,0.4)' : '#A39B8E',
+    // Warm off-white instead of #FFF — pure white on near-black haloes on OLED,
+    // and this app gets opened at 6am and last thing at night.
+    text:          isDark ? '#F7F4EC' : '#14110D',
+    textSecondary: isDark ? '#9A9287' : '#5C544A',
+    textTertiary:  isDark ? '#6E675D' : '#A39B8E',
+    textMuted:     isDark ? 'rgba(247,244,236,0.42)' : '#A39B8E',
 
-    border:        isDark ? 'rgba(255,255,255,0.10)' : '#E8E0CE',
-    borderStrong:  isDark ? 'rgba(255,255,255,0.18)' : '#D4C9B0',
+    border:        isDark ? 'rgba(247,244,236,0.10)' : '#E8E0CE',
+    borderStrong:  isDark ? 'rgba(247,244,236,0.18)' : '#D4C9B0',
 
-    surface:       isDark ? 'rgba(255,255,255,0.05)' : '#EFE8D7',
-    surfaceStrong: isDark ? 'rgba(255,255,255,0.08)' : '#E8E0CE',
-    card:          isDark ? '#111111' : '#FFFFFF',
-    cardElevated:  isDark ? '#141414' : '#FFFBEC',
+    surface:       isDark ? 'rgba(247,244,236,0.05)' : '#EFE8D7',
+    surfaceStrong: isDark ? 'rgba(247,244,236,0.08)' : '#E8E0CE',
+    card:          isDark ? '#17140F' : '#FFFFFF',
+    cardElevated:  isDark ? '#1F1A14' : '#FFFBEC',
 
-    overlay:       isDark ? 'rgba(255,255,255,0.06)' : '#EFE8D7',
-    overlayMid:    isDark ? 'rgba(255,255,255,0.15)' : 'rgba(20,17,13,0.10)',
-    overlayStrong: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(20,17,13,0.20)',
+    overlay:       isDark ? 'rgba(247,244,236,0.06)' : '#EFE8D7',
+    overlayMid:    isDark ? 'rgba(247,244,236,0.15)' : 'rgba(20,17,13,0.10)',
+    overlayStrong: isDark ? 'rgba(247,244,236,0.25)' : 'rgba(20,17,13,0.20)',
 
-    inverse:       isDark ? '#FFFFFF' : '#14110D',
-    inverseText:   isDark ? '#000000' : '#FFFFFF',
+    inverse:       isDark ? '#F7F4EC' : '#14110D',
+    inverseText:   isDark ? '#14110D' : '#FFFFFF',
 
     success: isDark ? '#34C759' : '#22A664',
     warning: isDark ? '#F59E0B' : '#F0A12E',
@@ -89,9 +103,19 @@ function buildTheme(mode: ThemeMode): AppTheme {
 
     accent:      '#B8F23A',  // lime — same across modes (it's the brand spark)
     accentText:  '#14110D',  // ink reads on lime in both modes
+    accentSoft:  isDark ? 'rgba(184,242,58,0.16)' : 'rgba(184,242,58,0.30)',
 
-    tabActiveBg:   isDark ? '#FFFFFF' : '#14110D',
-    tabActiveText: isDark ? '#000000' : '#FFFFFF',
+    // Streaks get their own colour. Borrowing warning-amber or danger-red for a
+    // streak paints the app's best moment in its alarm palette.
+    heat:      isDark ? '#FF6B2C' : '#E05416',
+    heatText:  '#FFFFFF',
+    heatSoft:  isDark ? 'rgba(255,107,44,0.16)' : 'rgba(224,84,22,0.12)',
+
+    cool:      isDark ? '#4CC9F0' : '#0E7490',
+    coolSoft:  isDark ? 'rgba(76,201,240,0.16)' : 'rgba(14,116,144,0.12)',
+
+    tabActiveBg:   isDark ? '#F7F4EC' : '#14110D',
+    tabActiveText: isDark ? '#14110D' : '#FFFFFF',
 
     backdrop: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(20,17,13,0.4)',
   };
