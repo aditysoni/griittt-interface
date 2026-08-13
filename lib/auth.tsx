@@ -5,6 +5,12 @@ import { storage } from './storage';
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
+/** Deep link the OAuth success page bounces to so the Custom Tab auto-dismisses.
+ *  Must stay in sync with MOBILE_APP_RETURN_URL on the server, and with the
+ *  `scheme` in app.json. Only resolves in a real build — under Expo Go the
+ *  scheme differs, so the tab won't auto-close there. */
+const APP_RETURN_URL = 'grittt://auth-done';
+
 type AuthContextType = {
   user: User | null;
   token: string | null;
@@ -82,9 +88,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Open the browser but DON'T await it — the backend completes OAuth in the
     // browser while we poll for the token here. The promise resolves when the
-    // user (or our dismissBrowser) closes the tab.
+    // tab closes.
+    //
+    // openAuthSessionAsync, NOT openBrowserAsync: it watches for a navigation to
+    // APP_RETURN_URL and dismisses the Custom Tab itself. That is the only way to
+    // close it on Android — dismissBrowser() is a no-op there, which is why the
+    // old flow stranded users on the "you can close this window" page.
     let browserClosed = false;
-    WebBrowser.openBrowserAsync(authApi.googleMobileUrl(session), { enableBarCollapsing: true })
+    WebBrowser.openAuthSessionAsync(authApi.googleMobileUrl(session), APP_RETURN_URL)
       .then(() => { browserClosed = true; })
       .catch(() => { browserClosed = true; });
 
