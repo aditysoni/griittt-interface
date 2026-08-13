@@ -216,8 +216,12 @@ export const auth = {
   // whole OAuth handshake with its OWN credentials (GOOGLE_CLIENT_ID/SECRET from
   // its .env), stores the resulting JWT keyed by `session`, then the app polls
   // `googlePoll(session)` to retrieve it. No Google client config lives in the app.
+  // `ret=1` tells the backend this build opens the flow with openAuthSessionAsync
+  // and can therefore intercept the deep link home, so its callback page should
+  // redirect instead of asking the user to close the tab. Older builds omit it
+  // and keep the old page — don't drop it without checking those are gone.
   googleMobileUrl: (session: string) =>
-    `${BASE_URL}/auth/google/mobile?session=${encodeURIComponent(session)}`,
+    `${BASE_URL}/auth/google/mobile?session=${encodeURIComponent(session)}&ret=1`,
 
   googlePoll: (session: string) =>
     request<{ ready: boolean; token?: string; error?: string }>(
