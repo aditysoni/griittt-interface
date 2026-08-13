@@ -322,8 +322,11 @@ export default function StrengthScreen() {
                         isActive && { borderWidth: 2.5, borderColor: theme.text, transform: [{ scale: 1.12 }] },
                       ]}
                     >
+                      {/* Ink, not white: every band here is a mid-tone, so white sits
+                          around 2.3:1 on the amber and green while ink clears 4:1 on
+                          all five. */}
                       {isActive && (
-                        <Text style={[s.heroBarNum, { color: filled ? '#FFFFFF' : theme.text, fontFamily: 'Inter_900Black' }]}>{n}</Text>
+                        <Text style={[s.heroBarNum, { color: filled ? theme.accentText : theme.text, fontFamily: 'Inter_900Black' }]}>{n}</Text>
                       )}
                     </TouchableOpacity>
                   );
@@ -334,18 +337,20 @@ export default function StrengthScreen() {
                 <Text style={[s.heroBarTick, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>10 · ELITE</Text>
               </View>
 
-              {/* LOG RATING button */}
+              {/* LOG RATING button — primary action, so it takes the accent. It used
+                  to fill with theme.text and label itself #FFFFFF, which is white on
+                  cream in dark mode, with a cream arrow on a hardcoded lime disc. */}
               <TouchableOpacity
-                style={[s.heroLogBtn, { backgroundColor: theme.text, opacity: submitting ? 0.4 : 1 }]}
+                style={[s.heroLogBtn, { backgroundColor: theme.accent, opacity: submitting ? 0.4 : 1 }]}
                 onPress={submitQuick}
                 disabled={submitting}
                 activeOpacity={0.8}
               >
-                <Text style={[s.heroLogBtnText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>
+                <Text style={[s.heroLogBtnText, { color: theme.accentText, fontFamily: 'Inter_900Black' }]}>
                   {submitting ? 'LOGGING...' : 'LOG RATING'}
                 </Text>
-                <View style={s.heroLogArrow}>
-                  <Ionicons name="arrow-forward" size={12} color={theme.text} />
+                <View style={[s.heroLogArrow, { backgroundColor: theme.accentText }]}>
+                  <Ionicons name="arrow-forward" size={12} color={theme.accent} />
                 </View>
               </TouchableOpacity>
             </View>
@@ -823,7 +828,7 @@ const s = StyleSheet.create({
   heroBarTick:     { fontSize: 9, letterSpacing: 1 },
   heroLogBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14 },
   heroLogBtnText:  { fontSize: 12, letterSpacing: 3 },
-  heroLogArrow:    { width: 22, height: 22, borderRadius: 11, backgroundColor: '#B8F23A', alignItems: 'center', justifyContent: 'center' },
+  heroLogArrow:    { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
 
   // Training type chooser
   sectionHint:    { fontSize: 9, letterSpacing: 3, paddingHorizontal: 24, paddingTop: 16, paddingBottom: 10 },
