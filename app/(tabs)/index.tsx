@@ -370,8 +370,12 @@ export default function HabitsScreen() {
             LOCK IN
           </Text>
         </View>
+        {/* Lime glyph on a dark card, matching the settings button beside it. This
+            was a theme.inverse disc, which in dark mode is lime on cream — about
+            1.3:1, so the icon all but vanished. Lime reads cleanly on the card, and
+            two matching buttons look deliberate where a cream slab did not. */}
         <TouchableOpacity
-          style={[s.sparkleBtn, { backgroundColor: theme.inverse }]}
+          style={[s.sparkleBtn, { backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }]}
           onPress={() => router.push('/(tabs)/ai')}
           activeOpacity={0.85}
         >
@@ -443,8 +447,15 @@ export default function HabitsScreen() {
         >
           {tabContainerW > 0 && (
             <Animated.View
+              // cardElevated, not card: the pill sits on top of a `surface` wash,
+              // and `card` is darker than that wash on the carbon ground — the
+              // active segment read as a hole punched in the track rather than a
+              // raised pill. The border carries the edge on dark, where the pill's
+              // drop shadow is invisible.
               style={[s.segmentedPill, {
-                backgroundColor: theme.card,
+                backgroundColor: theme.cardElevated,
+                borderWidth: 1,
+                borderColor: theme.border,
                 width: (tabContainerW - 8) / 2,
                 transform: [{
                   translateX: tabAnim.interpolate({
@@ -524,13 +535,16 @@ export default function HabitsScreen() {
         />
       )}
 
-      {/* Floating + button — ink circle with white plus */}
+      {/* Floating + button — lime disc with ink plus. It used to be theme.text with
+          a hardcoded #FFFFFF glyph, which in dark mode is a white plus on a cream
+          disc. Lime is also the right call on its own terms: this is the screen's
+          primary action, and accent is the token for exactly that. */}
       <TouchableOpacity
-        style={[s.fab, { backgroundColor: theme.text }]}
+        style={[s.fab, { backgroundColor: theme.accent }]}
         onPress={() => setShowAdd(true)}
         activeOpacity={0.85}
       >
-        <Ionicons name="add" size={28} color="#FFFFFF" />
+        <Ionicons name="add" size={28} color={theme.accentText} />
       </TouchableOpacity>
 
       {/* Add Habit Modal */}

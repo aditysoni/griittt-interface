@@ -88,7 +88,10 @@ function buildTheme(mode: ThemeMode): AppTheme {
     surface:       isDark ? 'rgba(247,244,236,0.05)' : '#EFE8D7',
     surfaceStrong: isDark ? 'rgba(247,244,236,0.08)' : '#E8E0CE',
     card:          isDark ? '#17140F' : '#FFFFFF',
-    cardElevated:  isDark ? '#1F1A14' : '#FFFBEC',
+    // Elevated must clear the `surface` wash, which composites to ~#1A1814 over
+    // the carbon ground — anything closer and raised elements (segmented pills,
+    // bottom sheets) read as holes instead of surfaces.
+    cardElevated:  isDark ? '#252017' : '#FFFBEC',
 
     overlay:       isDark ? 'rgba(247,244,236,0.06)' : '#EFE8D7',
     overlayMid:    isDark ? 'rgba(247,244,236,0.15)' : 'rgba(20,17,13,0.10)',

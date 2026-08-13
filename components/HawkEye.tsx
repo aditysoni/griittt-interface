@@ -320,9 +320,12 @@ function CountdownSetup({ onSet, theme }: { onSet: (start: string, end: string) 
           placeholder="e.g. 2026-08-01" placeholderTextColor={theme.textTertiary} autoCorrect={false}
         />
       </View>
-      <TouchableOpacity style={su.btn} onPress={handleSet}>
-        <Ionicons name="flag" size={16} color="#FFF" />
-        <Text style={su.btnText}>Start Countdown</Text>
+      {/* Was a hardcoded #14110D fill with #FFF content — ink on the carbon ground
+          is close enough in value that the button shape vanished in dark mode.
+          inverse/inverseText keeps the light-mode look and flips properly. */}
+      <TouchableOpacity style={[su.btn, { backgroundColor: theme.inverse }]} onPress={handleSet}>
+        <Ionicons name="flag" size={16} color={theme.inverseText} />
+        <Text style={[su.btnText, { color: theme.inverseText }]}>Start Countdown</Text>
       </TouchableOpacity>
     </View>
   );

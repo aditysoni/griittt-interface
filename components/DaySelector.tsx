@@ -57,31 +57,36 @@ export function DaySelector({ selectedDate, onSelect }: Props) {
         const isToday  = d.full === today;
         const isFuture = d.full > today;
 
+        // Cells must come from the theme, not a literal. This was a hardcoded
+        // #FFFFFF in both modes while the number used theme.text — near-white on
+        // white in dark mode, so every date except the selected one was invisible.
+        // Only `active` looked right, because inverse/inverseText are the one pair
+        // here that actually flips per mode.
         return (
           <TouchableOpacity
             key={d.full}
             style={[
               s.cell,
-              { backgroundColor: '#FFFFFF' },
-              active && { backgroundColor: theme.inverse },
-              isFuture && !active && { backgroundColor: '#FFFFFF', opacity: 0.4 },
+              { backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border },
+              active && { backgroundColor: theme.inverse, borderColor: theme.inverse },
+              isFuture && !active && { opacity: 0.45 },
             ]}
             onPress={() => onSelect(d.full)}
             activeOpacity={0.7}
           >
             <Text style={[s.letter, {
-              color: active ? theme.inverseText : isFuture ? theme.textMuted : theme.textSecondary,
+              color: active ? theme.inverseText : theme.textTertiary,
             }]}>
               {d.letter}
             </Text>
             <Text style={[s.num, {
-              color: active ? theme.inverseText : isFuture ? theme.textMuted : theme.text,
+              color: active ? theme.inverseText : theme.text,
               fontFamily: active ? 'Inter_900Black' : 'Inter_500Medium',
             }]}>
               {d.date}
             </Text>
             {isToday && !active && (
-              <View style={[s.dot, { backgroundColor: theme.success }]} />
+              <View style={[s.dot, { backgroundColor: theme.accent }]} />
             )}
           </TouchableOpacity>
         );
