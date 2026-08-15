@@ -665,12 +665,27 @@ export type Challenge = {
   durationDays: number;
   isPreset: boolean;
   joined: boolean;
-  status: 'active' | 'completed' | 'abandoned' | null;
+  /** `failed` means the miss allowance ran out — distinct from `abandoned`,
+   *  which is the user walking away on purpose. */
+  status: 'active' | 'completed' | 'abandoned' | 'failed' | null;
   startedAt: string | null;
   targetDate: string | null;
+  /** Days actually verified, NOT days elapsed since joining. */
   daysDone: number;
   completedAt: string | null;
   participantCount: number;
+
+  /** How a day is proven: a habit tick, a logged workout, or a food log. */
+  verifySource: 'habit' | 'workout' | 'fuel';
+  verifyMinMinutes: number | null;
+  daysElapsed: number;
+  daysMissed: number;
+  /** Misses tolerated before the run fails, including repairs bought. */
+  missAllowance: number;
+  repairsUsed: number;
+  repairsLeft: number;
+  /** Yesterday was missed but the run is still alive — the moment to intervene. */
+  atRisk: boolean;
 };
 
 export type DurationStats = {
@@ -710,6 +725,12 @@ export const challenges = {
 
   abandon: (token: string, id: string) =>
     request<null>(`/challenges/${id}/join`, { method: 'DELETE' }, token),
+
+  /** Buy back one missed day, reviving a failed run. Capped server-side. */
+  repair: (token: string, id: string) =>
+    request<{ ok: boolean; repairsUsed: number; repairsLeft: number }>(
+      `/challenges/${id}/repair`, { method: 'POST' }, token
+    ),
 
   durationStats: (token: string, id: string) =>
     request<DurationStats>(`/challenges/${id}/duration-stats`, {}, token),

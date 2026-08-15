@@ -215,6 +215,37 @@ export default function ChallengesScreen() {
     ]);
   }
 
+  /** Spend a repair to buy back a missed day. Confirmed rather than instant —
+   *  they're capped, so burning one by mis-tap would be a real loss. */
+  async function handleRepair(c: Challenge) {
+    if (!token) return;
+    Alert.alert(
+      'REPAIR THIS RUN',
+      `Buy back a missed day on "${c.title.toUpperCase()}"?\n\n` +
+      `${c.repairsLeft} repair${c.repairsLeft === 1 ? '' : 's'} left. You don't get more.`,
+      [
+        { text: 'Not yet', style: 'cancel' },
+        {
+          text: 'Repair', onPress: async () => {
+            try {
+              const r = await challenges.repair(token, c.id);
+              setList(l => l.map(x => x.id === c.id ? {
+                ...x,
+                status: 'active',
+                repairsUsed: r.repairsUsed,
+                repairsLeft: r.repairsLeft,
+                missAllowance: x.missAllowance + 1,
+                atRisk: false,
+              } : x));
+            } catch (err: any) {
+              Alert.alert('Could not repair', err?.message ?? 'Try again in a moment.');
+            }
+          },
+        },
+      ]
+    );
+  }
+
   async function handleCreate() {
     if (!token) return;
     if (!formTitle.trim()) {
@@ -305,6 +336,7 @@ export default function ChallengesScreen() {
                   width={ACTIVE_CARD_W}
                   onPress={() => setDetail(c)}
                   onAbandon={() => handleAbandon(c)}
+                  onRepair={() => handleRepair(c)}
                 />
               ))}
             </ScrollView>
@@ -588,9 +620,9 @@ function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge;
   );
 }
 
-function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon }: {
+function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon, onRepair }: {
   challenge: Challenge; theme: any; token: string | null;
-  width?: number; onPress?: () => void; onAbandon: () => void;
+  width?: number; onPress?: () => void; onAbandon: () => void; onRepair: () => void;
 }) {
   const t          = themeForDomain(c.domain);
   const pct        = Math.min(c.daysDone / c.durationDays, 1);
@@ -683,6 +715,48 @@ function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon }: {
         </View>
       </View>
 
+      {/* Misses. A run can survive `missAllowance` of them; past that it fails.
+          Showing the budget explicitly is the point — a silent counter that only
+          goes up gives no reason to act before it's too late. */}
+      {(c.daysMissed > 0 || c.status === 'failed') && (
+        <View style={[ac.missRow, {
+          backgroundColor: c.status === 'failed' ? theme.danger + '1F' : theme.heatSoft,
+          borderColor: c.status === 'failed' ? theme.danger : theme.heat,
+        }]}>
+          <Text style={[ac.missText, {
+            color: c.status === 'failed' ? theme.danger : theme.heat,
+            fontFamily: 'Inter_700Bold',
+          }]}>
+            {c.status === 'failed'
+              ? `BROKEN · ${c.daysMissed} MISSED`
+              : c.atRisk
+                ? `MISSED YESTERDAY · ${c.daysMissed}/${c.missAllowance} USED`
+                : `${c.daysMissed}/${c.missAllowance} MISSES USED`}
+          </Text>
+          {(c.status === 'failed' || c.atRisk) && c.repairsLeft > 0 && (
+            <TouchableOpacity
+              onPress={onRepair}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={[ac.repairBtn, { backgroundColor: theme.accent }]}
+            >
+              <Text style={[ac.repairText, { color: theme.accentText, fontFamily: 'Inter_900Black' }]}>
+                REPAIR · {c.repairsLeft}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* What actually proves a day. A tick is self-reported; a workout log is a
+          second deliberate act, so it's worth saying which one is in force. */}
+      {c.verifySource !== 'habit' && (
+        <Text style={[ac.verifyLine, { color: theme.textTertiary, fontFamily: 'Inter_500Medium' }]}>
+          {c.verifySource === 'workout'
+            ? `Counts when you log a workout${c.verifyMinMinutes ? ` of ${c.verifyMinMinutes}+ min` : ''}`
+            : 'Counts when you log your food'}
+        </Text>
+      )}
+
       {/* Percentile — real server data only. When the server can't rank you yet
           (no/too-few other participants) we show an honest line instead of a
           made-up number. */}
@@ -719,6 +793,15 @@ const ac = StyleSheet.create({
   dotsGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 3 },
   dot:           { width: 8, height: 6, borderRadius: 2 },
   percentileLine:{ fontSize: 11, lineHeight: 16 },
+  missRow:      {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    gap: 8, marginTop: 10, paddingVertical: 7, paddingHorizontal: 10,
+    borderRadius: 10, borderWidth: 1,
+  },
+  missText:     { fontSize: 9.5, letterSpacing: 1.1, flexShrink: 1 },
+  repairBtn:    { paddingVertical: 4, paddingHorizontal: 9, borderRadius: 999 },
+  repairText:   { fontSize: 9, letterSpacing: 0.8 },
+  verifyLine:   { fontSize: 10.5, lineHeight: 15, marginTop: 8 },
 });
 
 const cc = StyleSheet.create({
