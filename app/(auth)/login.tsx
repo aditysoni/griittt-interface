@@ -3,6 +3,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,23 +14,37 @@ import {
   View,
 } from 'react-native';
 import { Link } from 'expo-router';
-import Svg, { Rect } from 'react-native-svg';
 import { useAuth } from '../../lib/auth';
 import { useTheme, AppTheme } from '../../components/ThemeContext';
 import { DarkBackground } from '../../components/DarkBackground';
 import { GoogleSignInButton } from '../../components/GoogleSignInButton';
 
-/** Brand mark — three ascending bars (momentum / streak) in a rounded tile. */
-function Logomark({ accent, tile, ring }: { accent: string; tile: string; ring: string }) {
+/** The real brand mark, from the landing-page lockup. The tile keeps the logo's
+ *  own cream in both themes — green-on-cream is the mark, and it's what the app
+ *  icon and the landing page show. */
+const LOGO_CREAM = '#F6EFE4';
+
+function Logomark() {
   return (
-    <Svg width={78} height={78} viewBox="0 0 78 78">
-      <Rect x={1.5} y={1.5} width={75} height={75} rx={22} fill={tile} stroke={ring} strokeWidth={1.5} />
-      <Rect x={19} y={44} width={10} height={16} rx={5} fill={accent} opacity={0.5} />
-      <Rect x={34} y={33} width={10} height={27} rx={5} fill={accent} opacity={0.78} />
-      <Rect x={49} y={20} width={10} height={40} rx={5} fill={accent} />
-    </Svg>
+    <View style={logoStyles.tile}>
+      <Image
+        source={require('../../assets/logo-g.png')}
+        resizeMode="contain"
+        style={logoStyles.glyph}
+      />
+    </View>
   );
 }
+
+const logoStyles = StyleSheet.create({
+  tile: {
+    width: 78, height: 78, borderRadius: 22,
+    backgroundColor: LOGO_CREAM,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  glyph: { width: 48, height: 48 },
+});
 
 export default function LoginScreen() {
   const { theme } = useTheme();
@@ -153,11 +168,7 @@ export default function LoginScreen() {
                   ],
                 }}
               >
-                <Logomark
-                  accent={theme.accent}
-                  tile={theme.isDark ? '#0D0D0D' : '#FFFFFF'}
-                  ring={theme.isDark ? 'rgba(184,242,58,0.28)' : theme.borderStrong}
-                />
+                <Logomark />
               </Animated.View>
             </View>
 

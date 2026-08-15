@@ -1,31 +1,27 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Image, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme, AppTheme } from './ThemeContext';
 
 /**
- * Cold-start launch sequence.
+ * Cold-start launch sequence, built on the real brand mark from the landing
+ * page (assets/logo-g.png — the G extracted from the lockup onto transparency
+ * so it can sit in a tile we control).
  *
- * The brand mark is three ascending bars, which already means momentum — so the
- * animation is just the mark drawing itself: bars rise in order, the tallest
- * lands with a haptic tick, then the wordmark arrives. No stock illustration, no
- * Lottie file, nothing borrowed. It's the logo, moving.
+ * The tile keeps the logo's own cream rather than a theme surface: green-on-cream
+ * IS the mark, it's what the app icon and the landing page show, and a launch
+ * screen's whole job is to be instantly recognisable as the thing you tapped.
  *
  * Built on React Native's Animated rather than Reanimated: Reanimated is in
  * package.json but has no babel plugin configured and is imported nowhere, so
- * touching it would crash. Everything here runs on the native driver, which
- * matters most at boot — that's exactly when the JS thread is busy hydrating
- * auth, and a JS-driven animation would stutter.
+ * touching it would crash. Everything runs on the native driver, which matters
+ * most at boot — that's exactly when the JS thread is busy hydrating auth.
  */
 
-const BAR_W = 13;
-const BAR_GAP = 8;
-const BARS = [
-  { h: 22, delay: 0 },
-  { h: 38, delay: 130 },
-  { h: 56, delay: 260 },
-];
-const TILE = 104;
+/** Sampled from the source logo — part of the mark, not the UI palette. */
+const LOGO_CREAM = '#F6EFE4';
+const LOGO_GREEN = '#46B151';
+const TILE = 116;
 
 type Props = {
   /** Fired once the sequence has played through. The caller decides when to
@@ -38,8 +34,8 @@ export function BootAnimation({ onDone }: Props) {
   const s = React.useMemo(() => makeStyles(theme), [theme]);
   const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
 
-  const bars    = useRef(BARS.map(() => new Animated.Value(0))).current;
   const tile    = useRef(new Animated.Value(0)).current;
+  const glyph   = useRef(new Animated.Value(0)).current;
   const glow    = useRef(new Animated.Value(0)).current;
   const word    = useRef(new Animated.Value(0)).current;
   const kicker  = useRef(new Animated.Value(0)).current;
@@ -57,54 +53,42 @@ export function BootAnimation({ onDone }: Props) {
     // Reduce Motion: show the finished mark, hold briefly so it doesn't flash,
     // and hand off. Same destination, no travel.
     if (reduceMotion) {
-      [tile, word, kicker, settled, ...bars].forEach(v => v.setValue(1));
-      glow.setValue(0.5);
+      [tile, glyph, word, kicker].forEach(v => v.setValue(1));
+      glow.setValue(1);
       const t = setTimeout(onDone, 420);
       return () => clearTimeout(t);
     }
 
-    const barAnims = BARS.map((b, i) =>
-      Animated.sequence([
-        Animated.delay(b.delay),
-        Animated.spring(bars[i], {
-          toValue: 1,
-          useNativeDriver: true,
-          damping: 13,
-          stiffness: 190,
-          mass: 0.9,
-        }),
-      ])
-    );
-
     Animated.sequence([
       Animated.parallel([
         Animated.timing(tile, {
-          toValue: 1, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+          toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true,
         }),
         Animated.timing(glow, {
-          toValue: 1, duration: 620, easing: Easing.out(Easing.quad), useNativeDriver: true,
+          toValue: 1, duration: 700, easing: Easing.out(Easing.quad), useNativeDriver: true,
         }),
       ]),
-      Animated.parallel(barAnims),
+      // The G arrives with a little overshoot — the mark lands rather than
+      // fades. This is the moment the launch is actually about.
       Animated.parallel([
-        // The mark takes one small breath once the last bar lands — the beat
-        // that makes it read as arriving rather than merely appearing.
+        Animated.spring(glyph, {
+          toValue: 1, useNativeDriver: true, damping: 11, stiffness: 200, mass: 0.85,
+        }),
         Animated.sequence([
           Animated.timing(settled, {
-            toValue: 1, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: true,
+            toValue: 1, duration: 140, easing: Easing.out(Easing.quad), useNativeDriver: true,
           }),
           Animated.spring(settled, {
             toValue: 0, useNativeDriver: true, damping: 9, stiffness: 150,
           }),
         ]),
+      ]),
+      Animated.parallel([
+        Animated.timing(word, {
+          toValue: 1, duration: 460, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+        }),
         Animated.sequence([
-          Animated.delay(90),
-          Animated.timing(word, {
-            toValue: 1, duration: 460, easing: Easing.out(Easing.cubic), useNativeDriver: true,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.delay(260),
+          Animated.delay(170),
           Animated.timing(kicker, {
             toValue: 1, duration: 420, easing: Easing.out(Easing.quad), useNativeDriver: true,
           }),
@@ -112,11 +96,11 @@ export function BootAnimation({ onDone }: Props) {
       ]),
     ]).start(({ finished }) => { if (finished) onDone(); });
 
-    // Fires with the tallest bar. The physical tick is half of why Duolingo and
-    // Strava feel expensive — the visual alone doesn't land it.
+    // Fires as the G lands. The physical tick is half of why Duolingo and Strava
+    // feel expensive — the visual alone doesn't carry it.
     const tick = setTimeout(() => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    }, 260 + 90);
+    }, 360);
 
     return () => clearTimeout(tick);
   }, [reduceMotion]);
@@ -129,7 +113,7 @@ export function BootAnimation({ onDone }: Props) {
         <Animated.View
           pointerEvents="none"
           style={[s.glow, {
-            opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0, 0.22] }),
+            opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0, 0.20] }),
             transform: [{ scale: glow.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }],
           }]}
         />
@@ -139,36 +123,20 @@ export function BootAnimation({ onDone }: Props) {
             opacity: tile,
             transform: [
               { scale: Animated.add(
-                  tile.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1] }),
-                  settled.interpolate({ inputRange: [0, 1], outputRange: [0, 0.045] })
+                  tile.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] }),
+                  settled.interpolate({ inputRange: [0, 1], outputRange: [0, 0.05] })
                 ) },
             ],
           }]}
         >
-          <View style={s.barRow}>
-            {BARS.map((b, i) => (
-              // Each bar is clipped by its column and slides up into view. Growing
-              // via scaleY would need transform-origin compensation; translating
-              // inside an overflow-hidden column is the same result with no maths
-              // to get wrong.
-              <View key={i} style={[s.barClip, { height: b.h }]}>
-                <Animated.View
-                  style={[
-                    s.bar,
-                    {
-                      height: b.h,
-                      opacity: i === 2 ? 1 : 0.45 + i * 0.22,
-                      transform: [{
-                        translateY: bars[i].interpolate({
-                          inputRange: [0, 1], outputRange: [b.h, 0],
-                        }),
-                      }],
-                    },
-                  ]}
-                />
-              </View>
-            ))}
-          </View>
+          <Animated.Image
+            source={require('../assets/logo-g.png')}
+            resizeMode="contain"
+            style={[s.glyph, {
+              opacity: glyph.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 1, 1] }),
+              transform: [{ scale: glyph.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] }) }],
+            }]}
+          />
         </Animated.View>
 
         <Animated.View
@@ -195,26 +163,23 @@ function makeStyles(t: AppTheme) {
 
     glow: {
       position: 'absolute',
-      top: -46,
-      width: 240,
-      height: 240,
-      borderRadius: 120,
-      backgroundColor: t.accent,
+      top: -52,
+      width: 250,
+      height: 250,
+      borderRadius: 125,
+      backgroundColor: LOGO_GREEN,
     },
 
     tile: {
       width: TILE,
       height: TILE,
-      borderRadius: 30,
-      backgroundColor: t.isDark ? t.card : '#FFFFFF',
-      borderWidth: 1.5,
-      borderColor: t.isDark ? 'rgba(184,242,58,0.28)' : t.borderStrong,
+      borderRadius: 32,
+      backgroundColor: LOGO_CREAM,
       alignItems: 'center',
       justifyContent: 'center',
+      overflow: 'hidden',
     },
-    barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: BAR_GAP, height: 56 },
-    barClip: { width: BAR_W, overflow: 'hidden', justifyContent: 'flex-end' },
-    bar: { width: BAR_W, borderRadius: BAR_W / 2, backgroundColor: t.accent },
+    glyph: { width: TILE * 0.62, height: TILE * 0.62 },
 
     word: {
       fontFamily: 'BricolageGrotesque_800ExtraBold',

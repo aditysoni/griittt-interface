@@ -23,7 +23,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0E0C09"
+        "backgroundColor": "#F6EFE4"
       },
       "package": "com.grittt.app",
       "permissions": [],
