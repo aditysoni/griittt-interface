@@ -270,6 +270,15 @@ export default function ChallengesScreen() {
   }
 
   const active    = list.filter(c => c.status === 'active');
+  // Broken runs stay on the rail rather than disappearing: the card is where the
+  // REPAIR button lives, so hiding them would make the repair unreachable.
+  const broken    = list.filter(c => c.status === 'failed');
+  const running   = [...active, ...broken];
+  const completed = list
+    .filter(c => c.status === 'completed')
+    .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));
+  // A finished challenge is no longer on offer — it belongs in the record below,
+  // not back in Explore as though it were never done.
   const available = list.filter(c => !c.joined || c.status === 'abandoned');
 
   if (loading) return <LoadingScreen />;
@@ -309,7 +318,7 @@ export default function ChallengesScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
       >
         {/* Active */}
-        {active.length > 0 && (
+        {running.length > 0 && (
           <View style={tr.section}>
             <View style={tr.header}>
               <View style={tr.headerLeft}>
@@ -317,6 +326,11 @@ export default function ChallengesScreen() {
                 <Text style={[tr.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
                   ACTIVE · {active.length}
                 </Text>
+                {broken.length > 0 && (
+                  <Text style={[tr.label, { color: theme.danger, fontFamily: 'Inter_900Black' }]}>
+                    · {broken.length} BROKEN
+                  </Text>
+                )}
               </View>
               <Text style={[tr.hint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>SWIPE →</Text>
             </View>
@@ -327,7 +341,7 @@ export default function ChallengesScreen() {
               decelerationRate="fast"
               snapToInterval={ACTIVE_CARD_W + 12}
             >
-              {active.map(c => (
+              {running.map(c => (
                 <ActiveCard
                   key={c.id}
                   challenge={c}
@@ -340,6 +354,58 @@ export default function ChallengesScreen() {
                 />
               ))}
             </ScrollView>
+          </View>
+        )}
+
+        {/* Completed — the record. Finished runs leave the Active rail, but they
+            shouldn't vanish: the count of things you saw through is the whole
+            point of a discipline app. */}
+        {completed.length > 0 && (
+          <View style={tr.section}>
+            <View style={tr.header}>
+              <View style={tr.headerLeft}>
+                <View style={[tr.accentDot, { backgroundColor: theme.accent }]} />
+                <Text style={[tr.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
+                  COMPLETED · {completed.length}
+                </Text>
+              </View>
+              <Text style={[tr.hint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                {completed.reduce((n, c) => n + c.durationDays, 0)} DAYS BANKED
+              </Text>
+            </View>
+
+            <View style={done.list}>
+              {completed.map(c => {
+                const t = themeForDomain(c.domain);
+                return (
+                  <View
+                    key={c.id}
+                    style={[done.row, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  >
+                    <View style={[done.check, { backgroundColor: theme.accent }]}>
+                      <Ionicons name="checkmark" size={13} color={theme.accentText} />
+                    </View>
+                    <View style={done.body}>
+                      <Text
+                        numberOfLines={1}
+                        style={[done.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}
+                      >
+                        {c.title.toUpperCase()}
+                      </Text>
+                      <Text style={[done.meta, { color: theme.textTertiary, fontFamily: 'Inter_500Medium' }]}>
+                        {t.label} · {c.durationDays} DAYS
+                        {c.completedAt
+                          ? ` · ${new Date(c.completedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+                          : ''}
+                      </Text>
+                    </View>
+                    <Text style={[done.streak, { color: t.dot, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                      {c.durationDays}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
           </View>
         )}
 
@@ -773,6 +839,21 @@ function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon, onR
     </TouchableOpacity>
   );
 }
+
+// Completed record — deliberately quieter and denser than the active cards.
+// These are a ledger to scan, not something to act on.
+const done = StyleSheet.create({
+  list:   { gap: 8, paddingHorizontal: 16 },
+  row:    {
+    flexDirection: 'row', alignItems: 'center', gap: 11,
+    borderWidth: 1, borderRadius: 14, paddingVertical: 11, paddingHorizontal: 12,
+  },
+  check:  { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  body:   { flex: 1, gap: 3, minWidth: 0 },
+  title:  { fontSize: 12.5, letterSpacing: 0.3 },
+  meta:   { fontSize: 10, letterSpacing: 0.4 },
+  streak: { fontSize: 19, letterSpacing: -0.5 },
+});
 
 const ac = StyleSheet.create({
   card:          { borderWidth: 1.5, borderRadius: 18, padding: 16, gap: 12 },
