@@ -24,13 +24,14 @@ import {
 } from '@expo-google-fonts/bricolage-grotesque';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { ThemeProvider, useTheme } from '../components/ThemeContext';
-import { LoadingScreen } from '../components/LoadingScreen';
+import { BootAnimation } from '../components/BootAnimation';
 
 function InitialLayout() {
   const { user, isLoading } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
   const segments = useSegments();
+  const [introPlayed, setIntroPlayed] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -56,7 +57,13 @@ function InitialLayout() {
     if (inAuth) router.replace('/(tabs)');
   }, [user, isLoading, segments]);
 
-  if (isLoading) return <LoadingScreen />;
+  // Hold the launch sequence until it has played AND auth has hydrated. Gating on
+  // both means a cold start never flashes a spinner: if hydration is slower than
+  // the animation the mark simply stays up, and if it's faster the animation
+  // still gets to finish instead of being cut off mid-rise.
+  if (!introPlayed || isLoading) {
+    return <BootAnimation onDone={() => setIntroPlayed(true)} />;
+  }
   return (
     <>
       <StatusBar style={theme.isDark ? 'light' : 'dark'} />
