@@ -8,3 +8,5 @@ expo-env.d.ts
 node_modules
 
 .env 
+# Expo local build/dev cache — never committed
+.expo/
