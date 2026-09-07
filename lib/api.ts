@@ -2,6 +2,14 @@ const BASE_URL = `${process.env.EXPO_PUBLIC_API_BASE ?? 'http://192.168.1.6:3001
 
 export type MacroTargets = { calories: number; protein: number; fat: number; carbs: number };
 
+// Shared shape for every "AI analysis" surface (habits, fuel questions, foods) —
+// a trend badge plus a list of headed sections so the UI can render subheaders
+// consistently instead of one undifferentiated paragraph.
+export type AiAnalysis = {
+  trend: 'improving' | 'declining' | 'steady' | 'positive' | 'negative' | 'neutral' | 'insufficient_data';
+  sections: Array<{ heading: string; body: string }>;
+};
+
 export type User = {
   id: string;
   email: string;
@@ -21,6 +29,35 @@ export type User = {
   macroTargets?: MacroTargets | null;
   isPremium?: boolean;
   premiumUntil?: string | null;
+  dateOfBirth?: string | null;
+  desiredOutcomes?: string[];
+  painPoints?: string[];
+  blockers?: string[];
+  disappointmentStatement?: string | null;
+  positiveHabits?: string[];
+  negativeHabits?: string[];
+  sleepSchedule?: string | null;
+  activityLevel?: string | null;
+  futureMirror?: FutureMirrorResult | null;
+  stepGoal?: number;
+  calorieGoal?: number;
+};
+
+export type FutureMirrorSnapshot = { title: string; scene: string };
+
+export type FutureMirrorResult = {
+  identityObserved: string;
+  identityEmerging: string;
+  futureHeadline: string;
+  hiddenCost: string;
+  selfNegotiation: string;
+  confidenceLevel: string;
+  birthdayCheckpoint: string;
+  futureMirrorNegative: string;
+  futureMirrorPositive: string;
+  trajectoryDrivers: string[];
+  futureSnapshots: FutureMirrorSnapshot[];
+  trajectoryQuestion: string;
 };
 
 // ── The Mirror ──────────────────────────────────────────────────────────────
@@ -74,13 +111,38 @@ export type OnboardingPayload = {
   weightKg?: number;
   goals: string[];
   baselineSelfRating: number;
-  priorityMode: 'disc' | 'fuel' | 'phys';
+  /** No longer collected directly — derived server-side from futureMirror.recommendedFocus when omitted. */
+  priorityMode?: 'disc' | 'fuel' | 'phys';
   starterHabits: string[];
   /** Preset challenge titles the user wants to auto-join (e.g. ["Cold shower", "No sugar"]). */
   starterChallenges?: string[];
   dailyNudgeTime: 'morning' | 'midday' | 'evening' | 'before_bed';
   coachingTone: 'soft' | 'bal' | 'hard';
   notificationsEnabled: boolean;
+
+  dateOfBirth?: string;
+  desiredOutcomes?: string[];
+  painPoints?: string[];
+  blockers?: string[];
+  disappointmentStatement?: string;
+  positiveHabits?: string[];
+  negativeHabits?: string[];
+  sleepSchedule?: string;
+  activityLevel?: string;
+  futureMirror?: FutureMirrorResult;
+};
+
+// ── Future Mirror (unauthenticated — runs mid-onboarding, before signup) ────
+export const futureMirror = {
+  generate: (data: {
+    name?: string; age?: number; daysUntilBirthday?: number;
+    desiredOutcomes: string[]; painPoints: string[]; blockers: string[];
+    disappointmentStatement?: string;
+    positiveHabits: string[]; negativeHabits: string[];
+    heightCm?: number; weightKg?: number;
+    sleepSchedule?: string; activityLevel?: string;
+  }) =>
+    request<FutureMirrorResult>('/future-mirror', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 export type Task = {
@@ -200,6 +262,12 @@ async function request<T>(
   return data as T;
 }
 
+// Server build fingerprint — GET /api/version. Throws (404) against an old
+// server build that predates this route, which is itself a useful signal.
+export const server = {
+  version: () => request<{ version: string }>('/version', {}),
+};
+
 // Auth
 export const auth = {
   login: (email: string, password: string) =>
@@ -230,6 +298,20 @@ export const auth = {
       `/auth/google/mobile/poll/${encodeURIComponent(session)}`,
       {}
     ),
+
+  // ── Sign in with Apple (native) ──────────────────────────────────────────
+  // The app runs Apple's native sheet, gets a short-lived `identityToken` (a
+  // JWT signed by Apple), and posts it here. The backend must verify it against
+  // Apple's public keys (https://appleid.apple.com/auth/keys), confirm `aud`
+  // is our bundle id (com.grittt.app), then find-or-create the user keyed by
+  // the token's stable `sub` and issue our own JWT. `fullName`/`email` are only
+  // present on the user's FIRST authorization — the backend must persist them
+  // then, since Apple won't send them again on later sign-ins.
+  apple: (params: { identityToken: string; fullName?: string | null; email?: string | null }) =>
+    request<{ user: User; token: string }>('/auth/apple', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
 };
 
 // Users / profile
@@ -249,6 +331,8 @@ export const users = {
     coachingTone: 'soft' | 'bal' | 'hard' | null;
     notificationsEnabled: boolean | null;
     macroTargets: MacroTargets | null;
+    stepGoal: number;
+    calorieGoal: number;
   }>) =>
     request<User>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }, token),
 
@@ -260,6 +344,12 @@ export const users = {
 
   macroTargets: (token: string) =>
     request<MacroTargets>('/users/macro-targets', {}, token),
+
+  deleteData: (token: string) =>
+    request<{ ok: boolean }>('/users/me/data', { method: 'DELETE' }, token),
+
+  deleteAccount: (token: string) =>
+    request<{ ok: boolean }>('/users/me', { method: 'DELETE' }, token),
 };
 
 // ── Onboarding (Q&A schema) ──────────────────────────────────────────────────
@@ -405,7 +495,11 @@ export const habits = {
       percentile: number | null;
       totalUsersWithHabit: number;
       doneDates: string[];
+      completions: Array<{ date: string; failed: boolean; count: number | null }>;
     }>(`/habits/${encodeURIComponent(name)}/stats`, {}, token),
+
+  aiAnalysis: (token: string, name: string) =>
+    request<AiAnalysis>(`/habits/${encodeURIComponent(name)}/ai/analysis`, { method: 'POST' }, token),
 
   history: (token: string, name: string, from: string, to: string) =>
     request<{ name: string; dates: string[] }>(
@@ -580,6 +674,7 @@ export type FoodItem = {
   protein: number | null;
   fat: number | null;
   carbs: number | null;
+  fibre: number | null;
   createdAt: string;
 };
 
@@ -596,6 +691,7 @@ export type FuelQuestion = {
   isPreset: boolean;
   isCustom: boolean;
   selected: boolean;
+  streak?: number;
 };
 
 export type FuelQuestionAnswer = {
@@ -648,6 +744,28 @@ export const fuelQuestions = {
     request<{ date: string; checklistScore: number | null; answeredCount: number }>(
       `/fuel/questions/score?date=${date}`, {}, token,
     ),
+
+  scoreRange: (token: string, from: string, to: string) =>
+    request<{ from: string; to: string; days: Array<{ date: string; checklistScore: number | null; answeredCount: number }> }>(
+      `/fuel/questions/score?from=${from}&to=${to}`, {}, token,
+    ),
+
+  suggestWeight: (token: string, data: { prompt: string; options: string[] }) =>
+    request<{ weight: number; reasoning: string }>(
+      '/fuel/questions/ai/suggest-weight', { method: 'POST', body: JSON.stringify(data) }, token,
+    ),
+
+  history: (token: string, id: string, days = 30) =>
+    request<{
+      question: FuelQuestion;
+      days: number;
+      avgScore: number | null;
+      answeredCount: number;
+      answers: Array<{ date: string; optionIndex: number; optionLabel: string | null; score: number }>;
+    }>(`/fuel/questions/${id}/history?days=${days}`, {}, token),
+
+  aiAnalysis: (token: string, id: string) =>
+    request<AiAnalysis>(`/fuel/questions/${id}/ai/analysis`, { method: 'POST' }, token),
 };
 
 export const fuel = {
@@ -688,7 +806,7 @@ export const fuel = {
   items: (token: string, date: string) =>
     request<FoodItem[]>(`/fuel/items?date=${date}`, {}, token),
 
-  addItem: (token: string, data: { date: string; name: string; mealTime: MealTime; calories?: number; protein?: number; fat?: number; carbs?: number }) =>
+  addItem: (token: string, data: { date: string; name: string; mealTime: MealTime; calories?: number; protein?: number; fat?: number; carbs?: number; fibre?: number }) =>
     request<FoodItem>('/fuel/items', { method: 'POST', body: JSON.stringify(data) }, token),
 
   deleteItem: (token: string, id: string) =>
@@ -697,23 +815,29 @@ export const fuel = {
   editItem: (token: string, id: string, data: Partial<{
     name: string; mealTime: MealTime;
     calories: number | null; protein: number | null;
-    fat: number | null; carbs: number | null;
+    fat: number | null; carbs: number | null; fibre: number | null;
   }>) =>
     request<FoodItem>(`/fuel/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }, token),
 
   monthlyAnalysis: (token: string, month?: string) =>
     request<FuelMonthlyAnalysis>(`/fuel/analysis/monthly${month ? `?month=${month}` : ''}`, {}, token),
+
+  foodAiAnalysis: (token: string, name: string, month?: string) =>
+    request<AiAnalysis>('/fuel/analysis/monthly/food', { method: 'POST', body: JSON.stringify({ name, month }) }, token),
 };
 
 export type FuelMonthlyAnalysis = {
   month: string;
   totalDaysTracked: number;
+  eligible: boolean;
+  daysNeeded: number;
   totalNutrition: { calories: number; protein: number; carbs: number; fat: number };
   topFoods: Array<{
     rank: number;
     name: string;
     count: number;
     daysEaten: number;
+    percentile: number | null;
     nutrition: { calories: number; protein: number; carbs: number; fat: number };
     contribution: { caloriesPct: number; proteinPct: number; carbsPct: number; fatPct: number };
   }>;
@@ -814,6 +938,102 @@ export const mirror = {
   // DEV UNLOCK STUB — flips premium so the paywall can be demoed. Real billing later.
   setPremium: (token: string, premium = true) =>
     request<{ isPremium: boolean }>('/mirror/premium', { method: 'POST', body: JSON.stringify({ premium }) }, token),
+};
+
+// ── Health (HealthKit sync) ───────────────────────────────────────────────────
+// Names track the HealthKit identifiers they're read from — see
+// Grittt-server/src/routes/health.ts for the authoritative list + units.
+export type HealthMetricType =
+  | 'steps' | 'activeEnergyBurned' | 'restingHeartRate' | 'heartRateAvg' | 'heartRateVariability'
+  | 'sleepHours' | 'bodyMass' | 'distanceWalkingRunning' | 'flightsClimbed' | 'oxygenSaturation'
+  | 'sleepDeep' | 'sleepRem' | 'sleepLight' | 'sleepAwake';
+
+export type HealthWorkoutType =
+  | 'running' | 'walking' | 'cycling' | 'swimming' | 'hiking'
+  | 'functionalStrengthTraining' | 'traditionalStrengthTraining'
+  | 'yoga' | 'coreTraining' | 'other';
+
+export type HealthSource = 'healthkit' | 'manual' | 'gps_tracked';
+
+export type HealthMetricPoint = { date: string; value: number; unit: string; source: HealthSource };
+
+export type HealthRoutePoint = { lat: number; lng: number; timestamp: string; altitude?: number };
+
+export type HealthWorkoutSummary = {
+  id: string;
+  workoutType: HealthWorkoutType;
+  startTime: string;
+  endTime: string;
+  durationSeconds: number;
+  distanceMeters: number | null;
+  calories: number | null;
+  source: HealthSource;
+  hasRoute: boolean;
+};
+
+export type HealthWorkoutDetail = Omit<HealthWorkoutSummary, 'hasRoute'> & {
+  route: HealthRoutePoint[] | null;
+};
+
+export type HealthScores = {
+  date: string;
+  recovery: {
+    score: number | null;
+    sleepHours: number | null;
+    heartRateVariability: number | null;
+    restingHeartRate: number | null;
+    spo2: number | null;
+    heartRateAvg: number | null;
+    sleep: {
+      deep: number | null;
+      rem: number | null;
+      light: number | null;
+      awake: number | null;
+    };
+  };
+  movement: {
+    score: number | null;
+    steps: number | null;
+    activeEnergyBurned: number | null;
+    stepGoal?: number;
+    calorieGoal?: number;
+  };
+};
+
+export const health = {
+  syncMetrics: (token: string, metrics: Array<{
+    date: string; metricType: HealthMetricType; value: number; unit: string; source?: HealthSource;
+  }>) =>
+    request<{ ok: boolean; synced: number }>(
+      '/health/metrics/sync', { method: 'POST', body: JSON.stringify({ metrics }) }, token,
+    ),
+
+  metrics: (token: string, type: HealthMetricType, from: string, to: string) =>
+    request<HealthMetricPoint[]>(`/health/metrics?type=${type}&from=${from}&to=${to}`, {}, token),
+
+  allMetrics: (token: string, from: string, to: string) =>
+    request<Record<HealthMetricType, HealthMetricPoint[]>>(`/health/metrics?from=${from}&to=${to}`, {}, token),
+
+  syncWorkouts: (token: string, workouts: Array<{
+    externalId?: string; workoutType: HealthWorkoutType; startTime: string; endTime: string;
+    durationSeconds: number; distanceMeters?: number; calories?: number;
+    route?: HealthRoutePoint[]; source?: HealthSource;
+  }>) =>
+    request<{ ok: boolean; synced: number }>(
+      '/health/workouts/sync', { method: 'POST', body: JSON.stringify({ workouts }) }, token,
+    ),
+
+  workouts: (token: string, from: string, to: string) =>
+    request<HealthWorkoutSummary[]>(`/health/workouts?from=${from}&to=${to}`, {}, token),
+
+  workout: (token: string, id: string) =>
+    request<HealthWorkoutDetail>(`/health/workouts/${id}`, {}, token),
+
+  deleteWorkout: (token: string, id: string) =>
+    request<null>(`/health/workouts/${id}`, { method: 'DELETE' }, token),
+
+  scores: (token: string, date: string) =>
+    request<HealthScores>(`/health/scores?date=${date}`, {}, token),
 };
 
 /** Format a Date as YYYY-MM-DD in the device's LOCAL timezone.

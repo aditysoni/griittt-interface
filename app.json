@@ -2,7 +2,7 @@
   "expo": {
     "name": "Grittt",
     "slug": "grittt-app",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "grittt",
@@ -13,13 +13,17 @@
     },
     "ios": {
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "bundleIdentifier": "com.grittt.app",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow Grittt to access your photos to track your food.",
         "NSCameraUsageDescription": "Allow Grittt to use your camera to snap and track food.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSHealthShareUsageDescription": "Allow Grittt to read your steps, heart rate, sleep, weight, and workouts from Health so it can build a fuller picture of your discipline.",
+        "NSHealthUpdateUsageDescription": "Allow Grittt to save workouts you log in the app back to Health."
       },
-      "runtimeVersion": "1.0.1"
+      "runtimeVersion": "1.0.2",
+      "buildNumber": "22"
     },
     "android": {
       "adaptiveIcon": {
@@ -40,6 +44,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
       [
         "expo-image-picker",
         {
@@ -49,7 +54,14 @@
       ],
       "expo-web-browser",
       "expo-font",
-      "expo-audio"
+      "expo-audio",
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Allow Grittt to read your steps, heart rate, sleep, weight, and workouts from Health so it can build a fuller picture of your discipline.",
+          "NSHealthUpdateUsageDescription": "Allow Grittt to save workouts you log in the app back to Health."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

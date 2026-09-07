@@ -72,6 +72,8 @@ const previewHero = {
   becoming: "Someone who shows up whether they feel like it or not — and it's starting to show.",
   outlook: 'up' as const,
   chips: { momentum: 82, consistency: 88, streak: 12 },
+  selfScore: 82,
+  selfScoreDelta: 11,
 };
 
 function previewConsistencyDays(n = 30): { date: string; score: number }[] {

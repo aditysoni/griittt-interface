@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as WebBrowser from 'expo-web-browser';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { auth as authApi, users as usersApi, User, OnboardingPayload } from './api';
 import { storage } from './storage';
 
@@ -14,6 +15,9 @@ type AuthContextType = {
   /** Sign in with Google via the backend's server-side OAuth flow. Opens a
    *  browser, polls for the issued token, then hydrates the session. */
   loginWithGoogle: () => Promise<void>;
+  /** Sign in with Apple via the native sheet, exchanging Apple's identity token
+   *  for our session token on the backend. iOS only. */
+  loginWithApple: () => Promise<void>;
   /** Returns the new auth token so callers can chain follow-up requests without
    *  waiting for React state to flush. */
   signup: (name: string, email: string, password: string) => Promise<string>;
@@ -134,6 +138,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function loginWithApple() {
+    // Native sheet → Apple returns a signed identity token (+ name/email on the
+    // very first authorization only). We hand the token to the backend, which
+    // verifies it and returns our own session token.
+    const credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+
+    if (!credential.identityToken) {
+      throw new Error('Apple sign-in failed — no identity token returned.');
+    }
+
+    // fullName arrives as parts; join what Apple gives us (first sign-in only).
+    const fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    const result = await authApi.apple({
+      identityToken: credential.identityToken,
+      fullName: fullName || null,
+      email: credential.email ?? null,
+    });
+
+    await storage.setToken(result.token);
+    await storage.setUser(result.user);
+    setToken(result.token);
+    setUser(result.user);
+  }
+
   async function signup(name: string, email: string, password: string): Promise<string> {
     const result = await authApi.signup(name, email, password);
     await storage.setToken(result.token);
@@ -174,7 +211,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, token, isLoading, onboardingDone,
-      login, loginWithGoogle, signup, logout, completeOnboarding, refreshUser, updateProfile,
+      login, loginWithGoogle, loginWithApple, signup, logout, completeOnboarding, refreshUser, updateProfile,
     }}>
       {children}
     </AuthContext.Provider>

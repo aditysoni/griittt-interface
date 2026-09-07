@@ -15,15 +15,33 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../lib/auth';
 import { COLORS } from '../../components/theme';
 import { GoogleSignInButton } from '../../components/GoogleSignInButton';
+import { AppleSignInButton } from '../../components/AppleSignInButton';
 
 export default function SignupScreen() {
-  const { signup, loginWithGoogle } = useAuth();
+  const { signup, loginWithGoogle, loginWithApple } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+
+  async function handleApple() {
+    setAppleLoading(true);
+    try {
+      await loginWithApple();
+      // New Apple users land on onboarding; returning ones go to the app —
+      // the root layout decides based on `onboardingDone`.
+    } catch (err: any) {
+      if (err?.code === 'ERR_REQUEST_CANCELED') return;
+      // eslint-disable-next-line no-console
+      console.error('Apple sign-in error', err);
+      Alert.alert('Apple Sign-In', err?.message || 'Could not sign in with Apple.');
+    } finally {
+      setAppleLoading(false);
+    }
+  }
 
   async function handleGoogle() {
     setGoogleLoading(true);
@@ -135,6 +153,8 @@ export default function SignupScreen() {
               <Text style={styles.dividerText}>or</Text>
               <View style={styles.dividerLine} />
             </View>
+
+            <AppleSignInButton onPress={handleApple} loading={appleLoading} type="SIGN_UP" isDark />
 
             <GoogleSignInButton onPress={handleGoogle} loading={googleLoading} label="Sign up with Google" />
 

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, KeyboardAvoidingView, Modal, Platform, Pressable,
+  Alert, Animated, KeyboardAvoidingView, Modal, Platform, Pressable,
   RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,15 +9,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import {
-  strength, WorkoutLog, today, shiftDate,
+  strength, health, WorkoutLog, today, shiftDate,
   BodyPart, SetEntry, ExerciseEntry, TrainingType,
   BODY_PARTS, EXERCISE_SUGGESTIONS, SPORTS_SUGGESTIONS,
 } from '../../lib/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MovementGoalCard, STEP_GOAL, ACTIVE_KCAL_GOAL } from '../../components/MovementGoalCard';
 import { LoadingScreen } from '../../components/LoadingScreen';
 import { ErrorState } from '../../components/ErrorState';
 import { DaySelector } from '../../components/DaySelector';
 import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
+import { QuickTrendCard } from '../../components/QuickTrendCard';
 
 const RATING_LABELS = ['Rest','Very light','Light','Easy','Moderate','Medium','Good','Strong','Very strong','Excellent','Elite'];
 
@@ -55,7 +58,7 @@ const RATING_TIERS = [
 const shiftDateStr = shiftDate;
 
 export default function StrengthScreen() {
-  const { token } = useAuth();
+  const { token, user, updateProfile } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
 
@@ -64,14 +67,26 @@ export default function StrengthScreen() {
   const [logs, setLogs]                 = useState<WorkoutLog[]>([]);
   // date → max strength score for that day (null when no session logged)
   const [history, setHistory]           = useState<Record<string, number | null>>({});
+  const [identity, setIdentity]         = useState<any>(null);
+  const [healthConnected, setHealthConnected] = useState(false);
+  const [movement, setMovement]         = useState<{ steps: number | null; activeEnergyBurned: number | null; score?: number | null } | null>(null);
+  const [movementHistory, setMovementHistory] = useState<Record<string, number | null>>({});
   const [loading, setLoading]           = useState(true);
   const [loadError, setLoadError]       = useState(false);
   const [refreshing, setRefreshing]     = useState(false);
   const [submitting, setSubmitting]     = useState(false);
 
+  // Quick / Detailed tab
+  const [mode, setMode] = useState<'quick' | 'detailed'>('quick');
+  const tabAnim = useRef(new Animated.Value(0)).current;
+  const [tabContainerW, setTabContainerW] = useState(0);
+  function switchMode(tab: 'quick' | 'detailed') {
+    setMode(tab);
+    Animated.spring(tabAnim, { toValue: tab === 'quick' ? 0 : 1, useNativeDriver: false, tension: 60, friction: 10 }).start();
+  }
+
   // Rating
   const [rating, setRating] = useState(7);
-  const [showRatingPicker, setShowRatingPicker] = useState(false);
 
   // Training type selected from the inline row
   const [trainingType, setTrainingType] = useState<TrainingType | null>(null);
@@ -96,6 +111,8 @@ export default function StrengthScreen() {
   const [cardioIntensity, setCardioIntensity] = useState(6);
 
   const isToday = selectedDate === today();
+  // Logging is allowed for today and any past day — not days that haven't happened yet.
+  const canLog  = selectedDate <= today();
 
   async function load(date: string) {
     if (!token) return;
@@ -120,12 +137,49 @@ export default function StrengthScreen() {
         setHistory(map);
       })
       .catch(() => {});
+
+    // Identity (level + XP) for the quick card's XP line. Backgrounded.
+    strength.identity(token).then(setIdentity).catch(() => {});
+
+    // Apple Health movement (steps + active energy) for the selected day — only
+    // shown when the user has connected Health (flag set on the profile screen).
+    AsyncStorage.getItem('grittt_health_connected').then(v => setHealthConnected(v === 'true')).catch(() => {});
+    health.scores(token, date).then(s => setMovement(s.movement)).catch(() => setMovement(null));
+
+    // 14-day movement history — steps + active energy per day, scored against the
+    // user's goals, so the quick card's bars can reflect Movement (not workouts)
+    // when the day is being scored by Health.
+    health.allMetrics(token, from, todayStr)
+      .then(all => {
+        const sg = user?.stepGoal ?? STEP_GOAL;
+        const cg = user?.calorieGoal ?? ACTIVE_KCAL_GOAL;
+        const steps = all.steps ?? [];
+        const cals  = all.activeEnergyBurned ?? [];
+        const sMap  = new Map(steps.map(p => [p.date, p.value]));
+        const cMap  = new Map(cals.map(p => [p.date, p.value]));
+        const map: Record<string, number | null> = {};
+        new Set([...sMap.keys(), ...cMap.keys()]).forEach(d => {
+          const parts: number[] = [];
+          const st = sMap.get(d); const ca = cMap.get(d);
+          if (st != null && sg > 0) parts.push(Math.min(100, (st / sg) * 100));
+          if (ca != null && cg > 0) parts.push(Math.min(100, (ca / cg) * 100));
+          map[d] = parts.length ? Math.round(parts.reduce((a, b) => a + b, 0) / parts.length) : null;
+        });
+        setMovementHistory(map);
+      })
+      .catch(() => {});
   }
   useEffect(() => { load(selectedDate).finally(() => setLoading(false)); }, [token, selectedDate]);
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(selectedDate); setRefreshing(false); }, [token, selectedDate]);
 
   // Today's score = max of today's session scores, or 0 if nothing logged.
   const todayScore = logs.length > 0 ? Math.max(...logs.map(l => l.score ?? 0)) : 0;
+
+  // Quick-mode score: default to the Movement score (steps/calories) when Health
+  // is connected, but if the user has logged/rated a session today, that wins.
+  const movementScore = healthConnected ? Math.round(movement?.score ?? 0) : 0;
+  const usingMovement = todayScore <= 0 && healthConnected;
+  const quickScore    = usingMovement ? movementScore : todayScore;
 
   // ── Quick log ────────────────────────────────────────────────────────────────
   async function submitQuick() {
@@ -265,13 +319,24 @@ export default function StrengthScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
       >
-        {/* Hero score card — same layout as the food page's FuelScoreCard */}
-        <StrengthScoreCard
-          score={todayScore}
-          history={history}
-          selectedDate={selectedDate}
-          theme={theme}
-        />
+        {/* Hero: shared quick card (score + 7-day bars + identity) in QUICK mode,
+            the detailed trend card in DETAILED mode. */}
+        {mode === 'quick' ? (
+          <QuickTrendCard
+            eyebrow={usingMovement ? "TODAY'S MOVEMENT" : "TODAY'S STRENGTH"}
+            score={quickScore}
+            history={Object.entries(usingMovement ? movementHistory : history).map(([date, score]) => ({ date, score }))}
+            selectedDate={selectedDate}
+            identity={identity}
+          />
+        ) : (
+          <StrengthScoreCard
+            score={todayScore}
+            history={history}
+            selectedDate={selectedDate}
+            theme={theme}
+          />
+        )}
 
         {loadError && (
           <ErrorState
@@ -280,59 +345,63 @@ export default function StrengthScreen() {
           />
         )}
 
+        {/* QUICK / DETAILED tab toggle */}
+        {!loadError && canLog && (
+          <View
+            style={[s.tabToggle, { backgroundColor: theme.surface }]}
+            onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
+          >
+            {tabContainerW > 0 && (
+              <Animated.View style={[s.tabPill, {
+                backgroundColor: theme.card,
+                width: (tabContainerW - 8) / 2,
+                transform: [{ translateX: tabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, (tabContainerW - 8) / 2] }) }],
+              }]} />
+            )}
+            <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('quick')} activeOpacity={0.8}>
+              <Text style={[s.tabBtnText, { color: mode === 'quick' ? theme.text : theme.textSecondary, fontFamily: 'Inter_900Black' }]}>QUICK</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.tabBtn} onPress={() => switchMode('detailed')} activeOpacity={0.8}>
+              <Text style={[s.tabBtnText, { color: mode === 'detailed' ? theme.text : theme.textSecondary, fontFamily: 'Inter_900Black' }]}>DETAILED</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {!loadError && <>
+        {/* Apple Health movement (Steps + Calories) — shown above the rating
+            question when Health is connected. Tap a card to set its target. */}
+        {mode === 'quick' && healthConnected && (
+          <View style={s.movRow}>
+            <MovementGoalCard label="STEPS" icon="footsteps" iconColor="#22A664" value={movement?.steps ?? 0}
+              goal={user?.stepGoal ?? STEP_GOAL} sub={`of ${(user?.stepGoal ?? STEP_GOAL).toLocaleString()} goal`} theme={theme}
+              onSetGoal={n => updateProfile({ stepGoal: n }).then(() => load(selectedDate)).catch(() => {})} />
+            <MovementGoalCard label="CALORIES" icon="flame" iconColor="#F97316" value={movement?.activeEnergyBurned ?? 0}
+              goal={user?.calorieGoal ?? ACTIVE_KCAL_GOAL} sub={`active kcal · of ${user?.calorieGoal ?? ACTIVE_KCAL_GOAL}`} theme={theme}
+              onSetGoal={n => updateProfile({ calorieGoal: n }).then(() => load(selectedDate)).catch(() => {})} />
+          </View>
+        )}
+
         {/* Rating hero card */}
-        {isToday && (() => {
+        {canLog && mode === 'quick' && (() => {
           const tier = RATING_TIERS.find(t => rating <= t.upTo) ?? RATING_TIERS[4];
           return (
             <View style={[s.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[s.heroEyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>HOW DID IT GO?</Text>
 
-              {/* Hero number with glow halo */}
-              <TouchableOpacity style={s.heroNumWrap} onPress={() => setShowRatingPicker(true)} activeOpacity={0.85}>
-                <View style={[s.heroHalo, { backgroundColor: tier.color + '25' }]} />
+              {/* Hero number */}
+              <View style={s.heroNumWrap}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', gap: 4 }}>
-                  {/* Transparent mirror of "/10" balances the suffix so the big
-                      digit stays centered under the halo (and doesn't shift
-                      between single-digit ratings and 10). */}
                   <Text style={[s.heroDenom, { fontFamily: 'Inter_500Medium', opacity: 0 }]}>/10</Text>
                   <Text style={[s.heroNum, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{rating}</Text>
                   <Text style={[s.heroDenom, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>/10</Text>
                 </View>
-              </TouchableOpacity>
+              </View>
 
-              <Text style={[s.heroTierLabel, { color: tier.color, fontFamily: 'Inter_900Black' }]}>{tier.label}</Text>
+              <Text style={[s.heroTierLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{tier.label}</Text>
               <Text style={[s.heroTierCopy, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{tier.copy}</Text>
 
-              {/* Rating scale — tap a segment to set your rating */}
-              <View style={s.heroBarWrap}>
-                {Array.from({ length: 10 }).map((_, i) => {
-                  const n = i + 1;
-                  const filled = n <= rating;
-                  const isActive = n === rating;
-                  const band = n <= 2 ? '#E84A4A' : n <= 4 ? '#F08560' : n <= 6 ? '#F0A12E' : n <= 8 ? '#7BC95E' : '#22A664';
-                  return (
-                    <TouchableOpacity
-                      key={i}
-                      activeOpacity={0.7}
-                      onPress={() => setRating(n)}
-                      style={[
-                        s.heroBar,
-                        { backgroundColor: filled ? band : theme.surface },
-                        isActive && { borderWidth: 2.5, borderColor: theme.text, transform: [{ scale: 1.12 }] },
-                      ]}
-                    >
-                      {isActive && (
-                        <Text style={[s.heroBarNum, { color: filled ? '#FFFFFF' : theme.text, fontFamily: 'Inter_900Black' }]}>{n}</Text>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <View style={s.heroBarTicks}>
-                <Text style={[s.heroBarTick, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>1 · COOKED</Text>
-                <Text style={[s.heroBarTick, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>10 · ELITE</Text>
-              </View>
+              {/* Rating slider — tap a point; the selected value shows as the knob on the track */}
+              <RatingSlider value={rating} onChange={setRating} theme={theme} />
 
               {/* LOG RATING button */}
               <TouchableOpacity
@@ -352,21 +421,9 @@ export default function StrengthScreen() {
           );
         })()}
 
-        <Modal visible={showRatingPicker} transparent animationType="slide">
-          <Pressable style={[bs.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setShowRatingPicker(false)} />
-          <View style={[bs.sheet, { backgroundColor: theme.cardElevated }]}>
-            <View style={[bs.handle, { backgroundColor: theme.border }]} />
-            <Text style={[bs.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>PHYSICAL ACTIVITY</Text>
-            <Text style={[bs.sub, { color: '#34C759', fontFamily: 'Inter_700Bold' }]}>{RATING_LABELS[rating]}</Text>
-            <RatingScroll value={rating} onChange={setRating} theme={theme} />
-            <TouchableOpacity style={[bs.doneBtn, { backgroundColor: theme.text }]} onPress={() => setShowRatingPicker(false)}>
-              <Text style={[bs.doneBtnText, { color: theme.bg, fontFamily: 'Inter_900Black' }]}>DONE</Text>
-            </TouchableOpacity>
-          </View>
-        </Modal>
 
         {/* ── Training type buttons (Gym / Sports / Run) ── */}
-        {isToday && (
+        {canLog && mode === 'detailed' && (
           <>
             <Text style={[s.sectionHint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>OR LOG A FULL SESSION</Text>
             <View style={s.trainingRow}>
@@ -513,7 +570,7 @@ export default function StrengthScreen() {
         )}
 
         {/* Read-only state for past days */}
-        {!isToday && logs.length === 0 && (
+        {!canLog && logs.length === 0 && (
           <View style={s.empty}><Text style={[s.emptyText, { color: theme.textSecondary }]}>NO ACTIVITY DATA FOR THIS DAY</Text></View>
         )}
 
@@ -663,41 +720,83 @@ export default function StrengthScreen() {
   );
 }
 
-// ── Rating scroll picker ──────────────────────────────────────────────────────
-const ITEM_W = 56;
-function RatingScroll({ value, onChange, theme }: { value: number; onChange: (n: number) => void; theme: any }) {
-  const ref = useRef<ScrollView>(null);
-  useEffect(() => { ref.current?.scrollTo({ x: value * ITEM_W, animated: true }); }, []);
+// ── Rating slider ─────────────────────────────────────────────────────────────
+// A 1–10 track: small dots at each step (dark up to the selected value), with the
+// selected value shown as a larger knob (the number sits inside it, on the line).
+function RatingSlider({ value, onChange, theme }: { value: number; onChange: (n: number) => void; theme: any }) {
+  const fillW = Math.max(0, ((value - 0.5) / 10 - 0.05) * 100); // dark track up to the knob
+
   return (
-    <ScrollView ref={ref} horizontal showsHorizontalScrollIndicator={false}
-      snapToInterval={ITEM_W} decelerationRate="fast"
-      contentContainerStyle={{ paddingHorizontal: 24, paddingVertical: 12, alignItems: 'center' }}
-      onMomentumScrollEnd={e => {
-        const idx = Math.round(e.nativeEvent.contentOffset.x / ITEM_W);
-        onChange(Math.max(0, Math.min(10, idx)));
-      }}>
-      {[0,1,2,3,4,5,6,7,8,9,10].map(n => {
-        const active = n === value;
-        return (
-          <TouchableOpacity key={n} style={{ width: ITEM_W, height: 64, alignItems: 'center', justifyContent: 'center', gap: 4 }}
-            onPress={() => { onChange(n); ref.current?.scrollTo({ x: n * ITEM_W, animated: true }); }} activeOpacity={0.7}>
-            <Text style={{ fontSize: active ? 40 : 28, lineHeight: 48, color: active ? theme.text : theme.textMuted, fontFamily: active ? 'Inter_900Black' : 'Inter_500Medium' }}>{n}</Text>
-            {active && <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#34C759' }} />}
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
+    <View style={rs.wrap}>
+      {/* track */}
+      <View style={[rs.trackFull, { backgroundColor: theme.border }]} />
+      <View style={[rs.trackFill, { width: `${fillW}%`, backgroundColor: theme.text }]} />
+
+      {/* dots / knob */}
+      <View style={rs.row}>
+        {Array.from({ length: 10 }).map((_, i) => {
+          const n = i + 1;
+          const active = n === value;
+          const passed = n <= value;
+          return (
+            <TouchableOpacity
+              key={n}
+              style={rs.cell}
+              onPress={() => onChange(n)}
+              activeOpacity={0.7}
+              hitSlop={{ top: 14, bottom: 14, left: 4, right: 4 }}
+            >
+              {active ? (
+                <View style={[rs.knob, { backgroundColor: theme.card, borderColor: theme.text }]}>
+                  <Text style={[rs.knobNum, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{n}</Text>
+                </View>
+              ) : (
+                <View style={[rs.dot, { backgroundColor: passed ? theme.text : theme.borderStrong }]} />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* number labels */}
+      <View style={rs.labels}>
+        {Array.from({ length: 10 }).map((_, i) => {
+          const n = i + 1;
+          const active = n === value;
+          return (
+            <View key={n} style={rs.labelCell}>
+              <Text style={[rs.labelNum, {
+                color: active ? theme.text : theme.textMuted,
+                fontFamily: active ? 'Inter_900Black' : 'Inter_700Bold',
+              }]}>{n}</Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {/* ends */}
+      <View style={rs.ends}>
+        <Text style={[rs.endText, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>VERY EASY</Text>
+        <Text style={[rs.endText, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>MAX EFFORT</Text>
+      </View>
+    </View>
   );
 }
 
-const bs = StyleSheet.create({
-  backdrop:    { flex: 1 },
-  sheet:       { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40, paddingTop: 12 },
-  handle:      { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
-  title:       { fontSize: 14, letterSpacing: 3, textAlign: 'center' },
-  sub:         { fontSize: 10, letterSpacing: 2, textAlign: 'center', marginTop: 6, marginBottom: 8 },
-  doneBtn:     { marginHorizontal: 24, marginTop: 20, paddingVertical: 16, alignItems: 'center', borderRadius: 12 },
-  doneBtnText: { fontSize: 11, letterSpacing: 4 },
+const rs = StyleSheet.create({
+  wrap:      { marginTop: 16, marginBottom: 18, position: 'relative' },
+  trackFull: { position: 'absolute', left: '5%', right: '5%', top: 26, height: 3, borderRadius: 2 },
+  trackFill: { position: 'absolute', left: '5%', top: 26, height: 3, borderRadius: 2 },
+  row:       { flexDirection: 'row', height: 56, alignItems: 'center' },
+  cell:      { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  dot:       { width: 8, height: 8, borderRadius: 4 },
+  knob:      { width: 48, height: 48, borderRadius: 24, borderWidth: 2, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
+  knobNum:   { fontSize: 15 },
+  labels:    { flexDirection: 'row', marginTop: 4 },
+  labelCell: { flex: 1, alignItems: 'center' },
+  labelNum:  { fontSize: 13 },
+  ends:      { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingHorizontal: 2 },
+  endText:   { fontSize: 9, letterSpacing: 1 },
 });
 
 // ── Numeric field ────────────────────────────────────────────────────────────
@@ -807,20 +906,21 @@ const s = StyleSheet.create({
   datesRow:       { paddingHorizontal: 14, paddingBottom: 8 },
   scroll:         { paddingBottom: 120 },
 
+  // Quick / Detailed tab
+  tabToggle:       { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, marginTop: 10, padding: 4, borderRadius: 14, height: 46, position: 'relative' },
+  tabPill:         { position: 'absolute', top: 4, left: 4, bottom: 4, borderRadius: 10 },
+  tabBtn:          { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+  tabBtnText:      { fontSize: 12, letterSpacing: 2 },
+
   // Rating hero card
+  movRow:          { flexDirection: 'row', gap: 12, marginHorizontal: 16, marginTop: 14 },
   heroCard:        { marginHorizontal: 16, marginTop: 14, borderWidth: 1, borderRadius: 20, padding: 20 },
   heroEyebrow:     { fontSize: 9, letterSpacing: 3, textAlign: 'center', marginBottom: 4 },
-  heroNumWrap:     { alignItems: 'center', justifyContent: 'center', paddingVertical: 12, position: 'relative' },
-  heroHalo:        { position: 'absolute', width: 130, height: 130, borderRadius: 65 },
+  heroNumWrap:     { alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
   heroNum:         { fontSize: 84, letterSpacing: -4, lineHeight: 84 },
   heroDenom:       { fontSize: 22, letterSpacing: -0.5 },
   heroTierLabel:   { fontSize: 14, letterSpacing: 3, textAlign: 'center', marginTop: 2 },
   heroTierCopy:    { fontSize: 12, textAlign: 'center', lineHeight: 17, marginTop: 6, marginBottom: 16, paddingHorizontal: 16, opacity: 0.8 },
-  heroBarWrap:     { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  heroBar:         { flex: 1, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  heroBarNum:      { fontSize: 13 },
-  heroBarTicks:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, marginBottom: 18, paddingHorizontal: 2 },
-  heroBarTick:     { fontSize: 9, letterSpacing: 1 },
   heroLogBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14 },
   heroLogBtnText:  { fontSize: 12, letterSpacing: 3 },
   heroLogArrow:    { width: 22, height: 22, borderRadius: 11, backgroundColor: '#B8F23A', alignItems: 'center', justifyContent: 'center' },

@@ -4,12 +4,14 @@ import {
   ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../lib/auth';
-import { fuelQuestions, FuelQuestion } from '../lib/api';
+import { fuelQuestions, FuelQuestion, AiAnalysis, today } from '../lib/api';
 import { useTheme } from '../components/ThemeContext';
 import { DarkBackground } from '../components/DarkBackground';
+import { AiAnalysisButton, AiAnalysisCard } from '../components/AiAnalysisCard';
 
 export default function FuelQuestionsScreen() {
   const { token } = useAuth();
@@ -21,8 +23,8 @@ export default function FuelQuestionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving]         = useState(false);
   const [selected, setSelected]     = useState<Set<string>>(new Set());
-  const [activeCategory, setActiveCategory] = useState<string>('All');
   const [customOpen, setCustomOpen] = useState(false);
+  const [detailQuestion, setDetailQuestion] = useState<FuelQuestion | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -81,13 +83,8 @@ export default function FuelQuestionsScreen() {
     ]);
   }
 
-  const categories = ['All', ...Array.from(new Set(catalog.map(q => q.category)))];
-  const filtered = activeCategory === 'All'
-    ? catalog
-    : catalog.filter(q => q.category === activeCategory);
-
   const grouped: Record<string, FuelQuestion[]> = {};
-  for (const q of filtered) {
+  for (const q of catalog) {
     if (!grouped[q.category]) grouped[q.category] = [];
     grouped[q.category].push(q);
   }
@@ -127,21 +124,7 @@ export default function FuelQuestionsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Category pills */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pillRow}>
-          {categories.map(cat => (
-            <TouchableOpacity
-              key={cat}
-              style={[s.pill, { backgroundColor: activeCategory === cat ? theme.inverse : theme.surface, borderColor: theme.border }]}
-              onPress={() => setActiveCategory(cat)}
-              activeOpacity={0.7}
-            >
-              <Text style={[s.pillText, { color: activeCategory === cat ? theme.inverseText : theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-                {cat}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+      
 
         <ScrollView
           style={{ flex: 1 }}
@@ -201,6 +184,10 @@ export default function FuelQuestionsScreen() {
                       </View>
                     </TouchableOpacity>
 
+                    <TouchableOpacity onPress={() => setDetailQuestion(q)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Ionicons name="stats-chart-outline" size={16} color={theme.textSecondary} />
+                    </TouchableOpacity>
+
                     {q.isCustom && (
                       <TouchableOpacity onPress={() => deleteQuestion(q)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                         <Ionicons name="trash-outline" size={15} color={theme.textSecondary} />
@@ -212,9 +199,9 @@ export default function FuelQuestionsScreen() {
             </View>
           ))}
 
-          {filtered.length === 0 && (
+          {catalog.length === 0 && (
             <View style={{ alignItems: 'center', paddingVertical: 48 }}>
-              <Text style={[{ color: theme.textSecondary, fontSize: 14 }]}>No questions in this category</Text>
+              <Text style={[{ color: theme.textSecondary, fontSize: 14 }]}>No questions yet</Text>
             </View>
           )}
         </ScrollView>
@@ -240,6 +227,13 @@ export default function FuelQuestionsScreen() {
           onClose={() => setCustomOpen(false)}
           onSaved={() => { setCustomOpen(false); load(); }}
         />
+
+        <QuestionDetailModal
+          question={detailQuestion}
+          token={token!}
+          theme={theme}
+          onClose={() => setDetailQuestion(null)}
+        />
       </SafeAreaView>
     </DarkBackground>
   );
@@ -247,7 +241,7 @@ export default function FuelQuestionsScreen() {
 
 // ── Add custom question modal ──────────────────────────────────────────────────
 
-function AddCustomModal({ open, token, theme, onClose, onSaved }: {
+export function AddCustomModal({ open, token, theme, onClose, onSaved }: {
   open: boolean; token: string; theme: any;
   onClose: () => void; onSaved: () => void;
 }) {
@@ -255,15 +249,29 @@ function AddCustomModal({ open, token, theme, onClose, onSaved }: {
   const [options, setOptions] = useState(['', '']);
   const [weight, setWeight] = useState('1');
   const [saving, setSaving] = useState(false);
-  const [optionCount, setOptionCount] = useState<2 | 5>(2);
+  const [optionCount, setOptionCount] = useState<2 | 5 | 8>(2);
+  const [suggestingWeight, setSuggestingWeight] = useState(false);
 
   function reset() {
     setPrompt(''); setOptions(['', '']); setWeight('1'); setOptionCount(2);
   }
 
-  function switchOptionCount(n: 2 | 5) {
+  async function suggestWeight() {
+    if (!prompt.trim()) { Alert.alert('Enter a question first', 'Fill in the question text so AI has something to rate.'); return; }
+    const filled = options.filter(o => o.trim());
+    if (filled.length < 2) { Alert.alert('Fill in options first', 'Add at least 2 options so AI can judge the scale.'); return; }
+    setSuggestingWeight(true);
+    try {
+      const res = await fuelQuestions.suggestWeight(token, { prompt: prompt.trim(), options: filled });
+      setWeight(String(res.weight));
+      if (res.reasoning) Alert.alert(`Suggested weight: ${res.weight}×`, res.reasoning);
+    } catch (e: any) { Alert.alert('Error', e.message); }
+    finally { setSuggestingWeight(false); }
+  }
+
+  function switchOptionCount(n: 2 | 5 | 8) {
     setOptionCount(n);
-    setOptions(n === 2 ? ['', ''] : ['', '', '', '', '']);
+    setOptions(Array.from({ length: n }, () => ''));
   }
 
   async function handleSave() {
@@ -311,7 +319,7 @@ function AddCustomModal({ open, token, theme, onClose, onSaved }: {
 
           <Text style={[cm.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>OPTIONS</Text>
           <View style={[cm.optCountRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            {([2, 5] as const).map(n => (
+            {([2, 5, 8] as const).map(n => (
               <TouchableOpacity
                 key={n}
                 style={[cm.optCountBtn, optionCount === n && { backgroundColor: theme.inverse }]}
@@ -344,9 +352,26 @@ function AddCustomModal({ open, token, theme, onClose, onSaved }: {
             Score goes from 0% (option 1) to 100% (last option). Answers auto-score based on position.
           </Text>
 
-          <Text style={[cm.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>WEIGHT</Text>
-          <View style={cm.weightRow}>
-            {['1', '2', '3'].map(w => (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={[cm.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold', marginBottom: 0 }]}>
+              WEIGHT · {weight}×
+            </Text>
+            <TouchableOpacity
+              onPress={suggestWeight}
+              disabled={suggestingWeight}
+              activeOpacity={0.7}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 5, opacity: suggestingWeight ? 0.5 : 1 }}
+            >
+              {suggestingWeight
+                ? <ActivityIndicator size="small" color="#34C759" />
+                : <Ionicons name="sparkles" size={13} color="#34C759" />}
+              <Text style={{ fontSize: 11, letterSpacing: 0.3, color: '#34C759', fontFamily: 'Inter_800ExtraBold' }}>
+                {suggestingWeight ? 'THINKING...' : 'ASK AI'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <View style={[cm.weightRow, { marginTop: 8 }]}>
+            {['1', '2', '3', '5', '8', '10'].map(w => (
               <TouchableOpacity
                 key={w}
                 style={[cm.weightBtn, { backgroundColor: weight === w ? theme.inverse : theme.surface, borderColor: theme.border }]}
@@ -360,7 +385,7 @@ function AddCustomModal({ open, token, theme, onClose, onSaved }: {
             ))}
           </View>
           <Text style={[cm.hint, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-            Higher weight = more impact on your daily fuel score.
+            Higher weight = more impact on your daily fuel score. Tap "Ask AI" to let it judge based on the question.
           </Text>
 
           <TouchableOpacity
@@ -379,6 +404,245 @@ function AddCustomModal({ open, token, theme, onClose, onSaved }: {
   );
 }
 
+// ── Question detail: 30-day calendar / trend graph + AI analysis ───────────────
+
+const DAY_LABELS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+function scoreColor(score: number): string {
+  if (score >= 70) return '#22A664';
+  if (score >= 40) return '#F0A12E';
+  return '#E84A4A';
+}
+
+export function QuestionDetailModal({ question, token, theme, onClose }: {
+  question: FuelQuestion | null; token: string; theme: any; onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<{
+    avgScore: number | null; answeredCount: number;
+    answers: Array<{ date: string; optionIndex: number; optionLabel: string | null; score: number }>;
+  } | null>(null);
+  const [tab, setTab] = useState<'calendar' | 'graph'>('calendar');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<AiAnalysis | null>(null);
+
+  useEffect(() => {
+    if (!question) return;
+    setLoading(true); setData(null); setAiResult(null); setTab('calendar');
+    fuelQuestions.history(token, question.id, 28)
+      .then(res => setData({ avgScore: res.avgScore, answeredCount: res.answeredCount, answers: res.answers }))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [question?.id]);
+
+  async function runAnalysis() {
+    if (!question) return;
+    setAiLoading(true);
+    try {
+      const res = await fuelQuestions.aiAnalysis(token, question.id);
+      setAiResult(res);
+    } catch (e: any) { Alert.alert('Error', e.message); }
+    finally { setAiLoading(false); }
+  }
+
+  const byDate = new Map((data?.answers ?? []).map(a => [a.date, a]));
+
+  // Build a 28-day grid (Mon-aligned, 4 rows) ending today.
+  const cells: string[] = [];
+  const base = new Date();
+  base.setDate(base.getDate() - 27);
+  const dow = (base.getDay() + 6) % 7; // Mon=0
+  base.setDate(base.getDate() - dow);
+  const gridStart = new Date(base);
+  for (let i = 0; i < 35; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    if (d > new Date()) break;
+    cells.push(d.toISOString().slice(0, 10));
+  }
+  const weeks: string[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+  return (
+    <Modal visible={!!question} animationType="slide" presentationStyle="pageSheet">
+      <View style={[qd.sheet, { backgroundColor: theme.bg }]}>
+        <View style={[qd.handle, { backgroundColor: theme.border }]} />
+        <View style={[qd.header, { borderBottomColor: theme.border }]}>
+          <Text style={[qd.title, { color: theme.text, fontFamily: 'Inter_900Black' }]} numberOfLines={2}>
+            {question?.prompt}
+          </Text>
+          <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close" size={22} color={theme.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        {loading ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator color={theme.text} />
+          </View>
+        ) : (
+          <ScrollView contentContainerStyle={qd.body}>
+            {/* Stats row */}
+            <View style={qd.statsRow}>
+              <View style={qd.statCell}>
+                <Text style={[qd.statVal, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                  {data?.avgScore ?? '—'}
+                </Text>
+                <Text style={[qd.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>AVG SCORE (28D)</Text>
+              </View>
+              <View style={[qd.statSep, { backgroundColor: theme.border }]} />
+              <View style={qd.statCell}>
+                <Text style={[qd.statVal, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                  {data?.answeredCount ?? 0}/28
+                </Text>
+                <Text style={[qd.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>DAYS LOGGED</Text>
+              </View>
+              <View style={[qd.statSep, { backgroundColor: theme.border }]} />
+              <View style={qd.statCell}>
+                <Text style={[qd.statVal, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                  {question?.weight}×
+                </Text>
+                <Text style={[qd.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>WEIGHT</Text>
+              </View>
+            </View>
+
+            {/* Calendar / Graph tab toggle */}
+            <View style={[qd.tabToggle, { backgroundColor: theme.surface }]}>
+              <TouchableOpacity
+                style={[qd.tabBtn, tab === 'calendar' && { backgroundColor: theme.card }]}
+                onPress={() => setTab('calendar')}
+                activeOpacity={0.8}
+              >
+                <Text style={[qd.tabBtnText, { color: tab === 'calendar' ? theme.text : theme.textSecondary, fontFamily: 'Inter_900Black' }]}>
+                  CALENDAR
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[qd.tabBtn, tab === 'graph' && { backgroundColor: theme.card }]}
+                onPress={() => setTab('graph')}
+                activeOpacity={0.8}
+              >
+                <Text style={[qd.tabBtnText, { color: tab === 'graph' ? theme.text : theme.textSecondary, fontFamily: 'Inter_900Black' }]}>
+                  GRAPH
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {tab === 'calendar' ? (
+              <View style={{ marginTop: 16 }}>
+                <View style={qd.calRow}>
+                  {DAY_LABELS_SHORT.map((d, i) => (
+                    <Text key={i} style={[qd.calDayHead, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>{d}</Text>
+                  ))}
+                </View>
+                <View style={{ gap: 5, marginTop: 4 }}>
+                  {weeks.map((week, wi) => (
+                    <View key={wi} style={qd.calRow}>
+                      {week.map((dateStr, di) => {
+                        const answer = byDate.get(dateStr);
+                        const isToday2 = dateStr === today();
+                        const isPast = dateStr <= today();
+                        const dayNum = parseInt(dateStr.slice(8), 10);
+                        const bg = isToday2
+                          ? theme.inverse
+                          : answer ? scoreColor(answer.score) + '22'
+                          : isPast ? theme.surface : 'transparent';
+                        const fg = answer ? scoreColor(answer.score) : theme.textMuted;
+                        return (
+                          <View key={di} style={[qd.calCell, { backgroundColor: bg, opacity: !isPast && !isToday2 ? 0.3 : 1 }]}>
+                            {answer && !isToday2 && (
+                              <Text style={{ fontSize: 9, color: fg, fontFamily: 'Inter_900Black' }}>{answer.score}</Text>
+                            )}
+                            {!answer && !isToday2 && (
+                              <Text style={{ fontSize: 9, color: theme.textMuted, fontFamily: 'Inter_700Bold' }}>{dayNum}</Text>
+                            )}
+                            {isToday2 && (
+                              <Text style={{ fontSize: 9, color: theme.inverseText, fontFamily: 'Inter_900Black' }}>{dayNum}</Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : (
+              <TrendGraph answers={data?.answers ?? []} theme={theme} />
+            )}
+
+            {/* AI analysis */}
+            <View style={{ marginTop: 4 }}>
+              <AiAnalysisButton loading={aiLoading} onPress={runAnalysis} theme={theme} />
+            </View>
+            {aiResult && (
+              <View style={{ marginTop: 12 }}>
+                <AiAnalysisCard result={aiResult} theme={theme} />
+              </View>
+            )}
+          </ScrollView>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+function TrendGraph({ answers, theme }: {
+  answers: Array<{ date: string; score: number }>;
+  theme: any;
+}) {
+  const W = 320, H = 140, PAD = 12;
+  if (answers.length < 2) {
+    return (
+      <View style={{ marginTop: 24, alignItems: 'center', paddingVertical: 24 }}>
+        <Text style={{ color: theme.textSecondary, fontSize: 13 }}>Not enough data yet for a trend graph.</Text>
+      </View>
+    );
+  }
+  const points = answers.map((a, i) => {
+    const x = PAD + (i / (answers.length - 1)) * (W - PAD * 2);
+    const y = PAD + (1 - a.score / 100) * (H - PAD * 2);
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <View style={{ marginTop: 20, alignItems: 'center' }}>
+      <Svg width={W} height={H}>
+        <Line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke={theme.border} strokeWidth={1} />
+        <Line x1={PAD} y1={PAD} x2={W - PAD} y2={PAD} stroke={theme.border} strokeWidth={1} strokeDasharray="2 3" />
+        <Polyline points={points} fill="none" stroke="#34C759" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+        {answers.map((a, i) => {
+          const x = PAD + (i / (answers.length - 1)) * (W - PAD * 2);
+          const y = PAD + (1 - a.score / 100) * (H - PAD * 2);
+          return <Circle key={i} cx={x} cy={y} r={2.5} fill="#34C759" />;
+        })}
+      </Svg>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: W, marginTop: 4 }}>
+        <Text style={{ fontSize: 9, color: theme.textMuted }}>{answers[0].date.slice(5)}</Text>
+        <Text style={{ fontSize: 9, color: theme.textMuted }}>{answers[answers.length - 1].date.slice(5)}</Text>
+      </View>
+    </View>
+  );
+}
+
+const qd = StyleSheet.create({
+  sheet:      { flex: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12 },
+  handle:     { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
+  header:     { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1 },
+  title:      { fontSize: 17, lineHeight: 22, flex: 1 },
+  body:       { paddingHorizontal: 20, paddingVertical: 20, paddingBottom: 40 },
+  statsRow:   { flexDirection: 'row', alignItems: 'center' },
+  statCell:   { flex: 1, alignItems: 'center', gap: 4 },
+  statSep:    { width: 1, height: 30 },
+  statVal:    { fontSize: 20 },
+  statLabel:  { fontSize: 8, letterSpacing: 1 },
+  tabToggle:  { flexDirection: 'row', marginTop: 20, padding: 4, borderRadius: 12, gap: 4 },
+  tabBtn:     { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8 },
+  tabBtnText: { fontSize: 11, letterSpacing: 1.5 },
+  calRow:     { flexDirection: 'row', justifyContent: 'space-between' },
+  calDayHead: { flex: 1, textAlign: 'center', fontSize: 9, letterSpacing: 0.5 },
+  calCell:    { flex: 1, aspectRatio: 1, marginHorizontal: 2, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+});
+
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
@@ -388,9 +652,6 @@ const s = StyleSheet.create({
   title:        { fontSize: 20, letterSpacing: -0.5 },
   subtitle:     { fontSize: 12, letterSpacing: 0.5, marginTop: 2 },
   addBtn:       { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  pillRow:      { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
-  pill:         { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, borderWidth: 1 },
-  pillText:     { fontSize: 12, letterSpacing: 0.5 },
   scroll:       { paddingHorizontal: 16, paddingBottom: 20, gap: 16 },
   categoryLabel:{ fontSize: 9, letterSpacing: 3, marginBottom: 8 },
   card:         { borderWidth: 1, borderRadius: 16, overflow: 'hidden' },

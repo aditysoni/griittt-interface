@@ -198,3 +198,5 @@ const g = StyleSheet.create({
   ctaText:     { fontSize: 14, letterSpacing: 2, fontFamily: 'Inter_900Black' },
   deniedHint:  { textAlign: 'center', marginTop: 10, fontSize: 12, lineHeight: 17, fontFamily: 'Inter_500Medium' },
 });
+
+

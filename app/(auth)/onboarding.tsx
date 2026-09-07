@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert, Platform, Pressable, ScrollView, StyleSheet, Text,
+  ActivityIndicator, Alert, Animated, Dimensions, Easing, Pressable, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { storage } from '../../lib/storage';
+import { futureMirror as futureMirrorApi, FutureMirrorResult, FutureMirrorSnapshot } from '../../lib/api';
 
 // ── Warm Coach design tokens ─────────────────────────────
 const W = {
@@ -182,7 +184,7 @@ function S2_Name({ value, onChange, onNext, onBack, step, total }: {
 }) {
   return (
     <Shell step={step ?? 1} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack} ctaDisabled={!value.trim()}>
-      <Title eyebrow="ABOUT YOU · 1 OF 4" title="What should we call you?" sub="Used for your daily coaching nudges." />
+      <Title eyebrow="ABOUT YOU" title="What should we call you?" sub="Used for your daily coaching nudges." />
       <TextInput
         style={[s2.input, { fontFamily: 'SpaceGrotesk_700Bold' }]}
         value={value} onChangeText={onChange}
@@ -205,16 +207,16 @@ const s2 = StyleSheet.create({
   hint: { fontSize: 12, marginTop: 10 },
 });
 
-// ── S3: Body stats ───────────────────────────────────────
+// ── Shared: Stepper (used for birthday + body stats) ─────
 function Stepper({ label, value, unit, onDec, onInc, big }: {
-  label: string; value: number; unit: string;
+  label: string; value: number | string; unit: string;
   onDec: () => void; onInc: () => void; big?: boolean;
 }) {
   return (
     <View style={[s3.card, { backgroundColor: W.card, borderColor: W.rule }]}>
       <Text style={[s3.label, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>{label}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 10 }}>
-        <Text style={[s3.val, { fontSize: big ? 44 : 36, fontFamily: 'SpaceGrotesk_700Bold', color: W.ink }]}>{value}</Text>
+        <Text style={[s3.val, { fontSize: big ? 44 : 30, fontFamily: 'SpaceGrotesk_700Bold', color: W.ink }]}>{value}</Text>
         <Text style={[s3.unit, { color: W.ink3, fontFamily: 'Inter_500Medium' }]}>{unit}</Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 6, marginTop: 14 }}>
@@ -229,36 +231,6 @@ function Stepper({ label, value, unit, onDec, onInc, big }: {
   );
 }
 
-function S3_Body({ age, height, weight, onAge, onHeight, onWeight, onNext, onBack, step, total }: {
-  age: number; height: number; weight: number;
-  onAge: (n: number) => void; onHeight: (n: number) => void; onWeight: (n: number) => void;
-  onNext: () => void; onBack: () => void;
-  step?: number; total?: number;
-}) {
-  return (
-    <Shell step={step ?? 2} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
-      <Title eyebrow="ABOUT YOU · 2 OF 4" title="The basics." sub="So your fuel and strength scores actually mean something." />
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <View style={{ flex: 1 }}>
-          <Stepper label="AGE" value={age} unit="yrs"
-            onDec={() => onAge(Math.max(10, age - 1))} onInc={() => onAge(Math.min(99, age + 1))} big />
-        </View>
-        <View style={{ flex: 1, gap: 8 }}>
-          <Stepper label="HEIGHT" value={height} unit="cm"
-            onDec={() => onHeight(Math.max(100, height - 1))} onInc={() => onHeight(Math.min(250, height + 1))} />
-          <Stepper label="WEIGHT" value={weight} unit="kg"
-            onDec={() => onWeight(Math.max(30, weight - 1))} onInc={() => onWeight(Math.min(300, weight + 1))} />
-        </View>
-      </View>
-      <View style={[s3.notice, { backgroundColor: W.rest }]}>
-        <Text style={[{ color: W.ink2, fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_400Regular' }]}>
-          We never share this. Switch units in settings any time.
-        </Text>
-      </View>
-    </Shell>
-  );
-}
-
 const s3 = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 16, padding: 16 },
   label: { fontSize: 9, letterSpacing: 2 },
@@ -268,6 +240,299 @@ const s3 = StyleSheet.create({
   btnText: { fontSize: 18 },
   notice: { marginTop: 16, padding: 14, borderRadius: 12 },
 });
+
+// ── S_Birthday ───────────────────────────────────────────
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function daysInMonth(month: number, year: number) {
+  return new Date(year, month, 0).getDate();
+}
+function calcAge(day: number, month: number, year: number): number {
+  const today = new Date();
+  let age = today.getFullYear() - year;
+  const beforeBirthdayThisYear =
+    today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day);
+  if (beforeBirthdayThisYear) age--;
+  return Math.max(0, age);
+}
+function daysUntilNextBirthday(day: number, month: number): number {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const clampedDay = Math.min(day, daysInMonth(month, today.getFullYear()));
+  let next = new Date(today.getFullYear(), month - 1, clampedDay);
+  if (next < today) next = new Date(today.getFullYear() + 1, month - 1, clampedDay);
+  return Math.round((next.getTime() - today.getTime()) / 86400000);
+}
+
+const MIN_AGE = 18;
+
+function S_Birthday({ day, month, year, onDay, onMonth, onYear, onNext, onBack, step, total }: {
+  day: number; month: number; year: number;
+  onDay: (n: number) => void; onMonth: (n: number) => void; onYear: (n: number) => void;
+  onNext: () => void; onBack: () => void; step?: number; total?: number;
+}) {
+  const daysLeft = daysUntilNextBirthday(day, month);
+  const age = calcAge(day, month, year);
+  const underage = age < MIN_AGE;
+  // Newest birth year that CAN yield 18+ (exact eligibility is still verified
+  // via calcAge below, since this alone doesn't account for day/month).
+  const latestYear = new Date().getFullYear() - MIN_AGE;
+
+  return (
+    <Shell step={step ?? 2} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack} ctaDisabled={underage}>
+      <Title eyebrow="ABOUT YOU" title="When's your birthday?" sub="We'll use this to show you where you're headed." />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Stepper label="DAY" value={day} unit=""
+            onDec={() => onDay(day <= 1 ? daysInMonth(month, year) : day - 1)}
+            onInc={() => onDay(day >= daysInMonth(month, year) ? 1 : day + 1)} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Stepper label="MONTH" value={MONTH_NAMES[month - 1]} unit=""
+            onDec={() => onMonth(month <= 1 ? 12 : month - 1)}
+            onInc={() => onMonth(month >= 12 ? 1 : month + 1)} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Stepper label="YEAR" value={year} unit=""
+            onDec={() => onYear(Math.max(1930, year - 1))}
+            onInc={() => onYear(Math.min(latestYear, year + 1))} />
+        </View>
+      </View>
+      {underage ? (
+        <View style={[s3.notice, { backgroundColor: '#FCE6E6' }]}>
+          <Text style={{ color: W.bad, fontSize: 13, fontFamily: 'Inter_700Bold' }}>
+            GRITTT is only available to people 18 and older right now.
+          </Text>
+        </View>
+      ) : (
+        <View style={[s3.notice, { backgroundColor: W.ink }]}>
+          <Text style={{ color: W.hype, fontSize: 13, fontFamily: 'Inter_700Bold', marginBottom: 4 }}>
+            Your next birthday is in {daysLeft} days.
+          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_400Regular' }}>
+            The person celebrating that birthday is being built right now.
+          </Text>
+        </View>
+      )}
+    </Shell>
+  );
+}
+
+// ── Grouped multi-select (reused for outcomes / pain points / blockers / habits) ──
+type Group = { label: string; options: string[] };
+
+function S_GroupedMultiSelect({ eyebrow, title, sub, groups, selected, onToggle, max, onNext, onBack, step, total }: {
+  eyebrow: string; title: string; sub?: string; groups: Group[];
+  selected: string[]; onToggle: (opt: string) => void; max?: number;
+  onNext: () => void; onBack: () => void; step?: number; total?: number;
+}) {
+  const cta = max ? `CONTINUE${selected.length ? ` (${selected.length}/${max})` : ''}` : 'CONTINUE';
+  return (
+    <Shell step={step ?? 0} total={total} cta={cta} onCta={onNext} onBack={onBack}>
+      <Title eyebrow={eyebrow} title={title} sub={sub} />
+      {groups.map(g => (
+        <View key={g.label} style={{ marginBottom: 20 }}>
+          <Text style={[gm.groupLabel, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>{g.label.toUpperCase()}</Text>
+          <View style={gm.chipWrap}>
+            {g.options.map(opt => {
+              const on = selected.includes(opt);
+              const atMax = !on && !!max && selected.length >= max;
+              return (
+                <TouchableOpacity
+                  key={opt}
+                  disabled={atMax}
+                  style={[gm.chip, {
+                    borderColor: on ? W.ink : W.rule,
+                    backgroundColor: on ? W.ink : W.card,
+                    opacity: atMax ? 0.4 : 1,
+                  }]}
+                  onPress={() => onToggle(opt)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[gm.chipText, { color: on ? '#FFFFFF' : W.ink, fontFamily: on ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
+                    {opt}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      ))}
+    </Shell>
+  );
+}
+
+const gm = StyleSheet.create({
+  groupLabel: { fontSize: 10, letterSpacing: 2, marginBottom: 10 },
+  chipWrap:   { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip:       { borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10 },
+  chipText:   { fontSize: 13 },
+});
+
+// ── Desired outcomes (max 5) ─────────────────────────────
+const DESIRED_OUTCOME_GROUPS: Group[] = [
+  { label: 'Body', options: ['Lose weight', 'Reduce belly fat', 'Build muscle', 'Get stronger', 'Improve fitness', 'Improve posture', 'Look better in photos', 'Feel attractive again'] },
+  { label: 'Health', options: ['Better sleep', 'More energy', 'Eat healthier', 'Improve digestion', 'Reduce stress', 'Feel healthier overall'] },
+  { label: 'Discipline', options: ['Become more disciplined', 'Stop procrastinating', 'Build consistency', 'Follow through on goals', 'Create a routine'] },
+  { label: 'Focus', options: ['Better focus', 'Reduce distractions', 'Spend less time on social media', 'Use my phone less', 'Improve productivity'] },
+  { label: 'Addictions', options: ['Quit smoking', 'Quit alcohol', 'Quit vaping', 'Quit porn', 'Quit masturbation', 'Reduce junk food', 'Reduce sugar'] },
+  { label: 'Emotional', options: ['Feel more confident', 'Improve self-esteem', 'Stop feeling stuck', 'Feel proud of myself', 'Gain momentum in life'] },
+];
+
+// ── Pain points (max 3) ──────────────────────────────────
+const PAIN_POINT_GROUPS: Group[] = [
+  { label: 'Physical', options: ["I'm overweight", 'I have low energy', 'I get tired easily', "I don't like how I look", "I don't sleep well"] },
+  { label: 'Mental', options: ['I overthink everything', 'I feel stuck', 'I feel unmotivated', 'I feel lost', 'I have low confidence'] },
+  { label: 'Productivity', options: ['I procrastinate', 'I waste too much time', "I can't focus", 'I get distracted easily'] },
+  { label: 'Habits', options: ['I keep relapsing', 'I start and quit', 'I have unhealthy habits', "I can't stay consistent"] },
+  { label: 'Lifestyle', options: ['I spend too much time on my phone', "I don't exercise", 'I eat too much junk food', 'I smoke', 'I drink too much alcohol'] },
+];
+
+// ── Blockers (max 3) ─────────────────────────────────────
+const BLOCKER_GROUPS: Group[] = [
+  { label: 'Motivation', options: ['I lose motivation quickly', "I don't feel motivated enough", 'I stop when progress is slow'] },
+  { label: 'Consistency', options: ['I start but never finish', "I can't stay consistent", 'I keep breaking streaks'] },
+  { label: 'Time', options: ["I'm too busy", 'My schedule is unpredictable', 'Work drains me'] },
+  { label: 'Environment', options: ['My friends influence me negatively', 'Temptations are everywhere', 'My environment makes it difficult'] },
+  { label: 'Knowledge', options: ["I don't know where to start", "I don't know what works", "I've tried everything"] },
+  { label: 'Emotional', options: ['Stress', 'Anxiety', 'Low confidence', 'Fear of failure'] },
+  { label: 'Addictions', options: ['Nicotine cravings', 'Alcohol cravings', 'Porn addiction', 'Social media addiction', 'Food cravings'] },
+];
+
+// ── Positive / negative habits ───────────────────────────
+const POSITIVE_HABIT_GROUPS: Group[] = [
+  { label: 'Fitness', options: ['Gym', 'Running', 'Walking', 'Sports'] },
+  { label: 'Mind', options: ['Reading', 'Journaling', 'Meditation'] },
+  { label: 'Health', options: ['Good sleep schedule', 'High protein diet', 'Drinking enough water'] },
+  { label: 'Productivity', options: ['Planning my day', 'Time blocking', 'Deep work sessions'] },
+];
+
+const NEGATIVE_HABIT_GROUPS: Group[] = [
+  { label: 'Addictions', options: ['Smoking', 'Alcohol', 'Vaping', 'Porn', 'Masturbation'] },
+  { label: 'Food', options: ['Junk food', 'Sugar', 'Late-night eating'] },
+  { label: 'Digital', options: ['Social media', 'Excessive YouTube', 'Gaming', 'Phone in bed'] },
+  { label: 'Lifestyle', options: ['Skipping workouts', 'Sleeping late', 'Oversleeping'] },
+];
+
+// ── S_Reflection ─────────────────────────────────────────
+const REFLECTION_EXAMPLES = [
+  "I'd still be overweight.",
+  "I'd still be smoking.",
+  "I'd still be wasting time.",
+  "I'd still be making excuses.",
+  "I'd still be stuck.",
+];
+
+function S_Reflection({ value, onChange, onNext, onBack, step, total }: {
+  value: string; onChange: (s: string) => void; onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
+}) {
+  return (
+    <Shell step={step ?? 0} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
+      <Title
+        eyebrow="HONEST REFLECTION"
+        title="If your life looked exactly the same 6 months from now, what would disappoint you the most?"
+        sub="Be honest. This one shapes everything else."
+      />
+      <TextInput
+        style={[refl.input, { color: W.ink, fontFamily: 'Inter_500Medium' }]}
+        value={value}
+        onChangeText={onChange}
+        placeholder="I'd still be…"
+        placeholderTextColor={W.ink3}
+        multiline
+        textAlignVertical="top"
+      />
+      <Text style={[refl.exLabel, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>OR TAP AN EXAMPLE</Text>
+      <View style={{ gap: 8 }}>
+        {REFLECTION_EXAMPLES.map(ex => (
+          <TouchableOpacity key={ex} onPress={() => onChange(ex)} style={[refl.exRow, { borderColor: W.rule, backgroundColor: W.card }]} activeOpacity={0.7}>
+            <Text style={{ color: W.ink2, fontSize: 13.5, fontFamily: 'Inter_400Regular' }}>{ex}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </Shell>
+  );
+}
+
+const refl = StyleSheet.create({
+  input: {
+    borderWidth: 1.5, borderColor: W.ink, borderRadius: 14, backgroundColor: W.card,
+    paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, minHeight: 110,
+  },
+  exLabel: { fontSize: 10, letterSpacing: 2, marginTop: 20, marginBottom: 10 },
+  exRow: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
+});
+
+// ── S3: Body (height/weight + sleep + activity) ──────────
+const SLEEP_OPTIONS = ['Before 10 PM', '10 PM – 11 PM', '11 PM – Midnight', 'Midnight – 1 AM', 'After 1 AM'];
+const ACTIVITY_OPTIONS = ['Never exercise', '1-2 times/week', '3-4 times/week', '5+ times/week'];
+
+function ChoiceRow({ options, selected, onSelect }: { options: string[]; selected: string; onSelect: (s: string) => void }) {
+  return (
+    <View style={{ gap: 8 }}>
+      {options.map(opt => {
+        const on = selected === opt;
+        return (
+          <TouchableOpacity
+            key={opt}
+            onPress={() => onSelect(opt)}
+            style={[cr.row, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.ink : W.card }]}
+            activeOpacity={0.8}
+          >
+            <Text style={[cr.text, { color: on ? '#FFFFFF' : W.ink, fontFamily: on ? 'Inter_700Bold' : 'Inter_500Medium' }]}>{opt}</Text>
+            <View style={[cr.radio, { borderColor: on ? W.hype : W.rule, backgroundColor: on ? W.hype : 'transparent' }]}>
+              {on && <Text style={{ color: W.ink, fontSize: 10, fontWeight: '900' }}>✓</Text>}
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+const cr = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13 },
+  text: { fontSize: 14 },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+});
+
+function S3_Body({ height, weight, sleepSchedule, activityLevel, onHeight, onWeight, onSleep, onActivity, onNext, onBack, step, total }: {
+  height: number; weight: number; sleepSchedule: string; activityLevel: string;
+  onHeight: (n: number) => void; onWeight: (n: number) => void;
+  onSleep: (s: string) => void; onActivity: (s: string) => void;
+  onNext: () => void; onBack: () => void;
+  step?: number; total?: number;
+}) {
+  return (
+    <Shell step={step ?? 2} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
+      <Title eyebrow="CURRENT REALITY" title="Where you're starting from." sub="So your fuel and strength scores actually mean something." />
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+        <View style={{ flex: 1 }}>
+          <Stepper label="HEIGHT" value={height} unit="cm"
+            onDec={() => onHeight(Math.max(100, height - 1))} onInc={() => onHeight(Math.min(250, height + 1))} big />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Stepper label="WEIGHT" value={weight} unit="kg"
+            onDec={() => onWeight(Math.max(30, weight - 1))} onInc={() => onWeight(Math.min(300, weight + 1))} big />
+        </View>
+      </View>
+
+      <Text style={[gm.groupLabel, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>USUAL SLEEP TIME</Text>
+      <View style={{ marginBottom: 20 }}>
+        <ChoiceRow options={SLEEP_OPTIONS} selected={sleepSchedule} onSelect={onSleep} />
+      </View>
+
+      <Text style={[gm.groupLabel, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>ACTIVITY LEVEL</Text>
+      <ChoiceRow options={ACTIVITY_OPTIONS} selected={activityLevel} onSelect={onActivity} />
+
+      <View style={[s3.notice, { backgroundColor: W.rest }]}>
+        <Text style={[{ color: W.ink2, fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_400Regular' }]}>
+          We never share this. Switch units in settings any time.
+        </Text>
+      </View>
+    </Shell>
+  );
+}
 
 // ── Habit recommendations ───────────────────────────────────
 // Build = things to start doing (positive habits)
@@ -330,9 +595,7 @@ function S_HabitPicker({
   const opts     = isBuild ? BUILD_RECS : BREAK_RECS;
   const eyebrow  = isBuild ? 'DISCIPLINE · BUILD' : 'DISCIPLINE · BREAK';
   const title    = isBuild ? 'What do you want to build?' : 'What do you want to control?';
-  const sub      = isBuild
-    ? 'Pick the habits to add. Skip anything you don\'t want.'
-    : 'Pick what you want out of your life. Skip anything that doesn\'t apply.';
+  const sub      = 'Pre-picked from your answers — adjust anything you don\'t want.';
   const ptColor  = isBuild ? W.good : W.bad;
   const ptPrefix = isBuild ? '+' : '−';
 
@@ -431,94 +694,407 @@ const cp = StyleSheet.create({
   checkbox:  { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
 });
 
-// ── S5: Baseline ─────────────────────────────────────────
-function S5_Baseline({ value, onChange, onNext, onBack, step, total }: {
-  value: number; onChange: (n: number) => void; onNext: () => void; onBack: () => void;
-  step?: number; total?: number;
-}) {
-  const cfg = value <= 4
-    ? { label: value <= 2 ? 'ROCK BOTTOM' : 'DRIFTING — TIME TO RESET', color: W.bad, bg: '#FCE6E6' }
-    : value <= 6
-      ? { label: 'AVERAGE — ROOM TO GROW', color: W.warn, bg: '#FFF1DC' }
-      : { label: 'BUILDING MOMENTUM', color: W.good, bg: '#E2F7EC' };
-
-  return (
-    <Shell step={step ?? 4} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
-      <Title eyebrow="HONEST CHECK" title="Be honest." sub="Where are you right now? 1 is rock bottom, 10 is dialed. No judgment." />
-      <View style={{ alignItems: 'center', paddingVertical: 12 }}>
-        <Text style={[s5.bigNum, { color: W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-          {value}<Text style={{ fontSize: 32, color: W.ink3 }}>/10</Text>
-        </Text>
-        <View style={[s5.pill, { backgroundColor: cfg.bg }]}>
-          <Text style={[s5.pillText, { color: cfg.color, fontFamily: 'Inter_700Bold' }]}>{cfg.label}</Text>
-        </View>
-      </View>
-      <View style={s5.ratingRow}>
-        {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
-          <TouchableOpacity key={n}
-            style={[s5.ratingBtn, { backgroundColor: n <= value ? W.ink : W.rest, borderWidth: n === value ? 2 : 0, borderColor: W.hype }]}
-            onPress={() => onChange(n)} activeOpacity={0.7}>
-            <Text style={[s5.ratingNum, { color: n <= value ? '#FFFFFF' : W.ink3, fontFamily: 'SpaceGrotesk_700Bold' }]}>{n}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
-        <Text style={[s5.rangeLabel, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>ROCK BOTTOM</Text>
-        <Text style={[s5.rangeLabel, { color: W.ink3, fontFamily: 'Inter_700Bold' }]}>DIALED IN</Text>
-      </View>
-    </Shell>
-  );
-}
-
-const s5 = StyleSheet.create({
-  bigNum: { fontSize: 96, lineHeight: 96, letterSpacing: -4 },
-  pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, marginTop: 10 },
-  pillText: { fontSize: 11, letterSpacing: 1.5 },
-  ratingRow: { flexDirection: 'row', gap: 5, marginTop: 20 },
-  ratingBtn: { flex: 1, aspectRatio: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  ratingNum: { fontSize: 13 },
-  rangeLabel: { fontSize: 9, letterSpacing: 1.5 },
-});
-
-// ── S6: Priority mode ────────────────────────────────────
-const MODES = [
-  { id: 'disc', name: 'DISCIPLINE', sub: 'Build a bulletproof daily routine.' },
-  { id: 'fuel', name: 'FUEL',       sub: 'Lock in clean eating. Body comp follows.' },
-  { id: 'phys', name: 'STRENGTH',   sub: 'Move every day. Get visibly stronger.' },
+// ── S_FutureMirror — premium AI reveal ───────────────────
+// ── S_Consent — gate before the Future Mirror AI call ────
+const CONSENT_POINTS = [
+  'I am at least 18 years old.',
+  'I understand that GRITTT collects and processes the information I provide, including my goals, habits, lifestyle choices, and self-reported behavioral data, in order to deliver personalized insights and recommendations.',
+  'I understand that some of the information I provide may be sent to trusted AI service providers to generate personalized analyses, projections, and coaching content.',
+  'I understand that GRITTT is not a medical device, healthcare provider, therapist, or treatment service. Any information, predictions, recommendations, or AI-generated content provided by GRITTT are for informational and motivational purposes only and should not be considered medical, psychological, legal, or professional advice.',
+  'I understand that AI-generated insights may be inaccurate, incomplete, or unsuitable for my specific circumstances, and I am responsible for my own decisions and actions.',
+  'I understand that I can delete my personal data or permanently delete my account at any time through the app settings.',
+  'I have read and agree to the Privacy Policy and Terms of Service.',
 ];
 
-function S6_Priority({ selected, onSelect, onNext, onBack, step, total }: {
-  selected: string; onSelect: (id: string) => void; onNext: () => void; onBack: () => void;
-  step?: number; total?: number;
+function S_Consent({ agreed, onToggleAgree, onOpenPrivacy, onNext, onBack, step, total }: {
+  agreed: boolean; onToggleAgree: () => void; onOpenPrivacy: () => void;
+  onNext: () => void; onBack: () => void; step?: number; total?: number;
 }) {
   return (
-    <Shell step={step ?? 3} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
-      <Title eyebrow="YOUR FOCUS" title="What matters most right now?" sub="We'll surface this mode first on your dashboard. Change anytime." />
-      <View style={{ gap: 10 }}>
-        {MODES.map(m => {
-          const on = selected === m.id;
-          return (
-            <TouchableOpacity key={m.id}
-              style={[s6.card, { borderColor: on ? W.ink : W.rule, backgroundColor: on ? W.ink : W.card }]}
-              onPress={() => onSelect(m.id)} activeOpacity={0.8}>
-              <Text style={[s6.modeName, { color: on ? '#FFFFFF' : W.ink, fontFamily: 'SpaceGrotesk_700Bold' }]}>{m.name}</Text>
-              <Text style={[s6.modeSub, { color: on ? 'rgba(255,255,255,0.7)' : W.ink2, fontFamily: 'Inter_400Regular' }]}>{m.sub}</Text>
-              <View style={[s6.radio, { borderColor: on ? W.hype : W.rule, backgroundColor: on ? W.hype : 'transparent' }]}>
-                {on && <Text style={{ color: W.ink, fontSize: 10, fontWeight: '900' }}>✓</Text>}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+    <Shell step={step ?? 0} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack} ctaDisabled={!agreed}>
+      <Title eyebrow="BEFORE YOU CONTINUE" title="Quick check before we build your mirror." />
+      <View style={{ gap: 14, marginBottom: 22 }}>
+        {CONSENT_POINTS.map((text, i) => (
+          <View key={i} style={{ flexDirection: 'row', gap: 10 }}>
+            <Text style={{ color: W.good, fontSize: 13, fontFamily: 'Inter_900Black', marginTop: 1 }}>✓</Text>
+            <Text style={{ flex: 1, color: W.ink2, fontSize: 13, lineHeight: 19, fontFamily: 'Inter_400Regular' }}>{text}</Text>
+          </View>
+        ))}
       </View>
+
+      <Pressable
+        onPress={onToggleAgree}
+        style={[cs.row, { borderColor: agreed ? W.ink : W.rule, backgroundColor: agreed ? '#F5F1E8' : W.card }]}
+      >
+        <View style={[cs.checkbox, { borderColor: agreed ? W.ink : W.rule, backgroundColor: agreed ? W.ink : 'transparent' }]}>
+          {agreed && <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>✓</Text>}
+        </View>
+        <Text style={{ flex: 1, color: W.ink, fontSize: 13, lineHeight: 19, fontFamily: 'Inter_500Medium' }}>
+          By continuing, I confirm that the information I provide is accurate to the best of my knowledge and I consent to the processing of my data as described above. I've read and agree to the{' '}
+          <Text onPress={onOpenPrivacy} style={{ color: W.ink, fontFamily: 'Inter_800ExtraBold', textDecorationLine: 'underline' }}>
+            Privacy Policy
+          </Text>
+          {' '}and Terms of Service.
+        </Text>
+      </Pressable>
     </Shell>
   );
 }
 
-const s6 = StyleSheet.create({
-  card: { padding: 18, borderRadius: 18, borderWidth: 1.5 },
-  modeName: { fontSize: 26, letterSpacing: -0.5, lineHeight: 28 },
-  modeSub: { fontSize: 13, marginTop: 6, lineHeight: 18 },
-  radio: { position: 'absolute', top: 18, right: 18, width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+const cs = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderWidth: 1.5, borderRadius: 14, padding: 14 },
+  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+});
+
+const SNAPSHOT_EMOJI: Record<string, string> = {
+  'Your Next Birthday': '🎂',
+  'A Random Tuesday': '📱',
+  'Looking In The Mirror': '🪞',
+  'Someone Notices': '👤',
+};
+
+const SCREEN_W = Dimensions.get('window').width;
+
+/** Fades + gently rises content in on mount — the only motion this screen uses. */
+function useEnter(delay = 0) {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(v, {
+      toValue: 1, duration: 700, delay, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+    }).start();
+  }, []);
+  return {
+    opacity: v,
+    transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }],
+  };
+}
+
+function MirrorSectionLabel({ children }: { children: string }) {
+  return (
+    <Text style={fm.sectionLabel}>{children}</Text>
+  );
+}
+
+function S_FutureMirror({ loading, error, result, onNext, onBack, step, total }: {
+  loading: boolean; error: boolean; result: FutureMirrorResult | null;
+  onNext: () => void; onBack: () => void; step?: number; total?: number;
+}) {
+  const heroEnter   = useEnter(0);
+  const identEnter  = useEnter(80);
+  const costEnter   = useEnter(140);
+  const [sceneIdx, setSceneIdx] = useState(0);
+
+  if (loading) {
+    return (
+      <View style={fm.screen}>
+        <SafeAreaView edges={['top']} style={{ backgroundColor: W.dark }}>
+          <View style={fm.topRow}>
+            <TouchableOpacity style={fm.backBtn} onPress={onBack} activeOpacity={0.6} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 18 }}>‹</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 18 }}>
+          <ActivityIndicator color={W.hype} size="large" />
+          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, fontFamily: 'Inter_500Medium', letterSpacing: 0.3 }}>
+            Building your mirror…
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error || !result) {
+    return (
+      <View style={fm.screen}>
+        <SafeAreaView edges={['top']} style={{ backgroundColor: W.dark }}>
+          <View style={fm.topRow}>
+            <TouchableOpacity style={fm.backBtn} onPress={onBack} activeOpacity={0.6} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 18 }}>‹</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 10 }}>
+          <Text style={{ color: W.hype, fontSize: 11, letterSpacing: 2, fontFamily: 'Inter_700Bold' }}>YOUR FUTURE MIRROR</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold', textAlign: 'center', marginTop: 6 }}>
+            Couldn't build your mirror right now
+          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, textAlign: 'center', lineHeight: 20, fontFamily: 'Inter_400Regular', marginTop: 4 }}>
+            No worries — let's keep going. You can always come back to this later.
+          </Text>
+        </View>
+        <SafeAreaView edges={['bottom']} style={{ backgroundColor: W.dark }}>
+          <View style={{ paddingHorizontal: 22, paddingBottom: 16 }}>
+            <TouchableOpacity style={fm.cta} onPress={onNext} activeOpacity={0.85}>
+              <Text style={fm.ctaText}>CONTINUE  →</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={fm.screen}>
+      <SafeAreaView edges={['top']} style={{ backgroundColor: W.dark }}>
+        <View style={fm.topRow}>
+          <TouchableOpacity style={fm.backBtn} onPress={onBack} activeOpacity={0.6} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 18 }}>‹</Text>
+          </TouchableOpacity>
+          <View style={fm.dotsRow}>
+            {Array.from({ length: total ?? 1 }).map((_, i) => (
+              <View key={i} style={[fm.dot, i < (step ?? 0) ? fm.dotDone : fm.dotPending]} />
+            ))}
+          </View>
+        </View>
+      </SafeAreaView>
+
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={fm.scroll} showsVerticalScrollIndicator={false}>
+
+        {/* ── Section 1: Hero Mirror ── */}
+        <Animated.View style={heroEnter}>
+          <Text style={fm.screenTitle}>Future Mirror</Text>
+          <Text style={fm.screenSub}>A reflection of who you're becoming.</Text>
+
+          <View style={fm.heroWrap}>
+            <View style={fm.heroGlow} pointerEvents="none" />
+            <LinearGradient
+              colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0.03)']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={fm.heroCard}
+            >
+              <Text style={fm.heroHeadline}>{result.futureHeadline}</Text>
+              {!!result.confidenceLevel && (
+                <View style={fm.confidenceRow}>
+                  <View style={fm.confidenceDot} />
+                  <Text style={fm.confidenceText}>{result.confidenceLevel}</Text>
+                </View>
+              )}
+            </LinearGradient>
+          </View>
+        </Animated.View>
+
+        {/* ── Section 2: Identity Reflection ── */}
+        <Animated.View style={identEnter}>
+          <MirrorSectionLabel>WHAT THE MIRROR SEES</MirrorSectionLabel>
+          <View style={fm.identityCard}>
+            <Text style={fm.identityText}>{result.identityObserved}</Text>
+          </View>
+          <View style={[fm.identityCard, fm.identityCardEmerging]}>
+            <Text style={fm.emergingLabel}>WHO'S TRYING TO EMERGE</Text>
+            <Text style={fm.identityTextEmerging}>{result.identityEmerging}</Text>
+          </View>
+        </Animated.View>
+
+        {/* ── Section 3: Hidden Cost ── */}
+        <Animated.View style={costEnter}>
+          <MirrorSectionLabel>THE COST NOBODY NOTICES</MirrorSectionLabel>
+          <View style={fm.costBlock}>
+            <Text style={fm.costText}>{result.hiddenCost}</Text>
+            {!!result.selfNegotiation && (
+              <Text style={fm.negotiationText}>{result.selfNegotiation}</Text>
+            )}
+          </View>
+        </Animated.View>
+
+        {/* ── Section 4: Future Scenes (swipeable) ── */}
+        <MirrorSectionLabel>THE TWO PATHS AHEAD</MirrorSectionLabel>
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={e => setSceneIdx(Math.round(e.nativeEvent.contentOffset.x / (SCREEN_W - 44)))}
+          style={{ marginHorizontal: -22 }}
+          contentContainerStyle={{ paddingHorizontal: 22 }}
+          decelerationRate="fast"
+          snapToInterval={SCREEN_W - 44 + 12}
+        >
+          <View style={[fm.scene, fm.sceneNegative, { width: SCREEN_W - 44, marginRight: 12 }]}>
+            <Text style={fm.sceneLabel}>IF NOTHING CHANGES</Text>
+            <Text style={fm.sceneText}>{result.futureMirrorNegative}</Text>
+          </View>
+          <View style={[fm.scene, fm.scenePositive, { width: SCREEN_W - 44 }]}>
+            <Text style={[fm.sceneLabel, { color: W.good }]}>IF THE PATTERN CHANGES</Text>
+            <Text style={fm.sceneText}>{result.futureMirrorPositive}</Text>
+          </View>
+        </ScrollView>
+        <View style={fm.pagerRow}>
+          <View style={[fm.pagerDot, sceneIdx === 0 && fm.pagerDotActive]} />
+          <View style={[fm.pagerDot, sceneIdx === 1 && fm.pagerDotActive]} />
+        </View>
+
+        {/* ── Section 5: Future Snapshots ── */}
+        <MirrorSectionLabel>MOMENTS WAITING AHEAD</MirrorSectionLabel>
+        <View style={{ gap: 12, marginBottom: 8 }}>
+          {(result.futureSnapshots ?? []).map((snap: FutureMirrorSnapshot, i: number) => (
+            <View key={i} style={fm.snapshotCard}>
+              <Text style={fm.snapshotEmoji}>{SNAPSHOT_EMOJI[snap.title] ?? '✨'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={fm.snapshotTitle}>{snap.title}</Text>
+                <Text style={fm.snapshotScene}>{snap.scene}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+
+        {/* ── Section 6: Trajectory Drivers ── */}
+        {(result.trajectoryDrivers ?? []).length > 0 && (
+          <>
+            <MirrorSectionLabel>WHAT'S SHAPING YOUR FUTURE</MirrorSectionLabel>
+            <View style={fm.driverWrap}>
+              {result.trajectoryDrivers.map((d, i) => (
+                <View key={i} style={fm.driverChip}>
+                  <Text style={fm.driverChipText}>{d}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* ── Section 7: Birthday Checkpoint ── */}
+        {!!result.birthdayCheckpoint && (
+          <View style={fm.checkpointBlock}>
+            <View style={fm.checkpointRule} />
+            <Text style={fm.checkpointText}>{result.birthdayCheckpoint}</Text>
+            <View style={fm.checkpointRule} />
+          </View>
+        )}
+
+        {/* ── Section 8: Subscription teaser ── */}
+        <View style={fm.subCard}>
+          <Text style={fm.subEyebrow}>THE MIRROR CHANGES EVERY WEEK</Text>
+          <Text style={fm.subHeadline}>The future isn't fixed. The mirror updates as your actions do.</Text>
+          <View style={{ gap: 10, marginTop: 16 }}>
+            {[
+              'Weekly Future Mirror updates',
+              'Track identity shifts over time',
+              'Watch your trajectory change',
+              'Compare past and future versions of yourself',
+              'Unlock deeper future projections',
+            ].map((b, i) => (
+              <View key={i} style={fm.subRow}>
+                <View style={fm.subDot} />
+                <Text style={fm.subRowText}>{b}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+      </ScrollView>
+
+      <SafeAreaView edges={['bottom']} style={{ backgroundColor: W.dark }}>
+        <View style={{ paddingHorizontal: 22, paddingBottom: 12, paddingTop: 10 }}>
+          <TouchableOpacity style={fm.cta} onPress={onNext} activeOpacity={0.85}>
+            <Text style={fm.ctaText}>SEE WHO YOU'RE BECOMING  →</Text>
+          </TouchableOpacity>
+          {!!result.trajectoryQuestion && (
+            <Text style={fm.trajectoryQuestion}>{result.trajectoryQuestion}</Text>
+          )}
+        </View>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+const fm = StyleSheet.create({
+  screen:   { flex: 1, backgroundColor: W.dark },
+  topRow:   { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 22, paddingVertical: 14 },
+  backBtn:  { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
+  dotsRow:  { flex: 1, flexDirection: 'row', gap: 4 },
+  dot:      { flex: 1, height: 3, borderRadius: 2 },
+  dotDone:  { backgroundColor: W.hype },
+  dotPending: { backgroundColor: 'rgba(255,255,255,0.12)' },
+  scroll:   { paddingHorizontal: 22, paddingTop: 4, paddingBottom: 28 },
+
+  screenTitle: { color: '#FFFFFF', fontSize: 15, letterSpacing: 1, fontFamily: 'SpaceGrotesk_700Bold' },
+  screenSub:   { color: 'rgba(255,255,255,0.5)', fontSize: 13, marginTop: 4, marginBottom: 22, fontFamily: 'Inter_400Regular' },
+
+  // Hero
+  heroWrap:  { position: 'relative', marginBottom: 34 },
+  heroGlow:  {
+    position: 'absolute', top: -30, left: '15%', right: '15%', height: 160,
+    borderRadius: 999, backgroundColor: W.hype, opacity: 0.14,
+  },
+  heroCard: {
+    borderRadius: 26, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: 24, paddingVertical: 36, alignItems: 'center',
+  },
+  heroHeadline: {
+    color: '#FFFFFF', fontSize: 28, lineHeight: 34, textAlign: 'center',
+    fontFamily: 'SpaceGrotesk_700Bold', letterSpacing: -0.3,
+  },
+  confidenceRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 18 },
+  confidenceDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: W.hype },
+  confidenceText: { color: 'rgba(255,255,255,0.55)', fontSize: 12.5, fontFamily: 'Inter_400Regular', fontStyle: 'italic' },
+
+  sectionLabel: { color: W.hype, fontSize: 10, letterSpacing: 2, fontFamily: 'Inter_700Bold', marginBottom: 12, marginTop: 8 },
+
+  // Identity
+  identityCard: {
+    borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.04)', padding: 20, marginBottom: 10,
+  },
+  identityText: { color: '#FFFFFF', fontSize: 18, lineHeight: 26, fontFamily: 'SpaceGrotesk_500Medium' },
+  identityCardEmerging: { backgroundColor: 'rgba(184,242,58,0.06)', borderColor: 'rgba(184,242,58,0.22)', marginBottom: 24 },
+  emergingLabel: { color: W.hype, fontSize: 9, letterSpacing: 1.5, fontFamily: 'Inter_700Bold', marginBottom: 8 },
+  identityTextEmerging: { color: 'rgba(255,255,255,0.85)', fontSize: 15, lineHeight: 22, fontFamily: 'Inter_500Medium' },
+
+  // Hidden cost
+  costBlock:  { paddingVertical: 4, marginBottom: 28 },
+  costText:   { color: '#FFFFFF', fontSize: 17, lineHeight: 27, fontFamily: 'Inter_500Medium' },
+  negotiationText: { color: 'rgba(255,255,255,0.5)', fontSize: 14, lineHeight: 21, fontFamily: 'Inter_400Regular', marginTop: 14 },
+
+  // Future scenes
+  scene:    { borderWidth: 1.5, borderRadius: 20, padding: 22, justifyContent: 'center', minHeight: 180 },
+  sceneNegative: { backgroundColor: '#1E1414', borderColor: 'rgba(232,74,74,0.3)' },
+  scenePositive: { backgroundColor: '#131C16', borderColor: 'rgba(34,166,100,0.3)' },
+  sceneLabel: { color: W.bad, fontSize: 10, letterSpacing: 1.5, fontFamily: 'Inter_900Black', marginBottom: 12 },
+  sceneText:  { color: '#FFFFFF', fontSize: 15.5, lineHeight: 23, fontFamily: 'Inter_500Medium' },
+  pagerRow:   { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 12, marginBottom: 30 },
+  pagerDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.18)' },
+  pagerDotActive: { backgroundColor: W.hype, width: 16 },
+
+  // Snapshots
+  snapshotCard: {
+    flexDirection: 'row', gap: 14, alignItems: 'flex-start',
+    borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.03)', padding: 16,
+  },
+  snapshotEmoji: { fontSize: 22, marginTop: 2 },
+  snapshotTitle: { color: W.hype, fontSize: 11, letterSpacing: 1, fontFamily: 'Inter_800ExtraBold', marginBottom: 5 },
+  snapshotScene: { color: 'rgba(255,255,255,0.8)', fontSize: 14, lineHeight: 21, fontFamily: 'Inter_400Regular' },
+
+  // Trajectory drivers
+  driverWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 28 },
+  driverChip: {
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  driverChipText: { color: 'rgba(255,255,255,0.85)', fontSize: 12.5, fontFamily: 'Inter_500Medium' },
+
+  // Birthday checkpoint
+  checkpointBlock: { alignItems: 'center', paddingVertical: 38, gap: 20 },
+  checkpointRule:  { width: 32, height: 1, backgroundColor: 'rgba(255,255,255,0.18)' },
+  checkpointText:  { color: '#FFFFFF', fontSize: 21, lineHeight: 30, textAlign: 'center', fontFamily: 'SpaceGrotesk_700Bold', maxWidth: 300 },
+
+  // Subscription teaser
+  subCard: {
+    borderRadius: 22, borderWidth: 1, borderColor: 'rgba(184,242,58,0.25)',
+    backgroundColor: 'rgba(184,242,58,0.05)', padding: 22, marginTop: 6,
+  },
+  subEyebrow:  { color: W.hype, fontSize: 10, letterSpacing: 1.5, fontFamily: 'Inter_700Bold', marginBottom: 10 },
+  subHeadline: { color: '#FFFFFF', fontSize: 17, lineHeight: 24, fontFamily: 'SpaceGrotesk_600SemiBold' },
+  subRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  subDot:      { width: 5, height: 5, borderRadius: 2.5, backgroundColor: W.hype, marginTop: 7 },
+  subRowText:  { flex: 1, color: 'rgba(255,255,255,0.75)', fontSize: 13.5, lineHeight: 19, fontFamily: 'Inter_400Regular' },
+
+  // CTA
+  cta:     { backgroundColor: W.hype, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
+  ctaText: { color: W.ink, fontSize: 13.5, letterSpacing: 1.5, fontFamily: 'SpaceGrotesk_700Bold' },
+  trajectoryQuestion: {
+    color: 'rgba(255,255,255,0.45)', fontSize: 12, textAlign: 'center', fontStyle: 'italic',
+    marginTop: 12, fontFamily: 'Inter_400Regular',
+  },
 });
 
 // ── S8: Log time ─────────────────────────────────────────
@@ -535,7 +1111,7 @@ function S8_Time({ selected, onSelect, onNext, onBack, step, total }: {
 }) {
   return (
     <Shell step={step ?? 7} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
-      <Title eyebrow="DAILY RHYTHM" title="When can you spare 60 seconds?" sub="That's when we'll nudge you to log. Be realistic." />
+      <Title eyebrow="COACHING STYLE · DAILY RHYTHM" title="When can you spare 60 seconds?" sub="That's when we'll nudge you to log. Be realistic." />
       <View style={s8.grid}>
         {TIMES.map(t => {
           const on = selected === t.id;
@@ -580,7 +1156,7 @@ function S9_Tone({ selected, onSelect, onNext, onBack, step, total }: {
 }) {
   return (
     <Shell step={step ?? 8} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
-      <Title eyebrow="COACHING" title="How should we talk to you?" sub="Change anytime in settings." />
+      <Title eyebrow="COACHING STYLE" title="How should we talk to you?" sub="Change anytime in settings." />
       <View style={{ gap: 10 }}>
         {TONES.map(t => {
           const on = selected === t.id;
@@ -655,7 +1231,7 @@ function S10_Commit({
             <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 18 }}>‹</Text>
           </TouchableOpacity>
           <View style={[s10.fullBar, { backgroundColor: W.hype }]} />
-          <Text style={[s10.stepNum, { color: 'rgba(255,255,255,0.5)', fontFamily: 'SpaceGrotesk_500Medium' }]}>10/10</Text>
+          <Text style={[s10.stepNum, { color: 'rgba(255,255,255,0.5)', fontFamily: 'SpaceGrotesk_500Medium' }]}>FINAL</Text>
         </View>
       </SafeAreaView>
 
@@ -803,79 +1379,10 @@ const ss = StyleSheet.create({
 
 const tt = StyleSheet.create({
   eyebrow: { fontSize: 11, letterSpacing: 2, marginBottom: 10 },
-  title: { fontSize: 34, letterSpacing: -1, lineHeight: 36, textTransform: 'uppercase' },
+  title: { fontSize: 30, letterSpacing: -1, lineHeight: 34 },
   sub: { fontSize: 15, marginTop: 12, lineHeight: 22 },
 });
 
-// ── S_QuestionPicker ─────────────────────────────────────
-const QUESTION_CATEGORIES = [
-  { key: 'Food',       icon: '🍽️', desc: 'Food quality, junk food, meal adherence' },
-  { key: 'Hydration',  icon: '💧', desc: 'Water intake throughout the day' },
-  { key: 'Sleep',      icon: '😴', desc: 'Sleep quality and duration' },
-  { key: 'Energy',     icon: '⚡', desc: 'Energy levels and focus' },
-  { key: 'Mindset',    icon: '🧠', desc: 'Mood, stress, and mental clarity' },
-  { key: 'Digestion',  icon: '🌿', desc: 'Gut comfort and digestion' },
-];
-
-function S_QuestionPicker({ selected, onToggle, onNext, onBack, step, total }: {
-  selected: string[];
-  onToggle: (key: string) => void;
-  onNext: () => void;
-  onBack: () => void;
-  step?: number;
-  total?: number;
-}) {
-  return (
-    <Shell step={step ?? 7} total={total} cta="CONTINUE" onCta={onNext} onBack={onBack}>
-      <Text style={[tt.eyebrow, { color: W.ink3 }]}>DAILY CHECK-IN</Text>
-      <Text style={[tt.title, { color: W.ink }]}>What do you{'\n'}want to track?</Text>
-      <Text style={[tt.sub, { color: W.ink2 }]}>
-        Each day you'll answer a few quick questions to build your fuel score. Pick the areas that matter to you.
-      </Text>
-
-      <View style={{ gap: 10, marginTop: 28 }}>
-        {QUESTION_CATEGORIES.map(cat => {
-          const active = selected.includes(cat.key);
-          return (
-            <TouchableOpacity
-              key={cat.key}
-              style={{
-                flexDirection: 'row', alignItems: 'center', gap: 14,
-                padding: 16, borderRadius: 14, borderWidth: 1.5,
-                backgroundColor: active ? W.ink : W.card,
-                borderColor: active ? W.ink : W.rule,
-              }}
-              onPress={() => onToggle(cat.key)}
-              activeOpacity={0.75}
-            >
-              <Text style={{ fontSize: 22 }}>{cat.icon}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: active ? '#FFF' : W.ink, marginBottom: 2 }}>
-                  {cat.key}
-                </Text>
-                <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: active ? 'rgba(255,255,255,0.65)' : W.ink3 }}>
-                  {cat.desc}
-                </Text>
-              </View>
-              <View style={{
-                width: 22, height: 22, borderRadius: 6, borderWidth: 1.5,
-                backgroundColor: active ? W.hype : 'transparent',
-                borderColor: active ? W.hype : W.rule,
-                alignItems: 'center', justifyContent: 'center',
-              }}>
-                {active && <Text style={{ fontSize: 13, color: W.ink }}>✓</Text>}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <Text style={{ fontSize: 12, color: W.ink3, fontFamily: 'Inter_400Regular', textAlign: 'center', marginTop: 16 }}>
-        You can add or remove questions anytime from your profile.
-      </Text>
-    </Shell>
-  );
-}
 
 // ── Main export ──────────────────────────────────────────
 export default function OnboardingScreen() {
@@ -883,20 +1390,47 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [name, setName] = useState(user?.name ?? '');
-  const [age, setAge] = useState(25);
+
+  // Birthday
+  const now = new Date();
+  const [dobDay, setDobDay] = useState(1);
+  const [dobMonth, setDobMonth] = useState(1);
+  const [dobYear, setDobYear] = useState(now.getFullYear() - 25);
+
+  // Desired outcomes / pain points / blockers / reflection
+  const [desiredOutcomes, setDesiredOutcomes] = useState<string[]>([]);
+  const [painPoints, setPainPoints] = useState<string[]>([]);
+  const [blockers, setBlockers] = useState<string[]>([]);
+  const [disappointment, setDisappointment] = useState('');
+
+  // Current reality
   const [height, setHeight] = useState(175);
   const [weight, setWeight] = useState(75);
-  const [baseline, setBaseline] = useState(5);
-  const [priority, setPriority] = useState('disc');
+  const [sleepSchedule, setSleepSchedule] = useState('');
+  const [activityLevel, setActivityLevel] = useState('');
+
+  // Positive / negative habits (free-form, distinct from the preset Build/Break pickers)
+  const [positiveHabits, setPositiveHabits] = useState<string[]>([]);
+  const [negativeHabits, setNegativeHabits] = useState<string[]>([]);
+
+  // Consent gate (shown right before the Future Mirror AI call)
+  const [consentAgreed, setConsentAgreed] = useState(false);
+
+  // Future Mirror
+  const [mirrorResult, setMirrorResult] = useState<FutureMirrorResult | null>(null);
+  const [mirrorLoading, setMirrorLoading] = useState(false);
+  const [mirrorError, setMirrorError] = useState(false);
+  const mirrorRequested = useRef(false);
+
+  // No longer asked directly (superseded by pain points / reflection) — the
+  // backend still requires a value, so default to a neutral midpoint.
+  const baseline = 5;
   // Recommendations the user opts into
   const [buildHabits, setBuildHabits]           = useState<string[]>([]);
   const [breakHabits, setBreakHabits]           = useState<string[]>([]);
   const [pickedChallenges, setPickedChallenges] = useState<string[]>([]);
   const [logTime, setLogTime] = useState('evening');
   const [tone, setTone] = useState('bal');
-  // Question categories the user selects during onboarding
-  // Applied to real question IDs after signup via the API
-  const [selectedQCategories, setSelectedQCategories] = useState<string[]>(['Food', 'Hydration']);
 
   // Credentials only collected on the final screen when the user isn't logged in yet
   const [email, setEmail]       = useState('');
@@ -907,6 +1441,11 @@ export default function OnboardingScreen() {
   const next = () => setStep(s => s + 1);
   const back = () => setStep(s => Math.max(0, s - 1));
 
+  function toggleIn(list: string[], setList: (v: string[]) => void, item: string, max?: number) {
+    if (list.includes(item)) { setList(list.filter(x => x !== item)); return; }
+    if (max && list.length >= max) return;
+    setList([...list, item]);
+  }
   function toggleBuildHabit(id: string) {
     setBuildHabits(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   }
@@ -916,9 +1455,36 @@ export default function OnboardingScreen() {
   function toggleChallenge(title: string) {
     setPickedChallenges(p => p.includes(title) ? p.filter(x => x !== title) : [...p, title]);
   }
-  function toggleQCategory(key: string) {
-    setSelectedQCategories(p => p.includes(key) ? p.filter(x => x !== key) : [...p, key]);
+
+  const FUTURE_MIRROR_STEP = 11; // one after the consent gate
+  async function runFutureMirror() {
+    if (mirrorRequested.current) return;
+    mirrorRequested.current = true;
+    setMirrorLoading(true);
+    setMirrorError(false);
+    try {
+      const result = await futureMirrorApi.generate({
+        name: name.trim() || undefined,
+        age: calcAge(dobDay, dobMonth, dobYear),
+        daysUntilBirthday: daysUntilNextBirthday(dobDay, dobMonth),
+        desiredOutcomes, painPoints, blockers,
+        disappointmentStatement: disappointment.trim() || undefined,
+        positiveHabits, negativeHabits,
+        heightCm: height, weightKg: weight,
+        sleepSchedule: sleepSchedule || undefined,
+        activityLevel: activityLevel || undefined,
+      });
+      setMirrorResult(result);
+    } catch {
+      setMirrorError(true);
+    } finally {
+      setMirrorLoading(false);
+    }
   }
+
+  useEffect(() => {
+    if (step === FUTURE_MIRROR_STEP) runFutureMirror();
+  }, [step]);
 
   const [submitting, setSubmitting] = useState(false);
   async function finish() {
@@ -975,34 +1541,28 @@ export default function OnboardingScreen() {
         .filter((n): n is string => !!n);
       const starterHabits = [...buildNames, ...breakNames];
 
+      const dob = `${dobYear}-${String(dobMonth).padStart(2, '0')}-${String(dobDay).padStart(2, '0')}`;
+
       await completeOnboarding({
         name: name.trim() || undefined,
-        age,
+        age: calcAge(dobDay, dobMonth, dobYear),
         heightCm: height,
         weightKg: weight,
         goals: [],
         baselineSelfRating: baseline,
-        priorityMode: priority as 'disc' | 'fuel' | 'phys',
         starterHabits,
         starterChallenges: pickedChallenges,
         dailyNudgeTime: logTime as 'morning' | 'midday' | 'evening' | 'before_bed',
         coachingTone: tone as 'soft' | 'bal' | 'hard',
         notificationsEnabled: true,
+        dateOfBirth: dob,
+        desiredOutcomes, painPoints, blockers,
+        disappointmentStatement: disappointment.trim() || undefined,
+        positiveHabits, negativeHabits,
+        sleepSchedule: sleepSchedule || undefined,
+        activityLevel: activityLevel || undefined,
+        futureMirror: mirrorResult ?? undefined,
       }, freshToken);
-
-      // Apply question selection — load catalog with fresh token, filter by
-      // chosen categories, set selection. Failure is non-blocking.
-      try {
-        const { fuelQuestions } = await import('../../lib/api');
-        const tok = freshToken ?? (await import('../../lib/storage').then(m => m.storage.getToken()));
-        if (tok) {
-          const catalog = await fuelQuestions.catalog(tok);
-          const ids = catalog
-            .filter(q => selectedQCategories.includes(q.category))
-            .map(q => q.id);
-          if (ids.length > 0) await fuelQuestions.setSelection(tok, ids);
-        }
-      } catch { /* non-blocking — user can configure from profile */ }
 
       router.replace('/first-win' as any);
     } catch (err: any) {
@@ -1011,8 +1571,9 @@ export default function OnboardingScreen() {
     }
   }
 
-  // Linear flow — no conditional branches. Build → Control → Challenge picks
-  // are always shown; each can be skipped by leaving zero selections.
+  // Flow order: understand the person (why they need change) before asking
+  // them to pick habits (how they'll change) — the Future Mirror sits between
+  // the two so there's emotional investment before the habit-picking screens.
   const flow: React.ReactElement[] = [
     <S1_Welcome
       key="ob1"
@@ -1021,9 +1582,91 @@ export default function OnboardingScreen() {
       onSignIn={() => router.push('/(auth)/login' as any)}
     />,
     <S2_Name key="ob2" value={name} onChange={setName} onNext={next} onBack={back} />,
-    <S3_Body key="ob3" age={age} height={height} weight={weight}
-      onAge={setAge} onHeight={setHeight} onWeight={setWeight} onNext={next} onBack={back} />,
-    <S6_Priority key="ob_priority" selected={priority} onSelect={setPriority} onNext={next} onBack={back} />,
+    <S_Birthday
+      key="ob_birthday"
+      day={dobDay} month={dobMonth} year={dobYear}
+      onDay={setDobDay} onMonth={setDobMonth} onYear={setDobYear}
+      onNext={next} onBack={back}
+    />,
+    <S_GroupedMultiSelect
+      key="ob_outcomes"
+      eyebrow="WHAT YOU WANT"
+      title="What would you like to change before your next birthday?"
+      sub="Pick up to 5."
+      groups={DESIRED_OUTCOME_GROUPS}
+      selected={desiredOutcomes}
+      onToggle={(o) => toggleIn(desiredOutcomes, setDesiredOutcomes, o, 5)}
+      max={5}
+      onNext={next} onBack={back}
+    />,
+    <S_GroupedMultiSelect
+      key="ob_pain"
+      eyebrow="BE HONEST"
+      title="What's hurting the most right now?"
+      sub="This matters even more than what's blocking you. Pick up to 3."
+      groups={PAIN_POINT_GROUPS}
+      selected={painPoints}
+      onToggle={(o) => toggleIn(painPoints, setPainPoints, o, 3)}
+      max={3}
+      onNext={next} onBack={back}
+    />,
+    <S_GroupedMultiSelect
+      key="ob_blockers"
+      eyebrow="THE REAL REASON"
+      title="What's stopping you today?"
+      sub="Pick up to 3."
+      groups={BLOCKER_GROUPS}
+      selected={blockers}
+      onToggle={(o) => toggleIn(blockers, setBlockers, o, 3)}
+      max={3}
+      onNext={next} onBack={back}
+    />,
+    <S_Reflection
+      key="ob_reflection"
+      value={disappointment}
+      onChange={setDisappointment}
+      onNext={next} onBack={back}
+    />,
+    <S3_Body
+      key="ob_body"
+      height={height} weight={weight}
+      sleepSchedule={sleepSchedule} activityLevel={activityLevel}
+      onHeight={setHeight} onWeight={setWeight}
+      onSleep={setSleepSchedule} onActivity={setActivityLevel}
+      onNext={next} onBack={back}
+    />,
+    <S_GroupedMultiSelect
+      key="ob_positive"
+      eyebrow="WHAT'S WORKING"
+      title="Which habits are already helping you?"
+      groups={POSITIVE_HABIT_GROUPS}
+      selected={positiveHabits}
+      onToggle={(o) => toggleIn(positiveHabits, setPositiveHabits, o)}
+      onNext={next} onBack={back}
+    />,
+    <S_GroupedMultiSelect
+      key="ob_negative"
+      eyebrow="WHAT'S HOLDING YOU BACK"
+      title="Which habits are holding you back?"
+      groups={NEGATIVE_HABIT_GROUPS}
+      selected={negativeHabits}
+      onToggle={(o) => toggleIn(negativeHabits, setNegativeHabits, o)}
+      onNext={next} onBack={back}
+    />,
+    <S_Consent
+      key="ob_consent"
+      agreed={consentAgreed}
+      onToggleAgree={() => setConsentAgreed(a => !a)}
+      onOpenPrivacy={() => router.push('/privacy-policy' as any)}
+      onNext={next} onBack={back}
+    />,
+    <S_FutureMirror
+      key="ob_mirror"
+      loading={mirrorLoading}
+      error={mirrorError}
+      result={mirrorResult}
+      onNext={next} onBack={back}
+    />,
     <S_HabitPicker
       key="ob_build"
       variant="build"
@@ -1047,16 +1690,8 @@ export default function OnboardingScreen() {
       onNext={next}
       onBack={back}
     />,
-    <S_QuestionPicker
-      key="ob_questions"
-      selected={selectedQCategories}
-      onToggle={toggleQCategory}
-      onNext={next}
-      onBack={back}
-    />,
-    <S5_Baseline key="ob_baseline" value={baseline} onChange={setBaseline} onNext={next} onBack={back} />,
-    <S8_Time key="ob_time" selected={logTime} onSelect={setLogTime} onNext={next} onBack={back} />,
     <S9_Tone key="ob_tone" selected={tone} onSelect={setTone} onNext={next} onBack={back} />,
+    <S8_Time key="ob_time" selected={logTime} onSelect={setLogTime} onNext={next} onBack={back} />,
     <S10_Commit
       key="ob_commit"
       name={name}

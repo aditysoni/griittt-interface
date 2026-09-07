@@ -18,11 +18,12 @@ import { useAuth } from '../../lib/auth';
 import { useTheme, AppTheme } from '../../components/ThemeContext';
 import { DarkBackground } from '../../components/DarkBackground';
 import { GoogleSignInButton } from '../../components/GoogleSignInButton';
+import { AppleSignInButton } from '../../components/AppleSignInButton';
 
 /** Brand mark — three ascending bars (momentum / streak) in a rounded tile. */
 function Logomark({ accent, tile, ring }: { accent: string; tile: string; ring: string }) {
   return (
-    <Svg width={78} height={78} viewBox="0 0 78 78">
+    <Svg width={98} height={98} viewBox="0 0 78 78">
       <Rect x={1.5} y={1.5} width={75} height={75} rx={22} fill={tile} stroke={ring} strokeWidth={1.5} />
       <Rect x={19} y={44} width={10} height={16} rx={5} fill={accent} opacity={0.5} />
       <Rect x={34} y={33} width={10} height={27} rx={5} fill={accent} opacity={0.78} />
@@ -35,11 +36,12 @@ export default function LoginScreen() {
   const { theme } = useTheme();
   const s = React.useMemo(() => makeStyles(theme), [theme]);
 
-  const { login, loginWithGoogle } = useAuth();
+  const { login, loginWithGoogle, loginWithApple } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
   const [focused, setFocused] = useState<'email' | 'password' | null>(null);
 
   // ── Animations (built-in Animated — native-driven, no extra native deps) ──
@@ -107,6 +109,21 @@ export default function LoginScreen() {
     }
   }
 
+  async function handleApple() {
+    setAppleLoading(true);
+    try {
+      await loginWithApple();
+    } catch (err: any) {
+      // User dismissing the Apple sheet throws ERR_REQUEST_CANCELED — not a real error.
+      if (err?.code === 'ERR_REQUEST_CANCELED') return;
+      // eslint-disable-next-line no-console
+      console.error('Apple sign-in error', err);
+      Alert.alert('Apple Sign-In', err?.message || 'Could not sign in with Apple.');
+    } finally {
+      setAppleLoading(false);
+    }
+  }
+
   async function handleLogin() {
     if (!email.trim() || !password) {
       Alert.alert('Error', 'Please enter email and password');
@@ -133,37 +150,39 @@ export default function LoginScreen() {
         <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
           {/* ── Hero ── */}
           <Animated.View style={[s.hero, enter(0)]}>
-            <View style={s.markWrap}>
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  s.glow,
-                  {
-                    opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.32] }),
-                    transform: [
-                      { scale: glow.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.2] }) },
-                    ],
-                  },
-                ]}
-              />
-              <Animated.View
-                style={{
-                  transform: [
-                    { translateY: glow.interpolate({ inputRange: [0, 1], outputRange: [0, -5] }) },
-                  ],
-                }}
-              >
-                <Logomark
-                  accent={theme.accent}
-                  tile={theme.isDark ? '#0D0D0D' : '#FFFFFF'}
-                  ring={theme.isDark ? 'rgba(184,242,58,0.28)' : theme.borderStrong}
+            <View style={s.brandRow}>
+              <View style={s.markWrap}>
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    s.glow,
+                    {
+                      opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.32] }),
+                      transform: [
+                        { scale: glow.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.2] }) },
+                      ],
+                    },
+                  ]}
                 />
-              </Animated.View>
-            </View>
+                <Animated.View
+                  style={{
+                    transform: [
+                      { translateY: glow.interpolate({ inputRange: [0, 1], outputRange: [0, -5] }) },
+                    ],
+                  }}
+                >
+                  <Logomark
+                    accent={theme.accent}
+                    tile={theme.isDark ? '#0D0D0D' : '#FFFFFF'}
+                    ring={theme.isDark ? 'rgba(184,242,58,0.28)' : theme.borderStrong}
+                  />
+                </Animated.View>
+              </View>
 
-            <Text style={s.logo}>
-              GRITT<Text style={s.logoAccent}>T</Text>
-            </Text>
+              <Text style={s.logo}>
+                GRITT<Text style={s.logoAccent}>T</Text>
+              </Text>
+            </View>
             <Text style={s.kicker}>DISCIPLINE · IDENTITY · MOMENTUM</Text>
             <Text style={s.tagline}>Build habits. Build identity.</Text>
           </Animated.View>
@@ -230,6 +249,8 @@ export default function LoginScreen() {
               <View style={s.dividerLine} />
             </View>
 
+            <AppleSignInButton onPress={handleApple} loading={appleLoading} type="SIGN_IN" isDark={theme.isDark} />
+
             <GoogleSignInButton onPress={handleGoogle} loading={googleLoading} label="Sign in with Google" />
 
             <View style={s.footer}>
@@ -267,7 +288,8 @@ function makeStyles(t: AppTheme) {
 
     // Hero
     hero: { alignItems: 'center', marginBottom: 8 },
-    markWrap: { alignItems: 'center', justifyContent: 'center', height: 92, marginBottom: 18 },
+    brandRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 18 },
+    markWrap: { alignItems: 'center', justifyContent: 'center', width: 98, height: 98 },
     glow: {
       position: 'absolute',
       width: 200,
@@ -277,7 +299,7 @@ function makeStyles(t: AppTheme) {
     },
     logo: {
       fontFamily: 'BricolageGrotesque_800ExtraBold',
-      fontSize: 56,
+      fontSize: 44,
       color: t.text,
       letterSpacing: 1,
     },

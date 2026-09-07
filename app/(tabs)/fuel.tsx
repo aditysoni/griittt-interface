@@ -1,20 +1,44 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Animated, Modal, Platform, Pressable,
+  ActivityIndicator, Alert, Animated, Modal, Platform,
   RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { DarkBackground } from '../../components/DarkBackground';
+import { QuickTrendCard } from '../../components/QuickTrendCard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
-import { fuel, ai, FoodLog, FoodItem, MealTime, MacroTargets, today, shiftDate } from '../../lib/api';
+import { fuel, fuelQuestions, FuelQuestion, ai, FoodLog, FoodItem, MealTime, MacroTargets, today, shiftDate } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
 import { ErrorState } from '../../components/ErrorState';
 import { DaySelector } from '../../components/DaySelector';
 import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
+import { AddCustomModal, QuestionDetailModal } from '../fuel-questions';
+
+// ── Short card title per checklist question, matched by keyword in the prompt ──
+const QUESTION_TITLES: Array<{ match: RegExp; title: string }> = [
+  { match: /quality|clean/i,           title: 'Food Quality' },
+  { match: /protein/i,                 title: 'Protein' },
+  { match: /fibre|fiber/i,             title: 'Fibre' },
+  { match: /hydrat|water/i,            title: 'Hydration' },
+  { match: /junk|sugar/i,              title: 'Sugar' },
+  { match: /digestion|bowel/i,         title: 'Digestion' },
+  { match: /energy/i,                  title: 'Energy' },
+  { match: /sleep/i,                   title: 'Sleep' },
+  { match: /home.?cooked/i,            title: 'Home Cooked' },
+  { match: /adherence|plan|diet/i,     title: 'Plan Adherence' },
+  { match: /fruit|veg/i,               title: 'Fruit & Veg' },
+];
+function questionTitle(prompt: string): string {
+  const preset = QUESTION_TITLES.find(v => v.match.test(prompt))?.title;
+  if (preset) return preset;
+  const words = prompt.replace(/[?.!]+$/, '').split(/\s+/);
+  return words.slice(0, 3).join(' ');
+}
 
 type TabMode = 'quick' | 'detailed';
 const QUALITY_LABELS = ['Terrible','Very poor','Poor','Below avg','Average','Average+','Good','Great','Excellent','Outstanding','Perfect'];
@@ -50,35 +74,21 @@ export default function FuelScreen() {
   }
 
   // Quick mode state
-  const [stuckToMeal, setStuckToMeal]   = useState<boolean | null>(null);
-  const [foodQuality, setFoodQuality]   = useState(7);
-  const [hadJunk, setHadJunk]           = useState<boolean | null>(null);
-  const [showQPicker, setShowQPicker]   = useState(false);
+  const [activeQuestions, setActiveQuestions] = useState<FuelQuestion[]>([]);
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, number>>({});
+  const [customOpen, setCustomOpen] = useState(false);
+  const [detailQuestion, setDetailQuestion] = useState<FuelQuestion | null>(null);
 
   // Detailed mode state (food items)
   const [foodItems, setFoodItems]       = useState<FoodItem[]>([]);
-  const [itemName, setItemName]         = useState('');
-  const [itemMealTime, setItemMealTime] = useState<MealTime>('morning');
-  const [itemCalories, setItemCalories] = useState('');
-  const [itemProtein, setItemProtein]   = useState('');
-  const [itemFat, setItemFat]           = useState('');
-  const [itemCarbs, setItemCarbs]       = useState('');
-  const [addingItem, setAddingItem]     = useState(false);
-  const [scanning, setScanning]         = useState(false);
+  const [logModalOpen, setLogModalOpen] = useState(false);
+  const [recentFoods, setRecentFoods]   = useState<FoodItem[]>([]);
 
   const isToday = selectedDate === today();
+  // Logging is allowed for today and any past day — not days that haven't happened yet.
+  const canLog  = selectedDate <= today();
 
-  const liveScore = React.useMemo(() => {
-    return Math.round(
-      (foodQuality / 10) * 50 +
-      (stuckToMeal === true ? 30 : 0) +
-      (hadJunk === false ? 20 : 0)
-    );
-  }, [stuckToMeal, foodQuality, hadJunk]);
-
-  const todayScore = logs.length > 0
-    ? Math.max(...logs.map(l => l.score ?? 0))
-    : (isToday ? liveScore : 0);
+  const todayScore = history.find(h => h.date === selectedDate)?.score ?? 0;
 
   async function load(date: string) {
     if (!token) return;
@@ -87,7 +97,9 @@ export default function FuelScreen() {
       fuel.identity(token),
       fuel.logs(token, date),
       fuel.items(token, date),
-      fuel.history(token, from, date),
+      fuelQuestions.scoreRange(token, from, date),
+      fuelQuestions.catalog(token),
+      fuelQuestions.getResponses(token, date),
     ]);
     // Items + logs are the core of this screen — if both fail it's a load error.
     if (results[1].status === 'rejected' && results[2].status === 'rejected') {
@@ -99,73 +111,36 @@ export default function FuelScreen() {
       results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fb;
     setIdentity(val(0, null as any));
     setLogs(val(1, [] as any));
-    setFoodItems(val(2, [] as any));
-    setHistory(val(3, [] as any));
-  }
-
-  function resetDetailedForm() {
-    setItemName(''); setItemMealTime('morning');
-    setItemCalories(''); setItemProtein(''); setItemFat(''); setItemCarbs('');
-  }
-
-  async function handleSnapTrack(source: 'camera' | 'gallery') {
-    const fn = source === 'camera' ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
-    let perms;
-    if (source === 'camera') {
-      perms = await ImagePicker.requestCameraPermissionsAsync();
-    } else {
-      perms = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    }
-    if (!perms.granted) { Alert.alert('Permission needed', 'Allow access in Settings.'); return; }
-
-    const result = await fn({ mediaTypes: 'images' as any, quality: 0.7, base64: true, allowsEditing: true, aspect: [4, 3] });
-    if (result.canceled || !result.assets?.[0]?.base64) return;
-
-    setScanning(true);
-    try {
-      const data = await ai.snapTrack(token!, `data:image/jpeg;base64,${result.assets[0].base64!}`);
-
-      if (!data.name || data.name === 'Unknown food') {
-        Alert.alert('No food detected', 'Try a clearer photo with better lighting, or enter the food manually.');
-        return;
-      }
-
-      setItemName(data.name);
-      setItemCalories(data.calories > 0 ? String(Math.round(data.calories)) : '');
-      setItemProtein(data.protein   > 0 ? String(Math.round(data.protein))  : '');
-      setItemCarbs(data.carbs       > 0 ? String(Math.round(data.carbs))    : '');
-      const fatVal = (data as any).fat ?? data.fats ?? 0;
-      setItemFat(fatVal > 0 ? String(Math.round(fatVal)) : '');
-
-      if (!data.calories && !data.protein && !data.carbs) {
-        Alert.alert('Food identified', `Found "${data.name}" but couldn't estimate nutrition. Fill in the values manually.`);
-      }
-    } catch (err: any) {
-      const msg = err.message?.includes('No food') || err.status === 422
-        ? 'No food detected. Try a clearer photo or better lighting.'
-        : `Scan failed: ${err.message}`;
-      Alert.alert('Snap Track', msg);
-    }
-    finally { setScanning(false); }
-  }
-
-  async function submitDetailedItem() {
-    if (!token || !itemName.trim()) { Alert.alert('INCOMPLETE', 'Enter a food name.'); return; }
-    setAddingItem(true);
-    try {
-      await fuel.addItem(token, {
-        date: selectedDate,
-        name: itemName.trim(),
-        mealTime: itemMealTime,
-        calories: itemCalories ? Number(itemCalories) : undefined,
-        protein:  itemProtein  ? Number(itemProtein)  : undefined,
-        fat:      itemFat      ? Number(itemFat)      : undefined,
-        carbs:    itemCarbs    ? Number(itemCarbs)    : undefined,
+    const items = val(2, [] as FoodItem[]);
+    setFoodItems(items);
+    // Grow a session-local "recently eaten" list, deduped by name, newest first — used as
+    // log-food recommendations. No dedicated backend endpoint for this, so it's built up
+    // client-side from whatever days the user has viewed this session.
+    if (items.length > 0) {
+      setRecentFoods(prev => {
+        const merged = [...items, ...prev];
+        const seen = new Set<string>();
+        const deduped: FoodItem[] = [];
+        for (const it of merged) {
+          const key = it.name.trim().toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          deduped.push(it);
+        }
+        return deduped.slice(0, 20);
       });
-      resetDetailedForm();
-      await load(selectedDate);
-    } catch (err: any) { Alert.alert('Error', err.message); }
-    finally { setAddingItem(false); }
+    }
+    const scoreRange = val(3, null as any);
+    const scoreDays: Array<{ date: string; checklistScore: number | null }> =
+      scoreRange?.days ?? (scoreRange ? [scoreRange] : []);
+    setHistory(scoreDays.map(d => ({ date: d.date, score: d.checklistScore })));
+
+    const catalog = val(4, [] as FuelQuestion[]);
+    setActiveQuestions(catalog.filter(q => q.selected));
+    const responses = val(5, null as any);
+    const prefilled: Record<string, number> = {};
+    for (const a of responses?.answers ?? []) prefilled[a.questionId] = a.optionIndex;
+    setQuestionAnswers(prefilled);
   }
 
   async function deleteItem(id: string) {
@@ -189,16 +164,22 @@ export default function FuelScreen() {
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(selectedDate); setRefreshing(false); }, [token, selectedDate]);
 
   async function submitQuick() {
-    if (!token || stuckToMeal === null || hadJunk === null) { Alert.alert('INCOMPLETE', 'Answer all three questions.'); return; }
+    if (!token || activeQuestions.length === 0) return;
+    const missingRequired = activeQuestions.some(q => q.required && questionAnswers[q.id] === undefined);
+    if (missingRequired) { Alert.alert('INCOMPLETE', 'Answer all required questions.'); return; }
     setSubmitting(true);
     try {
-      await fuel.log(token, { mode: 'simple', date: selectedDate, hadThreeMeals: stuckToMeal, foodQuality, hadJunkFood: hadJunk });
-      setStuckToMeal(null); setHadJunk(null); setFoodQuality(7);
+      await fuelQuestions.submitResponses(token, {
+        date: selectedDate,
+        answers: Object.entries(questionAnswers).map(([questionId, optionIndex]) => ({ questionId, optionIndex })),
+      });
       await load(selectedDate);
+      // Follow the check-in straight into the food log sheet so the user can add
+      // today's meals/macros in one flow, without a separate "Detailed" tap.
+      setLogModalOpen(true);
     } catch (err: any) { Alert.alert('Error', err.message); }
     finally { setSubmitting(false); }
   }
-
 
   if (loading) return <LoadingScreen />;
 
@@ -225,17 +206,26 @@ export default function FuelScreen() {
       <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}>
-        <FuelScoreCard score={todayScore} history={history} selectedDate={selectedDate} theme={theme} />
-
-        {loadError && (
-          <ErrorState
-            message="Couldn't load your fuel log."
-            onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }}
+        {mode === 'quick' ? (
+          <QuickTrendCard
+            eyebrow="TODAY'S FUEL SCORE"
+            score={todayScore}
+            history={history}
+            selectedDate={selectedDate}
+            identity={identity}
+          />
+        ) : (
+          <FuelScoreCard
+            score={todayScore}
+            history={history}
+            selectedDate={selectedDate}
+            theme={theme}
+            foodItems={foodItems}
+            macroTargets={user?.macroTargets ?? MACRO_TARGETS}
           />
         )}
 
-        {/* QUICK / DETAILED toggle — directly under score card */}
-        {!loadError && <>
+        {/* QUICK / DETAILED toggle — under the overview card */}
         <View
           style={[s.tabToggle, { backgroundColor: theme.surface }]}
           onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
@@ -255,101 +245,105 @@ export default function FuelScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Macro tracker — DETAILED mode only. QUICK stays focused on diet/junk/quality questions. */}
-        {mode === 'detailed' && (
-          <MacroTracker
-            items={foodItems}
-            theme={theme}
-            targets={user?.macroTargets ?? MACRO_TARGETS}
-            onQuickLog={isToday ? async (macros) => {
-              if (!token) return;
-              try {
-                await fuel.addItem(token, { date: selectedDate, name: 'Quick entry', mealTime: 'lunch', ...macros });
-                await load(selectedDate);
-              } catch (err: any) { Alert.alert('Error', err.message); }
-            } : undefined}
+        {loadError && (
+          <ErrorState
+            message="Couldn't load your fuel log."
+            onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }}
           />
         )}
 
+        {!loadError && <>
         {/* QUICK */}
-        {mode === 'quick' && isToday && (
+        {mode === 'quick' && canLog && (
           <>
-            {/* Question cards */}
-            <QuestionCard
-              icon="🍽️"
-              iconBg={theme.isDark ? '#2A2A2A' : '#F0F0F0'}
-              label="STUCK TO YOUR DIET?"
-              sub="Did you follow your planned meals today?"
-              state={stuckToMeal}
-              onAnswer={setStuckToMeal}
-              yesColor="#22A664"
-              noColor="#E84A4A"
-              theme={theme}
-            />
-            <QuestionCard
-              icon="🍔"
-              iconBg={theme.isDark ? '#2A2A2A' : '#FFE9D6'}
-              label="HAD JUNK FOOD?"
-              sub="Any processed or unhealthy food?"
-              state={hadJunk}
-              onAnswer={setHadJunk}
-              yesColor="#E84A4A"
-              noColor="#22A664"
-              theme={theme}
-            />
+            {/* Selected fuel questions (from Fuel Questions management screen) */}
+            {activeQuestions.map((q) => {
+              const answered = questionAnswers[q.id] !== undefined;
+              return (
+                <View key={q.id} style={[qcs.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={qcs.cardTopRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[qcs.title, { color: theme.text, fontFamily: 'Inter_800ExtraBold' }]}>
+                        {questionTitle(q.prompt)}{q.required && <Text style={{ color: theme.danger }}> *</Text>}
+                      </Text>
+                      <Text style={[qcs.subtitle, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                        {q.prompt}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                      <View style={[qcs.ptsPill, { backgroundColor: answered ? theme.text : theme.surface }]}>
+                        <Text style={[qcs.ptsText, { color: answered ? theme.bg : theme.textSecondary, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                          +{q.weight} pts
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        {(q.streak ?? 0) > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                            <Ionicons name="flame" size={11} color="#F0A12E" />
+                            <Text style={[qcs.streakText, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_700Bold' }]}>{q.streak}</Text>
+                          </View>
+                        )}
+                        <TouchableOpacity
+                          onPress={() => setDetailQuestion(q)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="stats-chart-outline" size={13} color={theme.textTertiary} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
 
-            {/* Food Quality card */}
-            <View style={[qcs.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                <View style={[qcs.iconBubble, { backgroundColor: theme.isDark ? '#2A2A2A' : '#FFF4D6' }]}>
-                  <Text style={{ fontSize: 18 }}>⭐</Text>
+                  <View style={qcs.optionsRow}>
+                    {q.options.map((opt, oi) => {
+                      const active = questionAnswers[q.id] === oi;
+                      return (
+                        <TouchableOpacity
+                          key={oi}
+                          onPress={() => setQuestionAnswers(prev => ({ ...prev, [q.id]: oi }))}
+                          activeOpacity={0.75}
+                          style={[qcs.optionChip, {
+                            backgroundColor: active ? theme.text : 'transparent',
+                            borderColor: active ? theme.text : theme.borderStrong,
+                          }]}
+                        >
+                          <Ionicons
+                            name={active ? 'radio-button-on' : 'radio-button-off'}
+                            size={13}
+                            color={active ? theme.bg : theme.textSecondary}
+                          />
+                          <Text style={{
+                            fontSize: 12, letterSpacing: 0.1, fontFamily: 'Inter_600SemiBold',
+                            color: active ? theme.bg : theme.textSecondary,
+                          }}>
+                            {opt}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>FOOD QUALITY</Text>
-                  <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                    {QUALITY_LABELS[foodQuality]} · tap to adjust
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 22, color: '#22A664', fontFamily: 'SpaceGrotesk_700Bold' }}>
-                  {foodQuality}<Text style={{ fontSize: 13, color: theme.textMuted, fontFamily: 'Inter_400Regular' }}>/10</Text>
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowQPicker(true)} activeOpacity={0.75} style={{ marginTop: 12 }}>
-                <View style={{ flexDirection: 'row', gap: 4 }}>
-                  {Array.from({ length: 10 }).map((_, i) => (
-                    <View key={i} style={{
-                      flex: 1, height: 8, borderRadius: 4,
-                      backgroundColor: i < foodQuality ? '#22A664' : theme.surface,
-                    }} />
-                  ))}
-                </View>
-                <Text style={[{ fontSize: 8, letterSpacing: 1.5, marginTop: 5, opacity: 0.5 }, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
-                  TAP TO ADJUST
-                </Text>
-              </TouchableOpacity>
-            </View>
+              );
+            })}
 
-            {/* Quality bottom-sheet modal */}
-            <Modal visible={showQPicker} transparent animationType="slide">
-              <Pressable style={[qs.backdrop, { backgroundColor: theme.backdrop }]} onPress={() => setShowQPicker(false)} />
-              <View style={[qs.sheet, { backgroundColor: theme.cardElevated }]}>
-                <View style={[qs.handle, { backgroundColor: theme.border }]} />
-                <Text style={[qs.sheetTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>FOOD QUALITY</Text>
-                <Text style={[qs.sheetSub, { color: '#34C759', fontFamily: 'Inter_700Bold' }]}>{QUALITY_LABELS[foodQuality]}</Text>
-                <QualityScroll value={foodQuality} onChange={setFoodQuality} theme={theme} />
-                <TouchableOpacity style={[qs.doneBtn, { backgroundColor: theme.text }]} onPress={() => setShowQPicker(false)}>
-                  <Text style={[qs.doneBtnText, { color: theme.bg, fontFamily: 'Inter_900Black' }]}>DONE</Text>
-                </TouchableOpacity>
-              </View>
-            </Modal>
+            <TouchableOpacity
+              style={[qcs.addCustomBtn, { borderColor: theme.border }]}
+              onPress={() => setCustomOpen(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add-circle" size={18} color="#34C759" />
+              <Text style={[qcs.addCustomText, { color: theme.text, fontFamily: 'Inter_800ExtraBold' }]}>
+                Add custom question
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={[s.logFuelBtn, {
                 backgroundColor: theme.text,
-                opacity: (stuckToMeal === null || hadJunk === null || submitting) ? 0.4 : 1,
+                opacity: (activeQuestions.length === 0 || submitting) ? 0.4 : 1,
               }]}
               onPress={submitQuick}
-              disabled={stuckToMeal === null || hadJunk === null || submitting}
+              disabled={activeQuestions.length === 0 || submitting}
               activeOpacity={0.85}
             >
               <Text style={[s.logFuelBtnText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>
@@ -359,95 +353,52 @@ export default function FuelScreen() {
                 <Ionicons name="arrow-forward" size={12} color={theme.text} />
               </View>
             </TouchableOpacity>
+
+            <AddCustomModal
+              open={customOpen}
+              token={token!}
+              theme={theme}
+              onClose={() => setCustomOpen(false)}
+              onSaved={() => { setCustomOpen(false); load(selectedDate); }}
+            />
+
+            <QuestionDetailModal
+              question={detailQuestion}
+              token={token!}
+              theme={theme}
+              onClose={() => setDetailQuestion(null)}
+            />
           </>
         )}
 
-        {/* ── DETAILED: food item entry form ── */}
-        {mode === 'detailed' && isToday && (
-          <View style={s.detailedWrap}>
-            {/* Snap row */}
-            <View style={s.snapRow}>
-              <TouchableOpacity
-                style={[s.snapBtn, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF', opacity: scanning ? 0.6 : 1 }]}
-                onPress={() => handleSnapTrack('camera')}
-                disabled={scanning}
-                activeOpacity={0.7}
-              >
-                {scanning
-                  ? <ActivityIndicator size="small" color={theme.text} />
-                  : <Ionicons name="camera" size={18} color={theme.text} />
-                }
-                <Text style={[s.snapBtnText, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>
-                  {scanning ? 'ANALYSING...' : 'SNAP & TRACK'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.snapBtnSm, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}
-                onPress={() => handleSnapTrack('gallery')}
-                disabled={scanning}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="images-outline" size={18} color={theme.textSecondary} />
-              </TouchableOpacity>
+        {/* ── DETAILED: opens the log-food sheet (camera / manual entry / recommendations) ── */}
+        {mode === 'detailed' && canLog && (
+          <TouchableOpacity
+            style={[s.logFuelBtn, { backgroundColor: theme.text }]}
+            onPress={() => setLogModalOpen(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={[s.logFuelBtnText, { color: '#FFFFFF', fontFamily: 'Inter_900Black' }]}>LOG FOOD</Text>
+            <View style={s.logFuelArrow}>
+              <Ionicons name="add" size={16} color={theme.text} />
             </View>
-
-            <View style={s.orRow}>
-              <View style={[s.orLine, { backgroundColor: theme.border }]} />
-              <Text style={[s.orText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>OR ENTER MANUALLY</Text>
-              <View style={[s.orLine, { backgroundColor: theme.border }]} />
-            </View>
-
-            {/* Food name */}
-            <View style={[s.foodNameBox, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
-              <Ionicons name="fast-food-outline" size={16} color={theme.textSecondary} style={{ marginRight: 8 }} />
-              <TextInput
-                style={[s.foodNameInput, { color: theme.text, fontFamily: 'Inter_700Bold' }]}
-                value={itemName}
-                onChangeText={setItemName}
-                placeholder="Food name..."
-                placeholderTextColor={theme.textSecondary}
-                autoCapitalize="words"
-              />
-            </View>
-
-            {/* Meal time chips */}
-            <Text style={[s.detailFieldLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>WHEN</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.mealTimeRow}>
-              {(['morning','brunch','lunch','evening','dinner','snacks'] as MealTime[]).map(mt => (
-                <TouchableOpacity
-                  key={mt}
-                  style={[s.mealChip, {
-                    backgroundColor: itemMealTime === mt ? theme.text : (theme.isDark ? '#1E1E1E' : '#FFFFFF'),
-                    borderColor: itemMealTime === mt ? theme.text : theme.border,
-                  }]}
-                  onPress={() => setItemMealTime(mt)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={s.mealChipEmoji}>{MEAL_TIME_ICONS[mt]}</Text>
-                  <Text style={[s.mealChipLabel, {
-                    color: itemMealTime === mt ? theme.bg : theme.textSecondary,
-                    fontFamily: 'Inter_700Bold',
-                  }]}>{mt.toUpperCase()}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <TouchableOpacity
-              style={[s.submitBtn, { backgroundColor: theme.tabActiveBg, opacity: (!itemName.trim() || addingItem) ? 0.4 : 1 }]}
-              onPress={submitDetailedItem}
-              disabled={!itemName.trim() || addingItem}
-            >
-              <Text style={[s.submitBtnText, { color: theme.tabActiveText, fontFamily: 'Inter_900Black' }]}>
-                {addingItem ? 'SAVING...' : 'LOG FOOD →'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         )}
+
+        <LogFoodModal
+          open={logModalOpen}
+          token={token!}
+          date={selectedDate}
+          theme={theme}
+          recentFoods={recentFoods}
+          onClose={() => setLogModalOpen(false)}
+          onSaved={() => { setLogModalOpen(false); load(selectedDate); }}
+        />
 
         {/* ── QUICK: show food_logs entries only ── */}
         {mode === 'quick' && (
           <>
-            {!isToday && logs.length === 0 && (
+            {!canLog && logs.length === 0 && (
               <View style={s.empty}><Text style={[s.emptyText, { color: theme.textSecondary }]}>NO FUEL DATA FOR THIS DAY</Text></View>
             )}
             {logs.length > 0 && (
@@ -465,7 +416,7 @@ export default function FuelScreen() {
         {/* ── DETAILED: show food items with macros ── */}
         {mode === 'detailed' && (
           <>
-            {!isToday && foodItems.length === 0 && (
+            {!canLog && foodItems.length === 0 && (
               <View style={s.empty}><Text style={[s.emptyText, { color: theme.textSecondary }]}>NO FOOD LOGGED FOR THIS DAY</Text></View>
             )}
             {foodItems.length > 0 && (
@@ -479,11 +430,10 @@ export default function FuelScreen() {
                     key={item.id}
                     item={item}
                     theme={theme}
-                    onDelete={isToday ? () => deleteItem(item.id) : undefined}
-                    onUpdate={isToday ? (patch) => updateItem(item, patch) : undefined}
+                    onDelete={canLog ? () => deleteItem(item.id) : undefined}
+                    onUpdate={canLog ? (patch) => updateItem(item, patch) : undefined}
                   />
                 ))}
-                <MacroTotalsBar items={foodItems} theme={theme} />
               </>
             )}
           </>
@@ -496,330 +446,447 @@ export default function FuelScreen() {
   );
 }
 
-function dayLetter(dateStr: string) {
-  return ['M','T','W','T','F','S','S'][(new Date(dateStr + 'T12:00:00').getDay() + 6) % 7];
+function fuelStatus(score: number): { label: string; color: string } {
+  if (score >= 80) return { label: 'CRUSHING IT', color: '#22A664' };
+  if (score >= 60) return { label: 'CONSISTENT',  color: '#0A84FF' };
+  if (score >= 40) return { label: 'SHOWING UP',  color: '#F0A12E' };
+  return { label: 'SLIPPING', color: '#E84A4A' };
 }
 
-function FuelScoreCard({ score, history, selectedDate, theme }: {
+
+function ScoreRing({ score, color, theme }: { score: number; color: string; theme: any }) {
+  const size = 92, stroke = 9, r = (size - stroke) / 2, c = r * 2 * Math.PI;
+  const pct = Math.max(0, Math.min(1, score / 100));
+  const trackColor = theme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <Svg width={size} height={size} style={{ position: 'absolute' }}>
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={trackColor} strokeWidth={stroke} fill="none" />
+        {pct > 0 && (
+          <Circle
+            cx={size / 2} cy={size / 2} r={r}
+            stroke={color} strokeWidth={stroke} fill="none"
+            strokeDasharray={`${c} ${c}`}
+            strokeDashoffset={c * (1 - pct)}
+            strokeLinecap="round"
+            rotation={-90}
+            originX={size / 2} originY={size / 2}
+          />
+        )}
+      </Svg>
+      <Text style={{ fontSize: 26, color: theme.text, fontFamily: 'SpaceGrotesk_700Bold', letterSpacing: -1 }}>{score}</Text>
+      <Text style={{ fontSize: 9, color: theme.textSecondary, fontFamily: 'Inter_700Bold', letterSpacing: 1 }}>/100</Text>
+    </View>
+  );
+}
+
+function TrendSparkline({ points, color, theme, width = 220, height = 40 }: {
+  points: Array<{ date: string; score: number | null }>;
+  color: string; theme: any; width?: number; height?: number;
+}) {
+  const known = points
+    .map((p, i) => ({ i, score: p.score }))
+    .filter((p): p is { i: number; score: number } => p.score != null);
+
+  if (known.length < 2) {
+    return (
+      <View style={{ width, height, justifyContent: 'center' }}>
+        <View style={{ height: 1, backgroundColor: theme.border }} />
+      </View>
+    );
+  }
+
+  const minI = 0, maxI = points.length - 1;
+  const scores = known.map(k => k.score);
+  const lo = Math.min(...scores, 40), hi = Math.max(...scores, 80);
+  const xFor = (i: number) => (i - minI) / (maxI - minI || 1) * width;
+  const yFor = (v: number) => height - ((v - lo) / (hi - lo || 1)) * height;
+
+  const d = known.map((k, idx) => `${idx === 0 ? 'M' : 'L'} ${xFor(k.i).toFixed(1)} ${yFor(k.score).toFixed(1)}`).join(' ');
+  const last = known[known.length - 1];
+
+  return (
+    <Svg width={width} height={height}>
+      <Path d={d} stroke={color} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <Circle cx={xFor(last.i)} cy={yFor(last.score)} r={3.5} fill={color} />
+    </Svg>
+  );
+}
+
+function FuelScoreCard({ score, history, selectedDate, theme, foodItems, macroTargets }: {
   score: number;
   history: Array<{ date: string; score: number | null }>;
   selectedDate: string;
   theme: any;
+  foodItems: FoodItem[];
+  macroTargets: MacroTargets;
 }) {
   const last7 = React.useMemo(() => {
     const days: { date: string; score: number | null }[] = [];
     for (let i = 6; i >= 0; i--) {
-      const d = shiftDate(today(), -i);
+      const d = shiftDate(selectedDate, -i);
       const found = history.find(h => h.date === d);
       days.push({ date: d, score: found?.score ?? null });
     }
     return days;
-  }, [history]);
+  }, [history, selectedDate]);
 
-  const { trend, delta } = React.useMemo(() => {
-    const prev = last7.slice(0, 6).filter(d => d.score != null).map(d => d.score as number);
-    const avg = prev.length ? Math.round(prev.reduce((a, b) => a + b, 0) / prev.length) : null;
-    const diff = avg != null ? score - avg : null;
-    const scored = last7.filter(d => d.score != null).map(d => d.score as number);
-    if (scored.length < 3) return { trend: { label: 'SHOWING UP', color: '#0A84FF', icon: '·' }, delta: diff };
-    const half = Math.floor(scored.length / 2);
-    const early  = scored.slice(0, half).reduce((a, b) => a + b, 0) / half;
-    const recent = scored.slice(-half).reduce((a, b) => a + b, 0) / half;
-    const d = recent - early;
-    if (d > 8)  return { trend: { label: 'GETTING BETTER', color: '#34C759', icon: '↑' }, delta: diff };
-    if (d < -8) return { trend: { label: 'DECLINING',      color: '#FF453A', icon: '↓' }, delta: diff };
-    return { trend: { label: 'CONSISTENT', color: '#0A84FF', icon: '→' }, delta: diff };
-  }, [last7, score]);
+  const status = fuelStatus(score);
 
-  const scoreColor = score >= 70 ? '#22A664' : score >= 50 ? '#F0A12E' : '#E84A4A';
-  const isToday = selectedDate === today();
+  const macroCells = React.useMemo(() => {
+    const totals = foodItems.reduce(
+      (a, i) => ({
+        calories: a.calories + (i.calories ?? 0),
+        protein:  a.protein  + (i.protein  ?? 0),
+        carbs:    a.carbs    + (i.carbs    ?? 0),
+        fat:      a.fat      + (i.fat      ?? 0),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    );
+    return [
+      { key: 'calories', label: 'CALORIES', unit: 'kcal', value: Math.round(totals.calories), target: macroTargets.calories, color: MACRO_COLORS.calories },
+      { key: 'protein',  label: 'PROTEIN',   unit: 'g',    value: Math.round(totals.protein),  target: macroTargets.protein,  color: MACRO_COLORS.protein },
+      { key: 'carbs',    label: 'CARBS',     unit: 'g',    value: Math.round(totals.carbs),    target: macroTargets.carbs,    color: MACRO_COLORS.carbs },
+      { key: 'fat',      label: 'FAT',       unit: 'g',    value: Math.round(totals.fat),      target: macroTargets.fat,      color: MACRO_COLORS.fat },
+    ];
+  }, [foodItems, macroTargets]);
+
+  const percentile = React.useMemo(() => {
+    const prior = history.filter(h => h.date !== selectedDate && h.score != null).map(h => h.score as number);
+    if (prior.length === 0) return null;
+    const beaten = prior.filter(v => v <= score).length;
+    return Math.round((beaten / prior.length) * 100);
+  }, [history, selectedDate, score]);
 
   return (
-    <View style={[sc.card, { backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF', borderColor: scoreColor }]}>
-      {/* Top row: score left, trend+delta right */}
+    <View style={[sc.card, { backgroundColor: theme.isDark ? '#1A1A1A' : '#FFFFFF', borderColor: theme.border }]}>
+      {/* Top row: ring left, macro numbers right */}
       <View style={sc.top}>
-        <View style={sc.left}>
-          <Text style={[sc.eyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-            {isToday ? "TODAY'S FUEL" : 'FUEL SCORE'}
-          </Text>
-          <Text style={[sc.scoreNum, { color: scoreColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>{score}</Text>
-        </View>
+        <ScoreRing score={score} color={status.color} theme={theme} />
 
-        <View style={sc.right}>
-          {trend && (
-            <View style={[sc.trendPill, { backgroundColor: trend.color + '25' }]}>
-              <Text style={[sc.trendText, { color: trend.color, fontFamily: 'Inter_900Black' }]}>
-                {trend.icon}  {trend.label}
+        <View style={sc.macroGrid}>
+          {macroCells.map(m => (
+            <View key={m.key} style={sc.macroCell}>
+              <Text numberOfLines={1}>
+                <Text style={[sc.macroValue, { color: m.color, fontFamily: 'SpaceGrotesk_700Bold' }]}>{m.value}</Text>
+                <Text style={[sc.macroUnit, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}> {m.unit}</Text>
+              </Text>
+              <Text style={[sc.macroLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                {m.label} · /{m.target}
               </Text>
             </View>
-          )}
-          {delta != null && (
-            <Text style={[sc.deltaText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-              {delta > 0 ? '+' : ''}{delta} vs last 7 days
-            </Text>
-          )}
+          ))}
         </View>
       </View>
 
       {/* Divider */}
       <View style={[sc.divider, { backgroundColor: theme.border }]} />
 
-      {/* 7-day coloured squares */}
-      <View style={sc.gridRow}>
-        {last7.map((day) => {
-          const s = day.score;
-          const isSelected = day.date === selectedDate;
-          const bg = s == null
-            ? (theme.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)')
-            : s >= 70 ? '#22A664' : s >= 50 ? '#F0A12E' : '#E84A4A';
-          const textColor = s == null ? theme.textSecondary : '#FFFFFF';
-          return (
-            <View key={day.date} style={[sc.square, {
-              backgroundColor: bg,
-              borderWidth: isSelected ? 2 : 0,
-              borderColor: theme.text,
-              opacity: s == null ? 0.5 : 1,
-            }]}>
-              <Text style={[sc.squareNum, { color: textColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-                {s ?? '·'}
-              </Text>
-              <Text style={[sc.squareDay, { color: textColor, fontFamily: 'Inter_700Bold' }]}>
-                {dayLetter(day.date)}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-const sc = StyleSheet.create({
-  card:       { marginHorizontal: 16, marginBottom: 14, borderWidth: 1.5, borderRadius: 18, overflow: 'hidden' },
-  top:        { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', padding: 16, paddingBottom: 14 },
-  left:       { gap: 2 },
-  eyebrow:    { fontSize: 10, letterSpacing: 2 },
-  scoreNum:   { fontSize: 64, lineHeight: 68, letterSpacing: -2 },
-  right:      { alignItems: 'flex-end', gap: 6, paddingTop: 2 },
-  trendPill:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
-  trendText:  { fontSize: 10, letterSpacing: 1.5 },
-  deltaText:  { fontSize: 11 },
-  divider:    { height: 1, marginHorizontal: 0 },
-  gridRow:    { flexDirection: 'row', padding: 12, gap: 6 },
-  square:     { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: 'center', gap: 3 },
-  squareNum:  { fontSize: 13, lineHeight: 15 },
-  squareDay:  { fontSize: 9, letterSpacing: 0.5 },
-});
-
-const ITEM_W = 56;
-const SCORES = [0,1,2,3,4,5,6,7,8,9,10];
-
-function QualityScroll({ value, onChange, theme }: { value: number; onChange: (n: number) => void; theme: any }) {
-  const scrollRef = React.useRef<ScrollView>(null);
-
-  React.useEffect(() => {
-    scrollRef.current?.scrollTo({ x: value * ITEM_W, animated: true });
-  }, []);
-
-  return (
-    <ScrollView
-      ref={scrollRef}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      snapToInterval={ITEM_W}
-      decelerationRate="fast"
-      contentContainerStyle={qs.row}
-      onMomentumScrollEnd={e => {
-        const idx = Math.round(e.nativeEvent.contentOffset.x / ITEM_W);
-        onChange(Math.max(0, Math.min(10, idx)));
-      }}
-    >
-      {SCORES.map(n => {
-        const active = n === value;
-        return (
-          <TouchableOpacity
-            key={n}
-            style={[qs.item, { width: ITEM_W }]}
-            onPress={() => { onChange(n); scrollRef.current?.scrollTo({ x: n * ITEM_W, animated: true }); }}
-            activeOpacity={0.7}
-          >
-            <Text style={[qs.num, {
-              color: active ? theme.text : theme.textMuted,
-              fontSize: active ? 40 : 28,
-              fontFamily: active ? 'Inter_900Black' : 'Inter_500Medium',
-            }]}>
-              {n}
-            </Text>
-            {active && <View style={[qs.dot, { backgroundColor: '#34C759' }]} />}
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
-  );
-}
-
-const qs = StyleSheet.create({
-  row:        { paddingHorizontal: 24, paddingVertical: 12, alignItems: 'center' },
-  item:       { alignItems: 'center', justifyContent: 'center', height: 64, gap: 4 },
-  num:        { lineHeight: 48 },
-  dot:        { width: 4, height: 4, borderRadius: 2 },
-  backdrop:   { flex: 1 },
-  sheet:      { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40, paddingTop: 12 },
-  handle:     { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
-  sheetTitle: { fontSize: 14, letterSpacing: 3, textAlign: 'center' },
-  sheetSub:   { fontSize: 10, letterSpacing: 2, textAlign: 'center', marginTop: 6, marginBottom: 8 },
-  doneBtn:    { marginHorizontal: 24, marginTop: 20, paddingVertical: 16, alignItems: 'center', borderRadius: 12 },
-  doneBtnText:{ fontSize: 11, letterSpacing: 4 },
-});
-
-const MACRO_TARGETS = { calories: 2000, protein: 150, fat: 65, carbs: 250 };
-const MACRO_COLORS  = { calories: '#FF9500', protein: '#0A84FF', fat: '#FFD60A', carbs: '#34C759' };
-
-function MacroTracker({ items, theme, targets, onQuickLog }: {
-  items: FoodItem[];
-  theme: any;
-  targets: MacroTargets;
-  onQuickLog?: (macros: { calories?: number; protein?: number; fat?: number; carbs?: number }) => void;
-}) {
-  const totals = items.reduce(
-    (a, i) => ({
-      calories: a.calories + (i.calories ?? 0),
-      protein:  a.protein  + (i.protein  ?? 0),
-      fat:      a.fat      + (i.fat      ?? 0),
-      carbs:    a.carbs    + (i.carbs    ?? 0),
-    }),
-    { calories: 0, protein: 0, fat: 0, carbs: 0 }
-  );
-
-  const [inputCal,  setInputCal]  = React.useState('');
-  const [inputPro,  setInputPro]  = React.useState('');
-  const [inputCarb, setInputCarb] = React.useState('');
-  const [inputFat,  setInputFat]  = React.useState('');
-  const [focused, setFocused] = React.useState<string | null>(null);
-  const [saving, setSaving]   = React.useState(false);
-
-  const calRef  = React.useRef<TextInput>(null);
-  const proRef  = React.useRef<TextInput>(null);
-  const carbRef = React.useRef<TextInput>(null);
-  const fatRef  = React.useRef<TextInput>(null);
-
-  const hasInput = !!(inputCal || inputPro || inputCarb || inputFat);
-
-  async function handleLog() {
-    if (!onQuickLog || saving) return;
-    setSaving(true);
-    await onQuickLog({
-      calories: inputCal  ? Number(inputCal)  : undefined,
-      protein:  inputPro  ? Number(inputPro)  : undefined,
-      carbs:    inputCarb ? Number(inputCarb) : undefined,
-      fat:      inputFat  ? Number(inputFat)  : undefined,
-    });
-    setInputCal(''); setInputPro(''); setInputCarb(''); setInputFat('');
-    setSaving(false);
-  }
-
-  const cells = [
-    { key: 'calories', label: 'Calories', unit: 'kcal', icon: '🔥', color: MACRO_COLORS.calories,
-      total: totals.calories, input: inputCal, setInput: setInputCal, ref: calRef },
-    { key: 'protein',  label: 'Protein',  unit: 'g',    icon: '💪', color: MACRO_COLORS.protein,
-      total: totals.protein,  input: inputPro, setInput: setInputPro, ref: proRef },
-    { key: 'carbs',    label: 'Carbs',    unit: 'g',    icon: '🌾', color: MACRO_COLORS.carbs,
-      total: totals.carbs,    input: inputCarb, setInput: setInputCarb, ref: carbRef },
-    { key: 'fat',      label: 'Fat',      unit: 'g',    icon: '🥑', color: MACRO_COLORS.fat,
-      total: totals.fat,      input: inputFat, setInput: setInputFat, ref: fatRef },
-  ] as const;
-
-  return (
-    <View style={[mt.card, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
-      <View style={mt.grid}>
-        {cells.map((cell, idx) => {
-          const val    = Math.round(cell.total);
-          const target = targets[cell.key as keyof MacroTargets];
-          const pct    = Math.min((val + (Number(cell.input) || 0)) / target, 1);
-          const isFocused = focused === cell.key;
-          const displayVal = cell.input || (val > 0 ? String(val) : '');
-          const isRight  = idx % 2 === 1;
-          const isBottom = idx >= 2;
-
-          return (
-            <TouchableOpacity
-              key={cell.key}
-              style={[mt.cell,
-                isRight  && { borderLeftColor: theme.border, borderLeftWidth: 1 },
-                isBottom && { borderTopColor: theme.border, borderTopWidth: 1 },
-                isFocused && { backgroundColor: cell.color + '12' },
-              ]}
-              onPress={() => (cell.ref as React.RefObject<TextInput>).current?.focus()}
-              activeOpacity={0.75}
-            >
-              <View style={mt.cellHeader}>
-                <Text style={mt.cellIcon}>{cell.icon}</Text>
-                <Text style={[mt.cellLabel, { color: isFocused ? cell.color : theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-                  {cell.label}
-                </Text>
-              </View>
-              <View style={mt.cellValRow}>
-                <TextInput
-                  ref={cell.ref as React.RefObject<TextInput>}
-                  style={[mt.cellInput, { color: displayVal ? cell.color : theme.textTertiary, fontFamily: 'SpaceGrotesk_700Bold' }]}
-                  value={cell.input}
-                  onChangeText={cell.setInput as (v: string) => void}
-                  onFocus={() => setFocused(cell.key)}
-                  onBlur={() => setFocused(null)}
-                  placeholder={val > 0 ? String(val) : '—'}
-                  placeholderTextColor={val > 0 ? cell.color : theme.textTertiary}
-                  keyboardType="decimal-pad"
-                />
-                <Text style={[mt.cellUnit, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>{cell.unit}</Text>
-              </View>
-              <View style={[mt.barTrack, { backgroundColor: theme.surfaceStrong }]}>
-                <View style={[mt.barFill, { width: `${pct * 100}%` as any, backgroundColor: cell.color }]} />
-              </View>
-              <Text style={[mt.cellTarget, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-                / {target.toLocaleString()} {cell.unit}
-              </Text>
-              {isFocused && <View style={[mt.focusLine, { backgroundColor: cell.color }]} />}
-            </TouchableOpacity>
-          );
-        })}
+      {/* 7-day trend sparkline */}
+      <View style={sc.trendBlock}>
+        <Text style={[sc.trendLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>7-DAY TREND</Text>
+        <TrendSparkline points={last7} color={status.color} theme={theme} />
       </View>
 
-      {hasInput && onQuickLog && (
+      {percentile != null && (
         <>
-          <View style={[mt.divider, { backgroundColor: theme.border }]} />
-          <TouchableOpacity style={[mt.logBtn, { opacity: saving ? 0.5 : 1 }]} onPress={handleLog} disabled={saving} activeOpacity={0.85}>
-            <Text style={[mt.logBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-              {saving ? 'SAVING...' : 'LOG MACROS →'}
-            </Text>
-          </TouchableOpacity>
+          <View style={[sc.divider, { backgroundColor: theme.border }]} />
+          <Text style={[sc.percentileText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+            You're eating cleaner than <Text style={{ color: theme.text, fontFamily: 'Inter_800ExtraBold' }}>{percentile}%</Text> of your recent days.
+          </Text>
         </>
       )}
     </View>
   );
 }
 
-const mt = StyleSheet.create({
-  card:       { marginHorizontal: 16, marginBottom: 10, borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
-  grid:       { flexDirection: 'row', flexWrap: 'wrap' },
-  cell:       { width: '50%', padding: 14, gap: 6, position: 'relative' },
-  cellHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  cellIcon:   { fontSize: 14 },
-  cellLabel:  { fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase' },
-  cellValRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
-  cellInput:  { fontSize: 26, letterSpacing: -0.5, lineHeight: 30, minWidth: 50, paddingVertical: 0 },
-  cellUnit:   { fontSize: 10 },
-  barTrack:   { height: 4, borderRadius: 2, overflow: 'hidden' },
-  barFill:    { height: '100%', borderRadius: 2 },
-  cellTarget: { fontSize: 10 },
-  focusLine:  { position: 'absolute', bottom: 0, left: 14, right: 14, height: 2, borderRadius: 1 },
-  divider:    { height: 1 },
-  logBtn:     { paddingVertical: 13, alignItems: 'center' },
-  logBtnText: { fontSize: 11, letterSpacing: 3 },
+const sc = StyleSheet.create({
+  card:         { marginHorizontal: 16, marginBottom: 14, borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
+  top:          { flexDirection: 'row', alignItems: 'center', padding: 16, paddingBottom: 16 },
+  eyebrow:      { fontSize: 10, letterSpacing: 2 },
+  macroGrid:    { flex: 1, marginLeft: 16, flexDirection: 'row', flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
+  macroCell:    { width: '47%' },
+  macroValue:   { fontSize: 17, letterSpacing: -0.3 },
+  macroUnit:    { fontSize: 10 },
+  macroLabel:   { fontSize: 8.5, letterSpacing: 1, marginTop: 2 },
+  divider:      { height: 1, marginHorizontal: 0 },
+  trendBlock:   { paddingHorizontal: 16, paddingVertical: 14, gap: 10 },
+  trendLabel:   { fontSize: 9, letterSpacing: 2 },
+  percentileText: { fontSize: 13, lineHeight: 19, paddingHorizontal: 16, paddingVertical: 14 },
 });
+
+
+const MACRO_TARGETS = { calories: 2000, protein: 150, fat: 65, carbs: 250 };
+const MACRO_COLORS  = { calories: '#FF9500', protein: '#0A84FF', fat: '#FFD60A', carbs: '#34C759', fibre: '#30B0C7' };
 
 const MEAL_TIME_ICONS: Record<string, string> = {
   morning: '🌅', brunch: '☕', lunch: '🥗', evening: '🌆', dinner: '🍽️', snacks: '🍎',
 };
+
+function LogFoodModal({ open, token, date, theme, recentFoods, onClose, onSaved }: {
+  open: boolean; token: string; date: string; theme: any;
+  recentFoods: FoodItem[];
+  onClose: () => void; onSaved: () => void;
+}) {
+  const [itemName, setItemName]         = useState('');
+  const [itemMealTime, setItemMealTime] = useState<MealTime>('morning');
+  const [itemCalories, setItemCalories] = useState('');
+  const [itemProtein, setItemProtein]   = useState('');
+  const [itemFat, setItemFat]           = useState('');
+  const [itemCarbs, setItemCarbs]       = useState('');
+  const [itemFibre, setItemFibre]       = useState('');
+  const [addingItem, setAddingItem]     = useState(false);
+  const [scanning, setScanning]         = useState(false);
+
+  function reset() {
+    setItemName(''); setItemMealTime('morning');
+    setItemCalories(''); setItemProtein(''); setItemFat(''); setItemCarbs(''); setItemFibre('');
+  }
+
+  function applyRecommendation(item: FoodItem) {
+    setItemName(item.name);
+    setItemMealTime(item.mealTime);
+    setItemCalories(item.calories != null ? String(Math.round(item.calories)) : '');
+    setItemProtein(item.protein  != null ? String(Math.round(item.protein))  : '');
+    setItemFat(item.fat          != null ? String(Math.round(item.fat))      : '');
+    setItemCarbs(item.carbs      != null ? String(Math.round(item.carbs))    : '');
+    setItemFibre(item.fibre      != null ? String(Math.round(item.fibre))    : '');
+  }
+
+  async function handleSnapTrack(source: 'camera' | 'gallery') {
+    const fn = source === 'camera' ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
+    let perms;
+    if (source === 'camera') {
+      perms = await ImagePicker.requestCameraPermissionsAsync();
+    } else {
+      perms = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    }
+    if (!perms.granted) { Alert.alert('Permission needed', 'Allow access in Settings.'); return; }
+
+    const result = await fn({ mediaTypes: 'images' as any, quality: 0.7, base64: true, allowsEditing: true, aspect: [4, 3] });
+    if (result.canceled || !result.assets?.[0]?.base64) return;
+
+    setScanning(true);
+    try {
+      const data = await ai.snapTrack(token, `data:image/jpeg;base64,${result.assets[0].base64!}`);
+
+      if (!data.name || data.name === 'Unknown food') {
+        Alert.alert('No food detected', 'Try a clearer photo with better lighting, or enter the food manually.');
+        return;
+      }
+
+      setItemName(data.name);
+      setItemCalories(data.calories > 0 ? String(Math.round(data.calories)) : '');
+      setItemProtein(data.protein   > 0 ? String(Math.round(data.protein))  : '');
+      setItemCarbs(data.carbs       > 0 ? String(Math.round(data.carbs))    : '');
+      const fatVal = (data as any).fat ?? data.fats ?? 0;
+      setItemFat(fatVal > 0 ? String(Math.round(fatVal)) : '');
+
+      if (!data.calories && !data.protein && !data.carbs) {
+        Alert.alert('Food identified', `Found "${data.name}" but couldn't estimate nutrition. Fill in the values manually.`);
+      }
+    } catch (err: any) {
+      const msg = err.message?.includes('No food') || err.status === 422
+        ? 'No food detected. Try a clearer photo or better lighting.'
+        : `Scan failed: ${err.message}`;
+      Alert.alert('Snap Track', msg);
+    }
+    finally { setScanning(false); }
+  }
+
+  async function handleSubmit() {
+    if (!itemName.trim()) { Alert.alert('INCOMPLETE', 'Enter a food name.'); return; }
+    setAddingItem(true);
+    try {
+      await fuel.addItem(token, {
+        date,
+        name: itemName.trim(),
+        mealTime: itemMealTime,
+        calories: itemCalories ? Number(itemCalories) : undefined,
+        protein:  itemProtein  ? Number(itemProtein)  : undefined,
+        fat:      itemFat      ? Number(itemFat)      : undefined,
+        carbs:    itemCarbs    ? Number(itemCarbs)    : undefined,
+        fibre:    itemFibre    ? Number(itemFibre)    : undefined,
+      });
+      reset();
+      onSaved();
+    } catch (err: any) { Alert.alert('Error', err.message); }
+    finally { setAddingItem(false); }
+  }
+
+  return (
+    <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[lm.sheet, { backgroundColor: theme.bg }]}>
+        <View style={[lm.handle, { backgroundColor: theme.border }]} />
+        <View style={[lm.header, { borderBottomColor: theme.border }]}>
+          <Text style={[lm.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>LOG FOOD</Text>
+          <TouchableOpacity onPress={() => { reset(); onClose(); }}>
+            <Ionicons name="close" size={22} color={theme.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={lm.body} keyboardShouldPersistTaps="handled">
+          {/* Snap row */}
+          <View style={s.snapRow}>
+            <TouchableOpacity
+              style={[s.snapBtn, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF', opacity: scanning ? 0.6 : 1 }]}
+              onPress={() => handleSnapTrack('camera')}
+              disabled={scanning}
+              activeOpacity={0.7}
+            >
+              {scanning
+                ? <ActivityIndicator size="small" color={theme.text} />
+                : <Ionicons name="camera" size={18} color={theme.text} />}
+              <Text style={[s.snapBtnText, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>
+                {scanning ? 'ANALYSING...' : 'SNAP & TRACK'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.snapBtnSm, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}
+              onPress={() => handleSnapTrack('gallery')}
+              disabled={scanning}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="images-outline" size={18} color={theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={s.orRow}>
+            <View style={[s.orLine, { backgroundColor: theme.border }]} />
+            <Text style={[s.orText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>OR ENTER MANUALLY</Text>
+            <View style={[s.orLine, { backgroundColor: theme.border }]} />
+          </View>
+
+          {/* Food name */}
+          <View style={[s.foodNameBox, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
+            <Ionicons name="fast-food-outline" size={16} color={theme.textSecondary} style={{ marginRight: 8 }} />
+            <TextInput
+              style={[s.foodNameInput, { color: theme.text, fontFamily: 'Inter_700Bold', includeFontPadding: false }]}
+              value={itemName}
+              onChangeText={setItemName}
+              placeholder="Food name..."
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="words"
+              textAlignVertical="center"
+            />
+          </View>
+
+          {/* Nutrition — manual macro entry, filled automatically by Snap & Track or a recommendation */}
+          <Text style={[s.detailFieldLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>NUTRITION (OPTIONAL)</Text>
+          <View style={[lm.nutritionCard, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
+            <View style={lm.nutritionGrid}>
+              {([
+                { key: 'calories', label: 'CALORIES', unit: 'kcal', icon: '🔥', value: itemCalories, setValue: setItemCalories, color: MACRO_COLORS.calories },
+                { key: 'protein',  label: 'PROTEIN',   unit: 'g',    icon: '💪', value: itemProtein,  setValue: setItemProtein,  color: MACRO_COLORS.protein },
+                { key: 'carbs',    label: 'CARBS',      unit: 'g',    icon: '🌾', value: itemCarbs,    setValue: setItemCarbs,    color: MACRO_COLORS.carbs },
+                { key: 'fibre',    label: 'FIBRE',      unit: 'g',    icon: '🌱', value: itemFibre,    setValue: setItemFibre,    color: MACRO_COLORS.fibre },
+              ] as const).map((f, i) => (
+                <View
+                  key={f.key}
+                  style={[lm.nutritionCell,
+                    i % 2 === 1 && { borderLeftWidth: 1, borderLeftColor: theme.border },
+                    i >= 2      && { borderTopWidth: 1, borderTopColor: theme.border },
+                  ]}
+                >
+                  <View style={lm.nutritionLabelRow}>
+                    <Text style={lm.nutritionIcon}>{f.icon}</Text>
+                    <Text style={[lm.nutritionLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{f.label}</Text>
+                  </View>
+                  <View style={lm.nutritionInputRow}>
+                    <TextInput
+                      style={[lm.nutritionInput, { color: f.value ? f.color : theme.textTertiary, fontFamily: 'SpaceGrotesk_700Bold' }]}
+                      value={f.value}
+                      onChangeText={f.setValue}
+                      placeholder="0"
+                      placeholderTextColor={theme.textTertiary}
+                      keyboardType="decimal-pad"
+                    />
+                    <Text style={[lm.nutritionUnit, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>{f.unit}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Recommendations from past logged food */}
+          {recentFoods.length > 0 && (
+            <>
+              <Text style={[s.detailFieldLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>RECENTLY EATEN</Text>
+              <View style={lm.recRow}>
+                {recentFoods.slice(0, 10).map(f => (
+                  <TouchableOpacity
+                    key={f.id}
+                    style={[lm.recChip, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}
+                    onPress={() => applyRecommendation(f)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={lm.recChipEmoji}>{MEAL_TIME_ICONS[f.mealTime]}</Text>
+                    <Text style={[lm.recChipText, { color: theme.text, fontFamily: 'Inter_600SemiBold' }]} numberOfLines={1}>
+                      {f.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Meal time chips */}
+          <Text style={[s.detailFieldLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>WHEN</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.mealTimeRow}>
+            {(['morning','brunch','lunch','evening','dinner','snacks'] as MealTime[]).map(mealTimeOpt => (
+              <TouchableOpacity
+                key={mealTimeOpt}
+                style={[s.mealChip, {
+                  backgroundColor: itemMealTime === mealTimeOpt ? theme.text : (theme.isDark ? '#1E1E1E' : '#FFFFFF'),
+                  borderColor: itemMealTime === mealTimeOpt ? theme.text : theme.border,
+                }]}
+                onPress={() => setItemMealTime(mealTimeOpt)}
+                activeOpacity={0.7}
+              >
+                <Text style={s.mealChipEmoji}>{MEAL_TIME_ICONS[mealTimeOpt]}</Text>
+                <Text style={[s.mealChipLabel, {
+                  color: itemMealTime === mealTimeOpt ? theme.bg : theme.textSecondary,
+                  fontFamily: 'Inter_700Bold',
+                }]}>{mealTimeOpt.toUpperCase()}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <TouchableOpacity
+            style={[s.submitBtn, { backgroundColor: theme.tabActiveBg, opacity: (!itemName.trim() || addingItem) ? 0.4 : 1 }]}
+            onPress={handleSubmit}
+            disabled={!itemName.trim() || addingItem}
+          >
+            <Text style={[s.submitBtnText, { color: theme.tabActiveText, fontFamily: 'Inter_900Black' }]}>
+              {addingItem ? 'SAVING...' : 'LOG FOOD →'}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+const lm = StyleSheet.create({
+  sheet:        { flex: 1, paddingTop: 8 },
+  handle:       { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
+  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1 },
+  title:        { fontSize: 13, letterSpacing: 2 },
+  body:         { paddingBottom: 40 },
+  recRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, marginBottom: 16 },
+  recChip:      { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 999, borderWidth: 1, maxWidth: 180 },
+  recChipEmoji: { fontSize: 12 },
+  recChipText:  { fontSize: 12, flexShrink: 1 },
+  nutritionCard:     { flexDirection: 'row', marginHorizontal: 16, marginBottom: 16, borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
+  nutritionGrid:     { flex: 1, flexDirection: 'row', flexWrap: 'wrap' },
+  nutritionCell:     { width: '50%', padding: 14, gap: 6 },
+  nutritionLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  nutritionIcon:     { fontSize: 13 },
+  nutritionLabel:    { fontSize: 9, letterSpacing: 1.2 },
+  nutritionInputRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
+  nutritionInput:    { fontSize: 20, letterSpacing: -0.3, minWidth: 44, paddingVertical: 0 },
+  nutritionUnit:     { fontSize: 10 },
+});
 
 function FoodItemCard({ item, theme, onDelete, onUpdate }: {
   item: FoodItem; theme: any;
@@ -946,44 +1013,6 @@ function FoodItemCard({ item, theme, onDelete, onUpdate }: {
   );
 }
 
-function MacroTotalsBar({ items, theme }: { items: FoodItem[]; theme: any }) {
-  const totals = items.reduce(
-    (acc, item) => ({
-      calories: acc.calories + (item.calories ?? 0),
-      protein:  acc.protein  + (item.protein  ?? 0),
-      fat:      acc.fat      + (item.fat      ?? 0),
-      carbs:    acc.carbs    + (item.carbs    ?? 0),
-    }),
-    { calories: 0, protein: 0, fat: 0, carbs: 0 }
-  );
-
-  const hasAny = items.some(i => i.calories != null || i.protein != null || i.fat != null || i.carbs != null);
-  if (!hasAny) return null;
-
-  const cols = [
-    { label: 'CAL',   value: Math.round(totals.calories), unit: '',  color: MACRO_COLORS.calories },
-    { label: 'PRO',   value: Math.round(totals.protein),  unit: 'g', color: MACRO_COLORS.protein },
-    { label: 'CARBS', value: Math.round(totals.carbs),    unit: 'g', color: MACRO_COLORS.carbs },
-    { label: 'FAT',   value: Math.round(totals.fat),      unit: 'g', color: MACRO_COLORS.fat },
-  ];
-
-  return (
-    <View style={[fi.totalsBar, { borderColor: theme.border, backgroundColor: theme.isDark ? '#1E1E1E' : '#FFFFFF' }]}>
-      <Text style={[fi.totalsLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>DAILY TOTAL</Text>
-      <View style={fi.totalsRow}>
-        {cols.map((t, i) => (
-          <View key={t.label} style={[fi.totalCell, i < cols.length - 1 && { borderRightColor: theme.border, borderRightWidth: 1 }]}>
-            <Text style={[fi.totalVal, { color: t.color, fontFamily: 'SpaceGrotesk_700Bold' }]}>
-              {t.value}{t.unit}
-            </Text>
-            <Text style={[fi.totalCellLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{t.label}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 const fi = StyleSheet.create({
   // item cards
   itemCard:        { marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
@@ -1004,90 +1033,6 @@ const fi = StyleSheet.create({
   macroCellLine:   { position: 'absolute', bottom: 0, left: 14, right: 14, height: 2, borderRadius: 1 },
   saveBtn:         { paddingVertical: 12, alignItems: 'center' },
   saveBtnText:     { fontSize: 10, letterSpacing: 3 },
-  // totals bar
-  totalsBar:      { marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
-  totalsLabel:    { fontSize: 9, letterSpacing: 2.5, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8 },
-  totalsRow:      { flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
-  totalCell:      { flex: 1, alignItems: 'center', paddingVertical: 12, gap: 4 },
-  totalVal:       { fontSize: 18 },
-  totalCellLabel: { fontSize: 8, letterSpacing: 1.5 },
-});
-
-function QuestionCard({ icon, iconBg, label, sub, state, onAnswer, yesColor, noColor, theme }: {
-  icon: string;
-  iconBg: string;
-  label: string;
-  sub: string;
-  state: boolean | null;
-  onAnswer: (v: boolean) => void;
-  yesColor: string;
-  noColor: string;
-  theme: any;
-}) {
-  const yesActive = state === true;
-  const noActive  = state === false;
-
-  return (
-    <View style={[qcs.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
-        <View style={[qcs.iconBubble, { backgroundColor: iconBg }]}>
-          <Text style={{ fontSize: 18 }}>{icon}</Text>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[qcs.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{label}</Text>
-          <Text style={[qcs.sub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>{sub}</Text>
-          <View style={qcs.btnRow}>
-            <TouchableOpacity
-              style={[qcs.yesNoBtn, {
-                backgroundColor: yesActive ? yesColor + '20' : 'transparent',
-                borderColor: yesActive ? yesColor : theme.border,
-              }]}
-              onPress={() => onAnswer(true)}
-              activeOpacity={0.75}
-            >
-              <Ionicons
-                name={yesActive ? 'checkmark' : 'checkmark-outline'}
-                size={14}
-                color={yesActive ? yesColor : theme.textSecondary}
-              />
-              <Text style={[qcs.yesNoText, {
-                color: yesActive ? yesColor : theme.textSecondary,
-                fontFamily: 'Inter_900Black',
-              }]}>YES</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[qcs.yesNoBtn, {
-                backgroundColor: noActive ? noColor + '20' : 'transparent',
-                borderColor: noActive ? noColor : theme.border,
-              }]}
-              onPress={() => onAnswer(false)}
-              activeOpacity={0.75}
-            >
-              <Ionicons
-                name={noActive ? 'close' : 'close-outline'}
-                size={14}
-                color={noActive ? noColor : theme.textSecondary}
-              />
-              <Text style={[qcs.yesNoText, {
-                color: noActive ? noColor : theme.textSecondary,
-                fontFamily: 'Inter_900Black',
-              }]}>NO</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-const qcs = StyleSheet.create({
-  card:       { marginHorizontal: 16, marginBottom: 10, borderWidth: 1, borderRadius: 16, padding: 14 },
-  iconBubble: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  label:      { fontSize: 12, letterSpacing: 1 },
-  sub:        { fontSize: 10, letterSpacing: 0.2, marginTop: 2 },
-  btnRow:     { flexDirection: 'row', gap: 8, marginTop: 10 },
-  yesNoBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderWidth: 1.5, borderRadius: 10 },
-  yesNoText:  { fontSize: 11, letterSpacing: 1.5 },
 });
 
 function MealRow({ log, theme }: { log: FoodLog; theme: any }) {
@@ -1231,6 +1176,24 @@ const mr = StyleSheet.create({
   notes:      { fontSize: 11, letterSpacing: 0.3, paddingTop: 10, paddingBottom: 6, borderTopWidth: 1, fontStyle: 'italic' },
 });
 
+const qcs = StyleSheet.create({
+  card:         { marginHorizontal: 16, marginBottom: 10, borderWidth: 1, borderRadius: 18, padding: 16, position: 'relative' },
+  cardTopRow:   { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12, gap: 10 },
+  title:        { fontSize: 15, letterSpacing: 0.1 },
+  subtitle:     { fontSize: 12, marginTop: 3, letterSpacing: 0.1 },
+  ptsPill:      { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  ptsText:      { fontSize: 11 },
+  streakText:   { fontSize: 11 },
+  optionsRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  optionChip:   { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 999, borderWidth: 1.5 },
+  addCustomBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    marginHorizontal: 16, marginBottom: 14, paddingVertical: 14, borderRadius: 16,
+    borderWidth: 1.5, borderStyle: 'dashed',
+  },
+  addCustomText:{ fontSize: 13 },
+});
+
 const s = StyleSheet.create({
   safe: { flex: 1 },
   topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 6, gap: 10 },
@@ -1284,8 +1247,8 @@ const s = StyleSheet.create({
   orRow:            { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginVertical: 16, gap: 10 },
   orLine:           { flex: 1, height: 1 },
   orText:           { fontSize: 8, letterSpacing: 2 },
-  foodNameBox:      { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, marginBottom: 16 },
-  foodNameInput:    { flex: 1, fontSize: 15 },
+  foodNameBox:      { flexDirection: 'row', alignItems: 'center', minHeight: 52, marginHorizontal: 16, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 16 },
+  foodNameInput:    { flex: 1, fontSize: 15, lineHeight: 20, paddingVertical: 0 },
   detailFieldLabel: { fontSize: 8, letterSpacing: 2.5, marginHorizontal: 16, marginBottom: 10 },
   mealTimeRow:      { paddingHorizontal: 16, gap: 8, marginBottom: 16 },
   mealChip:         { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderRadius: 10 },

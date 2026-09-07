@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
-import { habits, Task, tasks, today, toDateStr, CONTROL_PRESETS, challenges } from '../../lib/api';
+import { habits, Task, tasks, today, toDateStr, CONTROL_PRESETS, challenges, AiAnalysis } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
 import { ErrorState } from '../../components/ErrorState';
 import Svg, { Circle, G } from 'react-native-svg';
@@ -26,6 +26,7 @@ import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { DayCompleteCelebration } from '../../components/DayCompleteCelebration';
+import { AiAnalysisButton, AiAnalysisCard } from '../../components/AiAnalysisCard';
 
 type HabitType = 'build' | 'control';
 type TimeSlot  = 'morning' | 'afternoon' | 'evening' | 'night' | 'allday';
@@ -113,6 +114,8 @@ export default function HabitsScreen() {
   const [countIsY,   setCountIsY]       = useState(false); // true = Y-press (failed), false = N/build
 
   const isToday = selectedDate === today();
+  // Ticking is allowed for today and any past day — just not days that haven't happened yet.
+  const canLog  = selectedDate <= today();
   // Set by the completion handlers so the day-complete celebration only fires from
   // a user action — never from loading or refreshing an already-complete day.
   const justCompleted = useRef(false);
@@ -199,7 +202,7 @@ export default function HabitsScreen() {
   }
 
   async function toggleHabit(habit: HabitWithStatus) {
-    if (!token || !isToday) return;
+    if (!token || !canLog) return;
 
     // If habit tracks count, open the count modal instead of toggling directly
     if (habit.track_count && !habit.done) {
@@ -226,7 +229,7 @@ export default function HabitsScreen() {
   }
 
   async function handleControlN(habit: HabitWithStatus) {
-    if (!token || !isToday) return;
+    if (!token || !canLog) return;
     const wasY = yPressedIds.has(habit.id);
     setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
     if (habit.done) return; // already N-selected
@@ -247,7 +250,7 @@ export default function HabitsScreen() {
   }
 
   async function handleControlY(habit: HabitWithStatus) {
-    if (!token || !isToday) return;
+    if (!token || !canLog) return;
 
     // track_count habits → open count modal so the user can log how many
     if (habit.track_count) {
@@ -404,38 +407,6 @@ export default function HabitsScreen() {
           <MomentumPill score={overallScore} theme={theme} />
         </View>
 
-        {/* ── The Mirror entry card ── */}
-        <Pressable
-          onPress={() => router.push('/(tabs)/mirror' as any)}
-          style={({ pressed }) => ({
-            marginHorizontal: 16,
-            marginBottom: 22,
-            borderRadius: 24,
-            backgroundColor: '#14110D',
-            paddingVertical: 20,
-            paddingHorizontal: 20,
-            overflow: 'hidden',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 14,
-            borderWidth: 1,
-            borderColor: theme.accent + '33',
-            opacity: pressed ? 0.9 : 1,
-          })}
-        >
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="sparkles" size={12} color={theme.accent} />
-              <Text style={{ fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 10, letterSpacing: 2, color: theme.accent }}>THE MIRROR · PREMIUM</Text>
-            </View>
-            <Text style={{ fontFamily: 'BricolageGrotesque_800ExtraBold', fontSize: 22, lineHeight: 26, color: '#F5F2E9', marginTop: 10 }}>See who you’re becoming</Text>
-            <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 12.5, color: '#F5F2E9', opacity: 0.6, marginTop: 5 }}>one tap → your reflection</Text>
-          </View>
-          <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="arrow-forward" size={20} color="#14110D" />
-          </View>
-        </Pressable>
-
         {/* ── BUILD / CONTROL segmented control ── */}
         <View
           style={[s.segmented, { backgroundColor: theme.surface }]}
@@ -497,7 +468,7 @@ export default function HabitsScreen() {
               key={habit.id}
               habit={habit}
               theme={theme}
-              canToggle={isToday}
+              canToggle={canLog}
               isControl={isControl}
               ySelected={isControl ? (habit.yFailed || yPressedIds.has(habit.id)) : false}
               fromChallenge={challengeNames.has(habit.name.trim().toLowerCase())}
@@ -794,6 +765,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
 }) {
   const [loading, setLoading]         = useState(true);
   const [doneDates, setDoneDates]       = useState<Set<string>>(new Set());
+  const [completionByDate, setCompletionByDate] = useState<Map<string, { failed: boolean; count: number | null }>>(new Map());
   const [percentile, setPercentile]     = useState<number | null>(null);
   const [totalUsers, setTotalUsers]     = useState(0);
   const [consistency, setConsistency]   = useState(0);
@@ -806,6 +778,22 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
     habit.days && habit.days.length > 0 ? habit.days : [0,1,2,3,4,5,6]
   );
   const [saving, setSaving]       = useState(false);
+
+  // AI analysis
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult]   = useState<AiAnalysis | null>(null);
+
+  async function runAnalysis() {
+    setAiLoading(true);
+    try {
+      const res = await habits.aiAnalysis(token, habit.name);
+      setAiResult(res);
+    } catch (err: any) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   function toggleEditDay(i: number) {
     setEditDays(prev =>
@@ -853,6 +841,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
     habits.stats(token, habit.name)
       .then(res => {
         setDoneDates(new Set(res.doneDates));
+        setCompletionByDate(new Map(res.completions.map(c => [c.date, { failed: c.failed, count: c.count }])));
         setConsistency(res.consistency);
         setPercentile(res.percentile);
         setTotalUsers(res.totalUsersWithHabit);
@@ -881,14 +870,10 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
   const consistencyColor = consistency >= 70 ? '#34C759' : consistency >= 40 ? '#F59E0B' : '#EF4444';
 
   return (
-    <Modal visible transparent animationType="fade">
-      <Pressable style={[hd.backdrop, { backgroundColor: theme.backdrop }]} onPress={onClose} />
-      <ScrollView
-        style={hd.centreWrap}
-        contentContainerStyle={hd.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={[hd.card, { backgroundColor: theme.cardElevated, borderColor: theme.border }]}>
+    <Modal visible animationType="slide" presentationStyle="pageSheet">
+      <View style={[hd.sheet, { backgroundColor: theme.bg }]}>
+        <View style={[hd.handleBar, { backgroundColor: theme.border }]} />
+        <ScrollView contentContainerStyle={hd.scrollContent} keyboardShouldPersistTaps="handled">
           {/* Header */}
           <View style={hd.header}>
             <View style={{ flex: 1, gap: 4 }}>
@@ -1082,15 +1067,18 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                     <View key={wi} style={hd.calRow}>
                       {week.map((dateStr, di) => {
                         if (!dateStr) return <View key={di} style={hd.calCell} />;
-                        const isPast   = dateStr <= today();
-                        const isDone   = doneDates.has(dateStr);
-                        const isToday2 = dateStr === today();
-                        const dayNum   = parseInt(dateStr.slice(8), 10);
+                        const isPast     = dateStr <= today();
+                        const isDone     = doneDates.has(dateStr);
+                        const completion = completionByDate.get(dateStr);
+                        const isFailed   = completion?.failed ?? false;
+                        const isToday2   = dateStr === today();
+                        const dayNum     = parseInt(dateStr.slice(8), 10);
 
                         let bg = 'transparent';
-                        if (isToday2)     bg = theme.inverse;
-                        else if (isDone)  bg = '#22A664';
-                        else if (isPast)  bg = theme.surface;
+                        if (isToday2)      bg = theme.inverse;
+                        else if (isFailed) bg = '#E84A4A';
+                        else if (isDone)   bg = '#22A664';
+                        else if (isPast)   bg = theme.surface;
 
                         return (
                           <View key={di} style={[hd.calCell, {
@@ -1098,7 +1086,12 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                             borderRadius: 7,
                             opacity: !isPast && !isToday2 ? 0.3 : 1,
                           }]}>
-                            {isDone && !isToday2 && (
+                            {isDone && isFailed && !isToday2 && (
+                              completion?.count != null
+                                ? <Text style={{ fontSize: 10, color: '#FFFFFF', fontFamily: 'Inter_900Black' }}>{completion.count}</Text>
+                                : <Ionicons name="close" size={11} color="#FFFFFF" />
+                            )}
+                            {isDone && !isFailed && !isToday2 && (
                               <Ionicons name="checkmark" size={11} color="#FFFFFF" />
                             )}
                             {!isDone && isPast && !isToday2 && (
@@ -1124,6 +1117,12 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                     <View style={[hd.legendDot, { backgroundColor: '#22A664' }]} />
                     <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Done</Text>
                   </View>
+                  {habit.category === 'control' && (
+                    <View style={hd.legendItem}>
+                      <View style={[hd.legendDot, { backgroundColor: '#E84A4A' }]} />
+                      <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Violated</Text>
+                    </View>
+                  )}
                   <View style={hd.legendItem}>
                     <View style={[hd.legendDot, { backgroundColor: theme.surface }]} />
                     <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Missed</Text>
@@ -1154,19 +1153,28 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                   <Text style={[hd.actionBtnText, { color: theme.inverseText, fontFamily: 'Inter_900Black' }]}>EDIT</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* AI analysis */}
+              <View style={{ marginTop: 4 }}>
+                <AiAnalysisButton loading={aiLoading} onPress={runAnalysis} theme={theme} />
+              </View>
+              {aiResult && (
+                <View style={{ marginTop: 12 }}>
+                  <AiAnalysisCard result={aiResult} theme={theme} />
+                </View>
+              )}
             </>
           )}
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </Modal>
   );
 }
 
 const hd = StyleSheet.create({
-  backdrop:       { ...StyleSheet.absoluteFillObject },
-  centreWrap:     { ...StyleSheet.absoluteFillObject },
-  scrollContent:  { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  card:           { width: '100%', borderRadius: 20, borderWidth: 1, padding: 20, gap: 16 },
+  sheet:          { flex: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12 },
+  handleBar:      { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
+  scrollContent:  { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40, gap: 16 },
   header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   habitName:      { fontSize: 20, letterSpacing: 0.5 },
   percentileLine: { fontSize: 12, lineHeight: 17 },
