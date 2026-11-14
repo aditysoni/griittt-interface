@@ -9,6 +9,8 @@ export const ONBOARDING_KEY = 'grittt_onboarding_done';
 const prioritiesKey = (userId: string) => `grittt_priorities_${userId}`;
 const checkInsKey = (userId: string) => `grittt_checkins_${userId}`;
 const chatKey = (userId: string) => `grittt_askgrittt_${userId}`;
+const foodCheckInsKey = (userId: string) => `grittt_food_checkins_${userId}`;
+const workoutDraftKey = (userId: string, date: string) => `grittt_workout_draft_${userId}_${date}`;
 
 export type Mood = 'low' | 'okay' | 'good';
 /** One entry per date. `mood: null` with `skipped` means the user chose to skip. */
@@ -56,6 +58,43 @@ export const chatStorage = {
   set: (userId: string, messages: unknown[], max: number) =>
     AsyncStorage.setItem(chatKey(userId), JSON.stringify(messages.slice(-max))),
   clear: (userId: string) => AsyncStorage.removeItem(chatKey(userId)),
+};
+
+/** Food quick check-in. Stored on the device only: the server has no field for a
+ *  three-way "how did eating go" answer. Backend contract needed to persist it:
+ *  POST /api/fuel/checkin { date, feel: 'difficult'|'mixed'|'well', note? } and the
+ *  same fields on GET /api/fuel/logs and /api/fuel/history. */
+export type FoodFeel = 'difficult' | 'mixed' | 'well';
+export type FoodCheckIn = { feel: FoodFeel; note: string; updatedAt: string };
+export type FoodCheckInMap = Record<string, FoodCheckIn>;
+
+export const foodStorage = {
+  getAll: async (userId: string): Promise<FoodCheckInMap> => {
+    const map = await readJSON<unknown>(foodCheckInsKey(userId), {});
+    return map && typeof map === 'object' && !Array.isArray(map) ? (map as FoodCheckInMap) : {};
+  },
+  set: async (userId: string, date: string, entry: FoodCheckIn | null): Promise<FoodCheckInMap> => {
+    const map = await foodStorage.getAll(userId);
+    const next = { ...map };
+    if (entry) next[date] = entry; else delete next[date];
+    await AsyncStorage.setItem(foodCheckInsKey(userId), JSON.stringify(next));
+    return next;
+  },
+};
+
+/** An unsaved gym session, so leaving the screen never loses typed sets. */
+export type WorkoutDraft = {
+  bodyPart: string;
+  exercises: Array<{ name: string; sets: Array<{ reps: number; weight: number }> }>;
+  currentName: string;
+  currentSets: Array<{ reps: number; weight: number }>;
+  updatedAt: string;
+};
+
+export const workoutDraftStorage = {
+  get: (userId: string, date: string) => readJSON<WorkoutDraft | null>(workoutDraftKey(userId, date), null),
+  set: (userId: string, date: string, draft: WorkoutDraft) => AsyncStorage.setItem(workoutDraftKey(userId, date), JSON.stringify(draft)),
+  clear: (userId: string, date: string) => AsyncStorage.removeItem(workoutDraftKey(userId, date)),
 };
 
 export const storage = {

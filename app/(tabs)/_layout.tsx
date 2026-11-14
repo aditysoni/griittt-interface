@@ -1,14 +1,14 @@
 import { Tabs } from 'expo-router';
-import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../components/ThemeContext';
 
 const TABS = [
-  { name: 'index',      label: 'INDEX',    icon: 'grid-outline'      as const },
-  { name: 'fuel',       label: 'FUEL',     icon: 'nutrition-outline' as const },
-  { name: 'strength',   label: 'STRENGTH', icon: 'barbell-outline'   as const },
-  { name: 'challenges', label: 'GRIND',    icon: 'flag-outline'      as const },
-  { name: 'profile',    label: 'YOU',      icon: 'person-outline'    as const },
+  { name: 'index',      label: 'Today',    icon: 'grid-outline'      as const },
+  { name: 'fuel',       label: 'Food',     icon: 'nutrition-outline' as const },
+  { name: 'strength',   label: 'Physical', icon: 'barbell-outline'   as const },
+  { name: 'challenges', label: 'Grind',    icon: 'flag-outline'      as const },
+  { name: 'profile',    label: 'You',      icon: 'person-outline'    as const },
 ];
 
 function TabBar({ state, navigation }: any) {
@@ -28,14 +28,24 @@ function TabBar({ state, navigation }: any) {
             style={tb.btn}
             onPress={() => navigation.navigate(tab.name)}
             activeOpacity={0.7}
+            accessibilityRole="tab"
+            accessibilityLabel={tab.label}
+            accessibilityState={{ selected: focused }}
           >
             {focused ? (
               <View style={[tb.pill, { backgroundColor: theme.text }]}>
-                <Ionicons name={tab.icon} size={22} color={theme.bg} />
+                <Ionicons name={tab.icon} size={20} color={theme.bg} />
               </View>
             ) : (
-              <Ionicons name={tab.icon} size={22} color={theme.textSecondary} style={{ opacity: 0.4 }} />
+              <Ionicons name={tab.icon} size={20} color={theme.textSecondary} style={{ opacity: 0.5 }} />
             )}
+            <Text
+              style={[tb.label, { color: focused ? theme.text : theme.textSecondary, fontFamily: focused ? 'Inter_700Bold' : 'Inter_600SemiBold' }]}
+              maxFontSizeMultiplier={1.3}
+              numberOfLines={1}
+            >
+              {tab.label}
+            </Text>
           </TouchableOpacity>
         );
       })}
@@ -47,8 +57,8 @@ const tb = StyleSheet.create({
   root: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 14,
-    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 22 : 12,
+    paddingTop: 8,
     paddingHorizontal: 8,
     alignItems: 'center',
   },
@@ -56,13 +66,17 @@ const tb = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 3,
+    minHeight: 48,
   },
   pill: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 10,
-    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 14,
   },
+  label: { fontSize: 10, letterSpacing: 0.2 },
 });
 
 export default function TabsLayout() {

@@ -19,7 +19,7 @@ import type { CheckIn } from './storage';
 
 // ── Screens and suggestions ────────────────────────────────────────────────────
 
-export type AssistantScreen = 'today' | 'habits' | 'progress' | 'food' | 'reflection';
+export type AssistantScreen = 'today' | 'habits' | 'progress' | 'food' | 'physical' | 'reflection';
 
 export type Suggestion = { id: string; group: AssistantScreen; text: string };
 
@@ -37,7 +37,12 @@ export const SUGGESTIONS: Suggestion[] = [
   { id: 'progress.patterns',group: 'progress',   text: 'What patterns can you see in my logs?' },
 
   { id: 'food.summary',     group: 'food',       text: 'Summarize my food check-ins.' },
+  { id: 'food.patterns',    group: 'food',       text: 'What patterns appear in my recent check-ins?' },
   { id: 'food.easier',      group: 'food',       text: 'Help me make food logging easier.' },
+
+  { id: 'physical.week',    group: 'physical',   text: 'Summarize my training this week.' },
+  { id: 'physical.compare', group: 'physical',   text: 'How does this week compare with last week?' },
+  { id: 'physical.time',    group: 'physical',   text: 'Help me plan around my available time.' },
 
   { id: 'reflect.well',     group: 'reflection', text: 'What went well this week?' },
   { id: 'reflect.goals',    group: 'reflection', text: 'How do my actions connect with my goals?' },
@@ -45,7 +50,7 @@ export const SUGGESTIONS: Suggestion[] = [
 ];
 
 export const GROUP_LABEL: Record<AssistantScreen, string> = {
-  today: 'Today', habits: 'Habits', progress: 'Progress', food: 'Food', reflection: 'Reflection',
+  today: 'Today', habits: 'Habits', progress: 'Progress', food: 'Food', physical: 'Physical', reflection: 'Reflection',
 };
 
 /** The three questions shown first for a screen, then the rest grouped for "More questions". */
