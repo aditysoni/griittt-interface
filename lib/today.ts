@@ -209,6 +209,16 @@ export function dayTitle(date: string, todayStr: string): string {
   return `Viewing ${long}`;
 }
 
+/** Short header: "Today · Friday 6", "Viewing yesterday · Thursday 5", or "Viewing Monday 2". */
+export function dayTitleShort(date: string, todayStr: string): string {
+  const d = parseLocal(date);
+  const short = `${WEEKDAYS[d.getDay()]} ${d.getDate()}`;
+  const rel = relativeDay(date, todayStr);
+  if (rel === 'today') return `Today · ${short}`;
+  if (rel) return `Viewing ${rel} · ${short}`;
+  return `Viewing ${short}`;
+}
+
 /** How to refer to the selected day inside a sentence: "today", "yesterday", or the full date. */
 export function dayWord(date: string, todayStr: string): string {
   return relativeDay(date, todayStr) ?? formatLongDate(date, todayStr);

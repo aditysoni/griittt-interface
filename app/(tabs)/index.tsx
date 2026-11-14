@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Circle, G } from 'react-native-svg';
 import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
@@ -29,14 +30,10 @@ import { DayCompleteCelebration } from '../../components/DayCompleteCelebration'
 import { AiAnalysisButton, AiAnalysisCard } from '../../components/AiAnalysisCard';
 import { ActionOutcome, AskGritttSheet } from '../../components/AskGritttSheet';
 import type { AssistantContext } from '../../lib/assistant';
-import {
-  AskGritttRow, CheckInCard, NextStepCard, PrioritiesCard, PriorityPickerModal,
-  ProgressCard, UndoBar, ViewingBanner,
-} from '../../components/TodayCards';
+import { CheckInCard, UndoBar, ViewingBanner } from '../../components/TodayCards';
 import { CheckInMap, Mood, todayStorage } from '../../lib/storage';
 import {
-  dayTitle, dayWord, formatLongDate, formatShortDate, greeting, isScheduledOn,
-  pickNextStep, sanitizePriorities, summarizeDay,
+  dayTitleShort, dayWord, formatLongDate, formatShortDate, greeting, isScheduledOn, sanitizePriorities,
 } from '../../lib/today';
 
 type HabitType = 'build' | 'control';
@@ -122,7 +119,6 @@ export default function HabitsScreen() {
   // Today-screen state
   const [loadedDate, setLoadedDate]     = useState<string | null>(null); // date habitList belongs to
   const [priorityIds, setPriorityIds]   = useState<string[]>([]);
-  const [showPriorityPicker, setShowPriorityPicker] = useState(false);
   const [checkIns, setCheckIns]         = useState<CheckInMap>({});
   const [showAsk, setShowAsk]           = useState(false);
   const [undo, setUndo]                 = useState<UndoEntry | null>(null);
@@ -133,8 +129,6 @@ export default function HabitsScreen() {
   selectedDateRef.current = selectedDate;
   const todayRef = useRef(todayStr);
   todayRef.current = todayStr;
-  const scrollRef = useRef<ScrollView>(null);
-  const allHabitsY = useRef(0);
 
   const isToday = selectedDate === todayStr;
   // Ticking is allowed for today and any past day — just not days that haven't happened yet.
@@ -215,7 +209,6 @@ export default function HabitsScreen() {
   function savePriorities(ids: string[]) {
     const clean = sanitizePriorities(ids, habitList);
     setPriorityIds(clean);
-    setShowPriorityPicker(false);
     todayStorage.setPriorities(userKey, clean).catch(() => {
       Alert.alert('Could not save', 'Your priorities could not be saved on this device.');
     });
@@ -284,23 +277,6 @@ export default function HabitsScreen() {
       Alert.alert('Could not undo', err?.message ?? 'Undo failed.');
     } finally {
       if (u.date === selectedDateRef.current) load(u.date);
-    }
-  }
-
-  // Removes whatever is logged for this habit on the selected date (the "Undo" on a logged row).
-  async function clearLog(habit: HabitWithStatus) {
-    if (!token || !canLog) return;
-    const date = selectedDate;
-    dropUndo(habit.id);
-    setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
-    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: false, count: null } : h));
-    try {
-      await habits.uncomplete(token, habit.name, date);
-    } catch (err: any) {
-      if (date === selectedDateRef.current) {
-        setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: habit.done, yFailed: habit.yFailed, count: habit.count } : h));
-      }
-      Alert.alert('Error', err.message);
     }
   }
 
@@ -542,17 +518,18 @@ export default function HabitsScreen() {
     [habitList, yPressedIds]
   );
   const activePriorityIds = useMemo(() => sanitizePriorities(priorityIds, habitList), [priorityIds, habitList]);
-  const priorityHabits = useMemo(
-    () => activePriorityIds
-      .map(id => dayHabits.find(h => h.id === id))
-      .filter((h): h is HabitWithStatus => !!h),
-    [activePriorityIds, dayHabits]
-  );
-  const summary  = useMemo(() => summarizeDay(dayHabits, selectedDate, todayStr), [dayHabits, selectedDate, todayStr]);
-  const nextStep = useMemo(
-    () => pickNextStep(dayHabits, activePriorityIds, selectedDate, todayStr),
-    [dayHabits, activePriorityIds, selectedDate, todayStr]
-  );
+
+  // Discipline score for the gauge: weighted completion of the day's habits.
+  // Same formula the screen used before (build 60% / control 40% when both exist).
+  const overallScore = useMemo(() => {
+    const w = (list: HabitWithStatus[]) => list.reduce((s, h) => s + (h.score || 1), 0);
+    const build = dayHabits.filter(h => h.category !== 'control');
+    const ctrl  = dayHabits.filter(h => h.category === 'control');
+    const bw = w(build), cw = w(ctrl);
+    const bScore = bw > 0 ? Math.round((w(build.filter(h => h.done)) / bw) * 100) : 0;
+    const cScore = cw > 0 ? Math.round((w(ctrl.filter(h => h.done)) / cw) * 100) : 0;
+    return cw > 0 ? Math.round(bScore * 0.6 + cScore * 0.4) : bScore;
+  }, [dayHabits]);
 
   // ── Ask GRITTT ────────────────────────────────────────────────────────────────
   // The assistant reads the same in-memory day as the cards, and its writes go
@@ -606,7 +583,7 @@ export default function HabitsScreen() {
 
   if (loading) return <LoadingScreen />;
 
-  const title = dayTitle(selectedDate, todayStr);
+  const title = dayTitleShort(selectedDate, todayStr);
   const word  = dayWord(selectedDate, todayStr);
   const retryLoad = () => { setLoadError(false); load(selectedDate); };
 
@@ -633,15 +610,31 @@ export default function HabitsScreen() {
       {/* ── Top bar: which day this is, and a short welcome ── */}
       <View style={s.topBar}>
         <View style={{ flex: 1 }}>
-          <Text style={[s.dayTitle, { color: theme.text, fontFamily: 'BricolageGrotesque_800ExtraBold' }]} accessibilityRole="header">
+          <Text
+            style={[s.dayTitle, { color: theme.text, fontFamily: 'BricolageGrotesque_800ExtraBold' }]}
+            accessibilityRole="header"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+          >
             {title}
           </Text>
           {isToday && (
             <Text style={[s.welcome, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-              {greeting(new Date().getHours(), user?.name)} One small step is enough.
+              {greeting(new Date().getHours(), user?.name)}
             </Text>
           )}
         </View>
+        <TouchableOpacity
+          style={[s.askBtn, { backgroundColor: theme.inverse }]}
+          onPress={() => setShowAsk(true)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Ask GRITTT"
+        >
+          <Ionicons name="sparkles" size={15} color={theme.accent} />
+          <Text style={[s.askBtnText, { color: theme.inverseText, fontFamily: 'Inter_700Bold' }]} maxFontSizeMultiplier={1.3}>Ask GRITTT</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[s.iconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
           onPress={() => router.push('/(tabs)/profile')}
@@ -660,7 +653,6 @@ export default function HabitsScreen() {
 
       <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
       <ScrollView
-        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
@@ -700,32 +692,13 @@ export default function HabitsScreen() {
               </TouchableOpacity>
             )}
 
-            {/* 1 — the one next action, before any numbers */}
-            <NextStepCard
-              step={nextStep}
-              theme={theme}
-              isToday={isToday}
-              date={selectedDate}
-              dayWord={word}
-              onAct={logFromCard}
-              onAddHabit={() => setShowAdd(true)}
-            />
+            {/* Gauge + status */}
+            <ArcGauge value={overallScore} theme={theme} />
+            <View style={s.momentumWrap}>
+              <MomentumPill score={overallScore} theme={theme} />
+            </View>
 
-            {/* 2 — up to three chosen habits, with quick completion */}
-            <PrioritiesCard
-              priorities={priorityHabits}
-              hasHabits={habitList.length > 0}
-              theme={theme}
-              date={selectedDate}
-              todayStr={todayStr}
-              canLog={canLog}
-              onAct={logFromCard}
-              onUndo={h => guardDate(() => clearLog(h))}
-              onEdit={() => setShowPriorityPicker(true)}
-              onAllHabits={() => scrollRef.current?.scrollTo({ y: Math.max(0, allHabitsY.current - 8), animated: true })}
-            />
-
-            {/* 3 — optional check-in (separate from the score) and the AI entry point */}
+            {/* Optional check-in (separate from the score) */}
             {canLog && (
               <CheckInCard
                 key={selectedDate}
@@ -736,13 +709,8 @@ export default function HabitsScreen() {
                 onSkip={() => saveCheckIn(null)}
               />
             )}
-            <AskGritttRow theme={theme} onPress={() => setShowAsk(true)} />
-
-            {/* 4 — small factual summary; charts live on the progress screen */}
-            <ProgressCard summary={summary} theme={theme} onDetails={() => router.push('/(tabs)/profile')} />
-
-            {/* 5 — the full habit list */}
-            <View style={s.allHead} onLayout={e => { allHabitsY.current = e.nativeEvent.layout.y; }}>
+            {/* The full habit list */}
+            <View style={s.allHead}>
               <Text style={[s.allTitle, { color: theme.text, fontFamily: 'Inter_800ExtraBold' }]} accessibilityRole="header">
                 All habits
               </Text>
@@ -822,15 +790,6 @@ export default function HabitsScreen() {
       </DateSwipe>
 
       {undo && <UndoBar message={undo.message} theme={theme} onUndo={undoLast} />}
-
-      <PriorityPickerModal
-        visible={showPriorityPicker}
-        habits={dayHabits}
-        selected={activePriorityIds}
-        theme={theme}
-        onClose={() => setShowPriorityPicker(false)}
-        onSave={savePriorities}
-      />
 
       <AskGritttSheet
         visible={showAsk}
@@ -1711,6 +1670,60 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
   );
 }
 
+// ── Arc gauge — 220° sweep with score in the centre ────────────────────────
+const GAUGE_W = 220;
+const GAUGE_H = 150;
+const GAUGE_R = 86;
+const GAUGE_CX = GAUGE_W / 2;
+const GAUGE_CY = 110;
+const GAUGE_SWEEP_DEG = 220;
+const GAUGE_C = 2 * Math.PI * GAUGE_R;
+const GAUGE_ARC_LEN = GAUGE_C * (GAUGE_SWEEP_DEG / 360);
+const GAUGE_GAP = GAUGE_C - GAUGE_ARC_LEN;
+const GAUGE_ROTATE = 90 + (360 - GAUGE_SWEEP_DEG) / 2;
+
+function gaugeColor(v: number, theme: any): string {
+  if (v <= 33) return theme.danger;
+  if (v <= 66) return theme.warning;
+  return theme.success;
+}
+
+function ArcGauge({ value, theme }: { value: number; theme: any }) {
+  const pct = Math.max(0, Math.min(1, value / 100));
+  const fill = GAUGE_ARC_LEN * pct;
+  const col  = gaugeColor(value, theme);
+  return (
+    <View style={{ width: GAUGE_W, height: GAUGE_H, alignSelf: 'center' }} accessibilityLabel={`Discipline score ${value} out of 100`}>
+      <Svg width={GAUGE_W} height={GAUGE_H} viewBox={`0 0 ${GAUGE_W} ${GAUGE_H + 30}`}>
+        <G transform={`rotate(${GAUGE_ROTATE}, ${GAUGE_CX}, ${GAUGE_CY})`}>
+          <Circle cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R} fill="none" stroke={theme.surface} strokeWidth={14} strokeLinecap="round" strokeDasharray={`${GAUGE_ARC_LEN} ${GAUGE_GAP}`} />
+          {value > 0 && (
+            <Circle cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R} fill="none" stroke={col} strokeWidth={14} strokeLinecap="round" strokeDasharray={`${fill} ${GAUGE_C - fill}`} />
+          )}
+        </G>
+      </Svg>
+      <View style={s.gaugeLabel} pointerEvents="none">
+        <Text style={[s.gaugeNum, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{value}</Text>
+        <Text style={[s.gaugeCap, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>OUT OF 100</Text>
+      </View>
+    </View>
+  );
+}
+
+function MomentumPill({ score, theme }: { score: number; theme: any }) {
+  let label: string, bg: string, fg: string, arrow: string;
+  if (score >= 75)      { label = 'CRUSHING IT';       bg = '#22A66425'; fg = '#22A664'; arrow = '↑'; }
+  else if (score >= 50) { label = 'BUILDING MOMENTUM'; bg = '#F0A12E25'; fg = '#F0A12E'; arrow = '↑'; }
+  else if (score >= 25) { label = 'WAVERING';          bg = '#F0A12E20'; fg = '#F0A12E'; arrow = '→'; }
+  else if (score > 0)   { label = 'BELOW POTENTIAL';   bg = '#E84A4A20'; fg = '#E84A4A'; arrow = '↓'; }
+  else                  { label = 'SHOW UP';           bg = theme.surfaceStrong; fg = theme.textSecondary; arrow = '·'; }
+  return (
+    <View style={[s.momentumPill, { backgroundColor: bg }]}>
+      <Text style={[s.momentumPillText, { color: fg, fontFamily: 'Inter_900Black' }]}>{arrow}  {label}</Text>
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
   safe:     { flex: 1 },
 
@@ -1718,7 +1731,16 @@ const s = StyleSheet.create({
   topBar:        { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 18, paddingTop: 8, paddingBottom: 12, gap: 10 },
   dayTitle:      { fontSize: 21, lineHeight: 26 },
   welcome:       { fontSize: 14, lineHeight: 20, marginTop: 2 },
-  iconBtn:       { width: 44, height: 44, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  iconBtn:       { width: 40, height: 40, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  askBtn:        { flexDirection: 'row', alignItems: 'center', gap: 5, height: 40, paddingHorizontal: 12, borderRadius: 14 },
+  askBtnText:    { fontSize: 13 },
+  // Gauge
+  gaugeLabel:    { position: 'absolute', bottom: 28, left: 0, right: 0, alignItems: 'center', gap: 4 },
+  gaugeNum:      { fontSize: 50, letterSpacing: -2.5, lineHeight: 50 },
+  gaugeCap:      { fontSize: 9, letterSpacing: 1.8 },
+  momentumWrap:     { alignItems: 'center', marginTop: 8, marginBottom: 18 },
+  momentumPill:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999 },
+  momentumPillText: { fontSize: 11, letterSpacing: 1.5 },
 
   // Today screen
   dayLoading:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 48 },

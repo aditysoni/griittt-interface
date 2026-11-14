@@ -219,7 +219,6 @@ function answerNextStep(ctx: AssistantContext, id: string): AnswerResult {
     [
       { kind: 'mark_done', habitId: h.id, label: nextStep.needsInput ? `Log ${quote(h.name)}` : `Mark ${quote(h.name)} done` },
       { kind: 'open_habit', habitId: h.id, label: 'Open habit' },
-      ...(nextStep.isPriority ? [] : [{ kind: 'set_priority' as const, habitId: h.id, label: 'Make it a Today priority' }]),
     ]);
 }
 
