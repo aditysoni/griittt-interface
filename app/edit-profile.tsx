@@ -121,7 +121,6 @@ export default function EditProfileScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const { user, token, updateProfile, logout } = useAuth();
-
   const [name, setName]       = useState(user?.name ?? '');
   const [age, setAge]         = useState(user?.age != null ? String(user.age) : '');
   const [heightCm, setHeight] = useState(user?.heightCm != null ? String(user.heightCm) : '');
@@ -342,12 +341,9 @@ const st = StyleSheet.create({
   topBar:   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1 },
   topTitle: { flex: 1, textAlign: 'center', fontSize: 14, letterSpacing: 2 },
   body:     { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 56, gap: 12 },
-
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
   section:  { fontSize: 11, letterSpacing: 2, fontFamily: 'Inter_700Bold' },
-
   card:     { borderWidth: 1, borderRadius: 18, padding: 16, gap: 14, marginBottom: 6 },
-
   rowFields:{ flexDirection: 'row', gap: 10 },
   field:    { gap: 6 },
   label:    { fontSize: 12, letterSpacing: 0.5, fontFamily: 'Inter_500Medium', marginBottom: 2 },
@@ -355,14 +351,11 @@ const st = StyleSheet.create({
   segRow:   { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   seg:      { borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 },
   segText:  { fontSize: 13 },
-
   switchRow:{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, paddingTop: 14, marginTop: 2 },
   switchSub:{ fontSize: 11, fontFamily: 'Inter_500Medium' },
-
   saveBtn:  { borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 10 },
   saveText: { fontSize: 14, letterSpacing: 1.5 },
   emailNote:{ fontSize: 12, textAlign: 'center', fontFamily: 'Inter_500Medium', marginTop: 4, marginBottom: 12 },
-
   dangerRow:     { flexDirection: 'row', alignItems: 'center' },
   dangerTitle:   { fontSize: 14, marginBottom: 3 },
   dangerSub:     { fontSize: 11.5, lineHeight: 16, fontFamily: 'Inter_500Medium' },

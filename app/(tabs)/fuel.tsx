@@ -16,6 +16,7 @@ import { ErrorState } from '../../components/ErrorState';
 import { DaySelector } from '../../components/DaySelector';
 import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
+import { AskGritttButton } from '../../components/AskGritttButton';
 import * as ImagePicker from 'expo-image-picker';
 import { AddCustomModal, QuestionDetailModal } from '../fuel-questions';
 
@@ -192,9 +193,7 @@ export default function FuelScreen() {
           <Text style={[s.eatClean, { color: theme.text, fontFamily: 'Inter_900Black' }]}>EAT CLEAN</Text>
         </View>
         <View style={{ flex: 1 }} />
-        <TouchableOpacity style={[s.topIcon, { borderColor: theme.border }]} onPress={() => router.push('/(tabs)/ai')}>
-          <Ionicons name="sparkles" size={15} color="#34C759" />
-        </TouchableOpacity>
+        <AskGritttButton screen="food" date={selectedDate} compact />
         <TouchableOpacity style={[s.topIcon, { borderColor: theme.border }]} onPress={() => router.push('/(tabs)/profile')}>
           <Ionicons name="settings-outline" size={15} color={theme.text} />
         </TouchableOpacity>

@@ -19,7 +19,7 @@ const SEMI = Math.PI * R;
 const SEMI2 = Math.PI * R2;
 
 function scoreTier(v: number): string {
-  if (v <= 20)  return 'YOU REALLY NEED TO DO BETTER';
+  if (v <= 20)  return 'GETTING STARTED';
   if (v <= 50)  return 'BELOW AVERAGE';
   if (v <= 60)  return 'AVERAGE';
   if (v <= 70)  return 'ABOVE AVERAGE';

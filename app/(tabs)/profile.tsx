@@ -16,6 +16,7 @@ import { HawkEyeModal } from '../../components/HawkEye';
 import { ErrorState } from '../../components/ErrorState';
 import { Gauge } from '../../components/Gauge';
 import { useTheme } from '../../components/ThemeContext';
+import { AskGritttButton } from '../../components/AskGritttButton';
 import { MovementGoalCard, STEP_GOAL, ACTIVE_KCAL_GOAL } from '../../components/MovementGoalCard';
 
 const HEALTH_CONNECTED_KEY = 'grittt_health_connected';
@@ -452,9 +453,7 @@ export default function ProfileScreen() {
           <Text style={[s.nameLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{firstName}</Text>
           <Text style={[s.modeEyebrow, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>Dashboard</Text>
         </View>
-        <TouchableOpacity style={[s.topIcon, { borderColor: '#34C759' }]} onPress={() => router.push('/(tabs)/ai')}>
-          <Ionicons name="sparkles" size={15} color="#34C759" />
-        </TouchableOpacity>
+        <AskGritttButton screen="progress" compact />
         <TouchableOpacity style={[s.topIcon, { borderColor: theme.border }]} onPress={() => router.push('/edit-profile')}>
           <Ionicons name="create-outline" size={15} color={theme.textSecondary} />
         </TouchableOpacity>

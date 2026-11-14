@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Animated,
   Alert,
+  AppState,
   Modal,
   Pressable,
   RefreshControl,
@@ -20,13 +21,23 @@ import { useAuth } from '../../lib/auth';
 import { habits, Task, tasks, today, toDateStr, CONTROL_PRESETS, challenges, AiAnalysis } from '../../lib/api';
 import { LoadingScreen } from '../../components/LoadingScreen';
 import { ErrorState } from '../../components/ErrorState';
-import Svg, { Circle, G } from 'react-native-svg';
 import { DaySelector } from '../../components/DaySelector';
 import { DateSwipe, useDateNav } from '../../components/DateSwipe';
 import { useTheme } from '../../components/ThemeContext';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { DayCompleteCelebration } from '../../components/DayCompleteCelebration';
 import { AiAnalysisButton, AiAnalysisCard } from '../../components/AiAnalysisCard';
+import { ActionOutcome, AskGritttSheet } from '../../components/AskGritttSheet';
+import type { AssistantContext } from '../../lib/assistant';
+import {
+  AskGritttRow, CheckInCard, NextStepCard, PrioritiesCard, PriorityPickerModal,
+  ProgressCard, UndoBar, ViewingBanner,
+} from '../../components/TodayCards';
+import { CheckInMap, Mood, todayStorage } from '../../lib/storage';
+import {
+  dayTitle, dayWord, formatLongDate, formatShortDate, greeting, isScheduledOn,
+  pickNextStep, sanitizePriorities, summarizeDay,
+} from '../../lib/today';
 
 type HabitType = 'build' | 'control';
 type TimeSlot  = 'morning' | 'afternoon' | 'evening' | 'night' | 'allday';
@@ -53,27 +64,22 @@ function toughnessColor(score: number, isDark: boolean): string {
 
 const TOUGHNESS_OPTIONS = [1,2,3,4,5,6,7,8,9,10];
 
-// Discipline score derived purely from the current checklist — mirrors the
-// server's /discipline/day formula. Deriving it from habitList (instead of a
-// separately-fetched score) means the gauge always matches what's checked and
-// can never be clobbered back to 0 by a racing fetch.
-function computeOverall(list: HabitWithStatus[]): number {
-  const w = (arr: HabitWithStatus[]) => arr.reduce((s, h) => s + Math.max(Number(h.score) || 1, 1), 0);
-  const build   = list.filter(h => h.category !== 'control');
-  const control = list.filter(h => h.category === 'control');
-  const bTotal = w(build);   const bDone = w(build.filter(h => h.done));
-  const cTotal = w(control); const cDone = w(control.filter(h => h.done));
-  const bScore = bTotal > 0 ? Math.round((bDone / bTotal) * 100) : 0;
-  const cScore = cTotal > 0 ? Math.round((cDone / cTotal) * 100) : 0;
-  if (control.length === 0) return bScore;
-  if (build.length === 0)   return cScore;
-  return Math.round(bScore * 0.6 + cScore * 0.4);
-}
+// What a habit's log looked like before a change — enough to put it back on Undo.
+type LogState = { done: boolean; yFailed: boolean; count: number | null };
+type UndoEntry = {
+  habitId: string; name: string; date: string; prev: LogState; message: string;
+  /** The write being undone, so Undo can wait for it instead of racing it. */
+  pending: Promise<unknown>;
+};
 
 export default function HabitsScreen() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { theme } = useTheme();
+  const userKey = user?.id ?? 'anon';
   const [selectedDate, setSelectedDate] = useState(today());
+  // The device's local "today". Kept in state so the screen rolls over at midnight
+  // instead of quietly logging against yesterday when the app was left open.
+  const [todayStr, setTodayStr] = useState(today());
   const { goPrev, goNext, canPrev, canNext } = useDateNav(selectedDate, setSelectedDate);
   const [activeTab, setActiveTab]       = useState<HabitType>('build');
   const [tabContainerW, setTabContainerW] = useState(0);
@@ -113,9 +119,26 @@ export default function HabitsScreen() {
   const [countInput, setCountInput]     = useState('');
   const [countIsY,   setCountIsY]       = useState(false); // true = Y-press (failed), false = N/build
 
-  const isToday = selectedDate === today();
+  // Today-screen state
+  const [loadedDate, setLoadedDate]     = useState<string | null>(null); // date habitList belongs to
+  const [priorityIds, setPriorityIds]   = useState<string[]>([]);
+  const [showPriorityPicker, setShowPriorityPicker] = useState(false);
+  const [checkIns, setCheckIns]         = useState<CheckInMap>({});
+  const [showAsk, setShowAsk]           = useState(false);
+  const [undo, setUndo]                 = useState<UndoEntry | null>(null);
+  const undoTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A past date the user has confirmed they mean to log against (cleared on date change).
+  const confirmedDate = useRef<string | null>(null);
+  const selectedDateRef = useRef(selectedDate);
+  selectedDateRef.current = selectedDate;
+  const todayRef = useRef(todayStr);
+  todayRef.current = todayStr;
+  const scrollRef = useRef<ScrollView>(null);
+  const allHabitsY = useRef(0);
+
+  const isToday = selectedDate === todayStr;
   // Ticking is allowed for today and any past day — just not days that haven't happened yet.
-  const canLog  = selectedDate <= today();
+  const canLog  = selectedDate <= todayStr;
   // Set by the completion handlers so the day-complete celebration only fires from
   // a user action — never from loading or refreshing an already-complete day.
   const justCompleted = useRef(false);
@@ -137,9 +160,14 @@ export default function HabitsScreen() {
           streak:  statusMap.get(t.id)?.streak  ?? 0,
           count:   statusMap.get(t.id)?.count   ?? null,
         }));
+      // A slower reply for a date the user has already left must not overwrite the current day.
+      if (date !== selectedDateRef.current) return;
       setHabitList(merged);
+      setLoadedDate(date);
       setLoadError(false);
-    } catch (err: any) { setLoadError(true); }
+    } catch (err: any) {
+      if (date === selectedDateRef.current) setLoadError(true);
+    }
 
     // Challenges fetched separately so a slow or failing /challenges call
     // can never block the habits screen from rendering. Yellow borders just
@@ -157,7 +185,140 @@ export default function HabitsScreen() {
   }
 
   useEffect(() => { load(selectedDate).finally(() => setLoading(false)); }, [token, selectedDate]);
-  useEffect(() => { setYPressedIds(new Set()); }, [selectedDate]);
+  useEffect(() => { setYPressedIds(new Set()); confirmedDate.current = null; setLoadError(false); }, [selectedDate]);
+
+  // Midnight rollover: when the local date changes, follow it if the user was on "today".
+  useEffect(() => {
+    function syncToday() {
+      const now = today();
+      if (now === todayRef.current) return;
+      if (selectedDateRef.current === todayRef.current) setSelectedDate(now);
+      setTodayStr(now);
+    }
+    const sub = AppState.addEventListener('change', state => { if (state === 'active') syncToday(); });
+    const timer = setInterval(syncToday, 30000);
+    return () => { sub.remove(); clearInterval(timer); };
+  }, []);
+
+  // Priorities and check-ins live in on-device storage, per user.
+  useEffect(() => {
+    let cancelled = false;
+    todayStorage.getPriorities(userKey).then(ids => { if (!cancelled) setPriorityIds(ids); }).catch(() => {});
+    todayStorage.getCheckIns(userKey).then(map => { if (!cancelled) setCheckIns(map); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [userKey]);
+
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
+
+  function goToday() { const now = today(); setTodayStr(now); setSelectedDate(now); }
+
+  function savePriorities(ids: string[]) {
+    const clean = sanitizePriorities(ids, habitList);
+    setPriorityIds(clean);
+    setShowPriorityPicker(false);
+    todayStorage.setPriorities(userKey, clean).catch(() => {
+      Alert.alert('Could not save', 'Your priorities could not be saved on this device.');
+    });
+  }
+
+  function saveCheckIn(mood: Mood | null) {
+    const date = selectedDate;
+    const entry = { mood, ...(mood ? {} : { skipped: true }), updatedAt: new Date().toISOString() };
+    setCheckIns(prev => ({ ...prev, [date]: entry })); // one entry per date — a new answer replaces the old one
+    todayStorage.setCheckIn(userKey, date, entry).catch(() => {});
+  }
+
+  // ── Wrong-date protection ────────────────────────────────────────────────────
+  // Logging on a past date asks once per visit to that date; future dates can't be logged.
+  function guardDate(action: () => void) {
+    if (!canLog) {
+      Alert.alert("This day hasn't happened yet", 'You can log it once the day arrives.', [
+        { text: 'Back to today', onPress: goToday },
+        { text: 'OK', style: 'cancel' },
+      ]);
+      return;
+    }
+    if (isToday || confirmedDate.current === selectedDate) { action(); return; }
+    const date = selectedDate;
+    Alert.alert(
+      `This is ${dayWord(date, todayStr)}, not today`,
+      `Changes here are saved to ${formatLongDate(date, todayStr)}.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Go to today', onPress: goToday },
+        { text: `Continue for ${formatShortDate(date)}`, onPress: () => { confirmedDate.current = date; action(); } },
+      ]
+    );
+  }
+
+  // ── Undo ─────────────────────────────────────────────────────────────────────
+  function offerUndo(habit: HabitWithStatus, message: string, pending: Promise<unknown>) {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndo({
+      habitId: habit.id, name: habit.name, date: selectedDate, message, pending,
+      prev: { done: habit.done, yFailed: habit.yFailed, count: habit.count },
+    });
+    undoTimer.current = setTimeout(() => setUndo(null), 7000);
+  }
+  function dropUndo(habitId: string) {
+    setUndo(u => (u && u.habitId === habitId ? null : u));
+  }
+
+  // Puts a habit's log back exactly as it was — on the date it was logged for,
+  // even if the user has moved to another day since.
+  async function undoLast() {
+    const u = undo;
+    if (!u || !token) return;
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndo(null);
+    if (u.date === selectedDate) {
+      setHabitList(l => l.map(h => h.id === u.habitId ? { ...h, ...u.prev } : h));
+      setYPressedIds(prev => { const s = new Set(prev); s.delete(u.habitId); return s; });
+    }
+    try {
+      await u.pending.catch(() => {});
+      if (u.prev.done)         await habits.complete(token, u.name, u.habitId, u.prev.count, undefined, u.date);
+      else if (u.prev.yFailed) await habits.complete(token, u.name, u.habitId, u.prev.count, true, u.date);
+      else                     await habits.uncomplete(token, u.name, u.date);
+    } catch (err: any) {
+      Alert.alert('Could not undo', err?.message ?? 'Undo failed.');
+    } finally {
+      if (u.date === selectedDateRef.current) load(u.date);
+    }
+  }
+
+  // Removes whatever is logged for this habit on the selected date (the "Undo" on a logged row).
+  async function clearLog(habit: HabitWithStatus) {
+    if (!token || !canLog) return;
+    const date = selectedDate;
+    dropUndo(habit.id);
+    setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
+    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: false, count: null } : h));
+    try {
+      await habits.uncomplete(token, habit.name, date);
+    } catch (err: any) {
+      if (date === selectedDateRef.current) {
+        setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: habit.done, yFailed: habit.yFailed, count: habit.count } : h));
+      }
+      Alert.alert('Error', err.message);
+    }
+  }
+
+  // One entry point for "Mark done" / "Log…" from the Today cards. It reuses the
+  // same handlers as the full list, so there is only ever one record per habit.
+  function logFromCard(habit: HabitWithStatus) {
+    guardDate(() => {
+      if (habit.category === 'control') {
+        Alert.alert(habit.name, `How did it go ${isToday ? 'today' : `on ${formatShortDate(selectedDate)}`}?`, [
+          { text: 'Stayed in control', onPress: () => handleControlN(habit) },
+          { text: 'Slipped', onPress: () => handleControlY(habit) },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      } else {
+        toggleHabit(habit);
+      }
+    });
+  }
 
   // Refresh whenever we come back to this screen — e.g. after joining a
   // challenge on the GRIND tab, so the new habit shows up immediately.
@@ -201,29 +362,43 @@ export default function HabitsScreen() {
     );
   }
 
+  // " for Thu 5 Nov" when the selected day isn't today — keeps confirmations honest about the date.
+  const dateSuffix = isToday ? '' : ` for ${formatShortDate(selectedDate)}`;
+
+  function restoreIfCurrent(habit: HabitWithStatus, date: string) {
+    if (date !== selectedDateRef.current) return;
+    setHabitList(l => l.map(h => h.id === habit.id
+      ? { ...h, done: habit.done, yFailed: habit.yFailed, count: habit.count } : h));
+  }
+
   async function toggleHabit(habit: HabitWithStatus) {
     if (!token || !canLog) return;
 
     // If habit tracks count, open the count modal instead of toggling directly
     if (habit.track_count && !habit.done) {
       setCountHabit(habit);
+      setCountIsY(false);
       setCountInput('');
       return;
     }
 
     const nowDone = !habit.done;
+    const date = selectedDate;
 
     // Optimistic UI
     justCompleted.current = true;
     setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: nowDone, count: nowDone ? h.count : null } : h));
 
+    const request = nowDone
+      ? habits.complete(token, habit.name, habit.id, undefined, undefined, date)
+      : habits.uncomplete(token, habit.name, date);
+    offerUndo(habit, nowDone ? `Marked "${habit.name}" done${dateSuffix}` : `Removed the log for "${habit.name}"${dateSuffix}`, request);
+
     try {
-      if (nowDone) await habits.complete(token, habit.name, habit.id, undefined, undefined, selectedDate);
-      else await habits.uncomplete(token, habit.name, selectedDate);
-      // The gauge derives its score from habitList (updated optimistically above),
-      // so there's nothing to refetch here — load() reconciles with the server.
+      await request;
     } catch (err: any) {
-      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: habit.done } : h));
+      dropUndo(habit.id);
+      restoreIfCurrent(habit, date);
       Alert.alert('Error', err.message);
     }
   }
@@ -233,17 +408,20 @@ export default function HabitsScreen() {
     const wasY = yPressedIds.has(habit.id);
     setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
     if (habit.done) return; // already N-selected
+    const date = selectedDate;
 
     // Clear count — N means controlled (0 violations), so any Y-entered count is wiped
     justCompleted.current = true;
     setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false, count: null } : h));
 
+    const request = habits.complete(token, habit.name, habit.id, undefined, undefined, date);
+    offerUndo(habit, `Logged "${habit.name}" as in control${dateSuffix}`, request);
+
     try {
-      await habits.complete(token, habit.name, habit.id, undefined, undefined, selectedDate);
-      // The gauge derives its score from habitList (updated optimistically above),
-      // so there's nothing to refetch here — load() reconciles with the server.
+      await request;
     } catch (err: any) {
-      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false } : h));
+      dropUndo(habit.id);
+      restoreIfCurrent(habit, date);
       if (wasY) setYPressedIds(prev => new Set([...prev, habit.id]));
       Alert.alert('Error', err.message);
     }
@@ -263,18 +441,26 @@ export default function HabitsScreen() {
     // Non-count control habits: mark Y locally, uncomplete if was N
     setYPressedIds(prev => new Set([...prev, habit.id]));
     if (!habit.done && !habit.yFailed) return; // already unanswered
+    const date = selectedDate;
 
     setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: false } : h));
 
+    const request = habits.uncomplete(token, habit.name, date);
+    offerUndo(habit, `Logged a slip for "${habit.name}"${dateSuffix}`, request);
+
     try {
-      await habits.uncomplete(token, habit.name, selectedDate);
-      // The gauge derives its score from habitList (updated optimistically above),
-      // so there's nothing to refetch here — load() reconciles with the server.
+      await request;
     } catch (err: any) {
-      setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false } : h));
+      dropUndo(habit.id);
+      restoreIfCurrent(habit, date);
       setYPressedIds(prev => { const s = new Set(prev); s.delete(habit.id); return s; });
       Alert.alert('Error', err.message);
     }
+  }
+
+  function closeCountModal() {
+    setCountHabit(null);
+    setCountIsY(false);
   }
 
   async function submitCount() {
@@ -285,28 +471,33 @@ export default function HabitsScreen() {
 
     const habit  = countHabit;
     const isY    = countIsY;
-    setCountHabit(null);
-    setCountIsY(false);
+    const date   = selectedDate;
+    const amount = `${num}${habit.count_unit ? ` ${habit.count_unit}` : ''}`;
+    closeCountModal();
 
     if (isY) {
       // Y path: store count as a "failed" completion — no discipline point
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: true, count: num } : h));
+      const request = habits.complete(token, habit.name, habit.id, num, true, date); // failed=true
+      offerUndo(habit, `Logged a slip for "${habit.name}" (${amount})${dateSuffix}`, request);
       try {
-        await habits.complete(token, habit.name, habit.id, num, true, selectedDate); // failed=true
-        // Optimistic score already applied above; skip the refetch (see toggleHabit).
+        await request;
       } catch (err: any) {
-        setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, yFailed: false, count: null } : h));
+        dropUndo(habit.id);
+        restoreIfCurrent(habit, date);
         Alert.alert('Error', err.message);
       }
     } else {
       // N / build path: normal completion
       justCompleted.current = true;
       setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true, yFailed: false, count: num } : h));
+      const request = habits.complete(token, habit.name, habit.id, num, undefined, date);
+      offerUndo(habit, `Logged ${amount} for "${habit.name}"${dateSuffix}`, request);
       try {
-        await habits.complete(token, habit.name, habit.id, num, undefined, selectedDate);
-        // Optimistic score already applied above; skip the refetch (see toggleHabit).
+        await request;
       } catch (err: any) {
-        setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: false, count: null } : h));
+        dropUndo(habit.id);
+        restoreIfCurrent(habit, date);
         Alert.alert('Error', err.message);
       }
     }
@@ -337,55 +528,128 @@ export default function HabitsScreen() {
   const controlHabits = habitList.filter(h => h.category === 'control');
   const isControl     = activeTab === 'control';
   const visibleHabits = isControl ? controlHabits : buildHabits;
-  const slotColor     = TIME_SLOTS.find(t => t.key === timeSlot)?.color ?? '#FFFFFF';
+  // A habit that doesn't run on the selected day is listed separately, never as a miss.
+  const visibleScheduled = visibleHabits.filter(h => isScheduledOn(h, selectedDate));
+  const visibleOff       = visibleHabits.filter(h => !isScheduledOn(h, selectedDate));
 
-  const overallScore  = useMemo(() => computeOverall(habitList), [habitList]);
-  const totalDone     = habitList.filter(h => h.done).length;
+  // ── Today cards: all derived from the one habit list ─────────────────────────
+  // habitList only describes the selected day once its load has landed; until
+  // then the cards show a loading state rather than another day's ticks.
+  const dayReady = loadedDate === selectedDate;
+  // A Y pressed locally on a control habit counts as a logged slip.
+  const dayHabits = useMemo(
+    () => habitList.map(h => (yPressedIds.has(h.id) && !h.done ? { ...h, yFailed: true } : h)),
+    [habitList, yPressedIds]
+  );
+  const activePriorityIds = useMemo(() => sanitizePriorities(priorityIds, habitList), [priorityIds, habitList]);
+  const priorityHabits = useMemo(
+    () => activePriorityIds
+      .map(id => dayHabits.find(h => h.id === id))
+      .filter((h): h is HabitWithStatus => !!h),
+    [activePriorityIds, dayHabits]
+  );
+  const summary  = useMemo(() => summarizeDay(dayHabits, selectedDate, todayStr), [dayHabits, selectedDate, todayStr]);
+  const nextStep = useMemo(
+    () => pickNextStep(dayHabits, activePriorityIds, selectedDate, todayStr),
+    [dayHabits, activePriorityIds, selectedDate, todayStr]
+  );
+
+  // ── Ask GRITTT ────────────────────────────────────────────────────────────────
+  // The assistant reads the same in-memory day as the cards, and its writes go
+  // through the handlers below, which are the screen's own completion flows.
+  const assistantContext: AssistantContext | null = dayReady ? {
+    screen: 'today', date: selectedDate, todayStr, habits: dayHabits, priorityIds: activePriorityIds,
+    checkIn: checkIns[selectedDate], goals: user?.goals, userName: user?.name,
+  } : null;
+
+  async function assistantMarkDone(habitId: string): Promise<ActionOutcome> {
+    const habit = dayHabits.find(h => h.id === habitId);
+    if (!habit || !token || !canLog) return 'unsupported';
+    if (habit.done) return 'done';
+    // Habits that need input (a count or a Y/N answer) use the screen's own step.
+    if (habit.category === 'control' || habit.track_count) { logFromCard(habit); return 'handoff'; }
+    const date = selectedDate;
+    justCompleted.current = true;
+    setHabitList(l => l.map(h => h.id === habit.id ? { ...h, done: true } : h));
+    try {
+      await habits.complete(token, habit.name, habit.id, undefined, undefined, date);
+      return 'done';
+    } catch {
+      restoreIfCurrent(habit, date);
+      return 'failed';
+    }
+  }
+
+  async function assistantSetPriority(habitId: string): Promise<ActionOutcome> {
+    if (activePriorityIds.includes(habitId)) return 'done';
+    if (activePriorityIds.length >= 3) return 'failed';
+    savePriorities([...activePriorityIds, habitId]);
+    return 'done';
+  }
 
   // ── Day-complete celebration ──────────────────────────────────────────────
-  // Fires the fanfare + score animation the instant the user's own action
-  // completes the day (every task done). Gated on `justCompleted` so it never
-  // fires just from loading/refreshing an already-complete day — but it does
-  // replay if you re-complete (uncheck, then recheck the last task).
-  const allTasksDone  = habitList.length > 0 && habitList.every(h => h.done);
+  // Fires the instant the user's own action completes everything scheduled for
+  // today. Gated on `justCompleted` so it never fires just from loading or
+  // refreshing an already-complete day — but it does replay if you re-complete
+  // (uncheck, then recheck the last task). Rest-day habits don't hold it back.
+  const scheduledToday = dayHabits.filter(h => isScheduledOn(h, selectedDate));
+  const allTasksDone  = dayReady && scheduledToday.length > 0 && scheduledToday.every(h => h.done);
   const [celebrateScore, setCelebrateScore] = useState<number | null>(null);
   useEffect(() => {
     if (isToday && allTasksDone && justCompleted.current) {
-      setCelebrateScore(overallScore || 100);
+      setCelebrateScore(100);
     }
     justCompleted.current = false; // consume the flag every render
-  }, [allTasksDone, isToday, overallScore]);
+  }, [allTasksDone, isToday]);
 
   const router = useRouter();
 
   if (loading) return <LoadingScreen />;
 
+  const title = dayTitle(selectedDate, todayStr);
+  const word  = dayWord(selectedDate, todayStr);
+  const retryLoad = () => { setLoadError(false); load(selectedDate); };
+
+  const renderHabitRow = (habit: HabitWithStatus) => (
+    <HabitRow
+      key={habit.id}
+      habit={habit}
+      theme={theme}
+      canToggle={canLog}
+      isControl={isControl}
+      ySelected={isControl ? (habit.yFailed || yPressedIds.has(habit.id)) : false}
+      fromChallenge={challengeNames.has(habit.name.trim().toLowerCase())}
+      onToggle={isControl ? undefined : () => guardDate(() => toggleHabit(habit))}
+      onPressN={isControl ? () => guardDate(() => handleControlN(habit)) : undefined}
+      onPressY={isControl ? () => guardDate(() => handleControlY(habit)) : undefined}
+      onInfo={() => setDetailHabit(habit)}
+      onLongPress={() => handleHabitMenu(habit)}
+    />
+  );
+
   return (
     <DarkBackground><SafeAreaView style={s.safe} edges={['top']}>
 
-      {/* ── Top bar ── */}
+      {/* ── Top bar: which day this is, and a short welcome ── */}
       <View style={s.topBar}>
         <View style={{ flex: 1 }}>
-          <Text style={[s.modeEyebrow, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>
-            DISCIPLINE MODE
+          <Text style={[s.dayTitle, { color: theme.text, fontFamily: 'BricolageGrotesque_800ExtraBold' }]} accessibilityRole="header">
+            {title}
           </Text>
-          <Text style={[s.modeTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-            LOCK IN
-          </Text>
+          {isToday && (
+            <Text style={[s.welcome, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+              {greeting(new Date().getHours(), user?.name)} One small step is enough.
+            </Text>
+          )}
         </View>
-        <TouchableOpacity
-          style={[s.sparkleBtn, { backgroundColor: theme.inverse }]}
-          onPress={() => router.push('/(tabs)/ai')}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="sparkles" size={16} color={theme.accent} />
-        </TouchableOpacity>
         <TouchableOpacity
           style={[s.iconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
           onPress={() => router.push('/(tabs)/profile')}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Profile and settings"
         >
-          <Ionicons name="settings-outline" size={16} color={theme.textSecondary} />
+          <Ionicons name="settings-outline" size={18} color={theme.textSecondary} />
         </TouchableOpacity>
       </View>
 
@@ -396,92 +660,195 @@ export default function HabitsScreen() {
 
       <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
       >
-        {/* Gauge + status */}
-        <ArcGauge value={overallScore} theme={theme} />
-        <View style={s.momentumWrap}>
-          <MomentumPill score={overallScore} theme={theme} />
-        </View>
+        {!isToday && (
+          <ViewingBanner theme={theme} canLog={canLog} onToday={goToday} />
+        )}
 
-        {/* ── BUILD / CONTROL segmented control ── */}
-        <View
-          style={[s.segmented, { backgroundColor: theme.surface }]}
-          onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
-        >
-          {tabContainerW > 0 && (
-            <Animated.View
-              style={[s.segmentedPill, {
-                backgroundColor: theme.card,
-                width: (tabContainerW - 8) / 2,
-                transform: [{
-                  translateX: tabAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, (tabContainerW - 8) / 2],
-                  }),
-                }],
-              }]}
+        {!dayReady ? (
+          loadError ? (
+            <ErrorState
+              message={habitList.length === 0 ? "Couldn't load your habits." : "Couldn't load this day."}
+              onRetry={retryLoad}
             />
-          )}
-          <TouchableOpacity style={s.segmentedBtn} onPress={() => switchTab('build')} activeOpacity={0.8}>
-            <Text style={[s.segmentedText, {
-              color: activeTab === 'build' ? theme.text : theme.textSecondary,
-              fontFamily: 'Inter_900Black',
-            }]}>BUILD</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.segmentedBtn} onPress={() => switchTab('control')} activeOpacity={0.8}>
-            <Text style={[s.segmentedText, {
-              color: activeTab === 'control' ? theme.text : theme.textSecondary,
-              fontFamily: 'Inter_900Black',
-            }]}>CONTROL</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Stats row: X / Y DONE  |  +N SCORE */}
-        <View style={s.statRow}>
-          <Text style={[s.statLeft, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-            {visibleHabits.filter(h => h.done).length} / {visibleHabits.length} DONE
-          </Text>
-          <Text style={[s.statRight, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>
-            +{visibleHabits.filter(h => h.done).reduce((a, h) => a + (h.score || 1), 0)} SCORE
-          </Text>
-        </View>
-
-        {/* Habit list */}
-        {loadError && habitList.length === 0 ? (
-          <ErrorState
-            message="Couldn't load your habits."
-            onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }}
-          />
-        ) : visibleHabits.length === 0 ? (
-          <View style={s.empty}>
-            <Text style={[s.emptyText, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-              No {isControl ? 'control' : 'build'} habits yet.{'\n'}Tap + to add one.
-            </Text>
-          </View>
+          ) : (
+            <View style={s.dayLoading}>
+              <ActivityIndicator color={theme.text} />
+              <Text style={[s.dayLoadingText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                Loading {word}…
+              </Text>
+            </View>
+          )
         ) : (
-          visibleHabits.map(habit => (
-            <HabitRow
-              key={habit.id}
-              habit={habit}
+          <>
+            {loadError && (
+              <TouchableOpacity
+                style={[s.staleNote, { borderColor: theme.border, backgroundColor: theme.card }]}
+                onPress={retryLoad}
+                accessibilityRole="button"
+                accessibilityLabel="Couldn't refresh. Tap to retry."
+              >
+                <Ionicons name="cloud-offline-outline" size={16} color={theme.textSecondary} />
+                <Text style={[s.staleText, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                  Couldn't refresh, so this may be out of date. Tap to retry.
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* 1 — the one next action, before any numbers */}
+            <NextStepCard
+              step={nextStep}
               theme={theme}
-              canToggle={canLog}
-              isControl={isControl}
-              ySelected={isControl ? (habit.yFailed || yPressedIds.has(habit.id)) : false}
-              fromChallenge={challengeNames.has(habit.name.trim().toLowerCase())}
-              onToggle={isControl ? undefined : () => toggleHabit(habit)}
-              onPressN={isControl ? () => handleControlN(habit) : undefined}
-              onPressY={isControl ? () => handleControlY(habit) : undefined}
-              onInfo={() => setDetailHabit(habit)}
-              onLongPress={() => handleHabitMenu(habit)}
+              isToday={isToday}
+              date={selectedDate}
+              dayWord={word}
+              onAct={logFromCard}
+              onAddHabit={() => setShowAdd(true)}
             />
-          ))
+
+            {/* 2 — up to three chosen habits, with quick completion */}
+            <PrioritiesCard
+              priorities={priorityHabits}
+              hasHabits={habitList.length > 0}
+              theme={theme}
+              date={selectedDate}
+              todayStr={todayStr}
+              canLog={canLog}
+              onAct={logFromCard}
+              onUndo={h => guardDate(() => clearLog(h))}
+              onEdit={() => setShowPriorityPicker(true)}
+              onAllHabits={() => scrollRef.current?.scrollTo({ y: Math.max(0, allHabitsY.current - 8), animated: true })}
+            />
+
+            {/* 3 — optional check-in (separate from the score) and the AI entry point */}
+            {canLog && (
+              <CheckInCard
+                key={selectedDate}
+                checkIn={checkIns[selectedDate]}
+                theme={theme}
+                isToday={isToday}
+                onSelect={saveCheckIn}
+                onSkip={() => saveCheckIn(null)}
+              />
+            )}
+            <AskGritttRow theme={theme} onPress={() => setShowAsk(true)} />
+
+            {/* 4 — small factual summary; charts live on the progress screen */}
+            <ProgressCard summary={summary} theme={theme} onDetails={() => router.push('/(tabs)/profile')} />
+
+            {/* 5 — the full habit list */}
+            <View style={s.allHead} onLayout={e => { allHabitsY.current = e.nativeEvent.layout.y; }}>
+              <Text style={[s.allTitle, { color: theme.text, fontFamily: 'Inter_800ExtraBold' }]} accessibilityRole="header">
+                All habits
+              </Text>
+              <Text style={[s.allSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                {isToday ? 'Today' : formatLongDate(selectedDate, todayStr)}
+              </Text>
+            </View>
+
+            {/* ── BUILD / CONTROL segmented control ── */}
+            <View
+              style={[s.segmented, { backgroundColor: theme.surface }]}
+              onLayout={e => setTabContainerW(e.nativeEvent.layout.width)}
+            >
+              {tabContainerW > 0 && (
+                <Animated.View
+                  style={[s.segmentedPill, {
+                    backgroundColor: theme.card,
+                    width: (tabContainerW - 8) / 2,
+                    transform: [{
+                      translateX: tabAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, (tabContainerW - 8) / 2],
+                      }),
+                    }],
+                  }]}
+                />
+              )}
+              <TouchableOpacity style={s.segmentedBtn} onPress={() => switchTab('build')} activeOpacity={0.8}
+                accessibilityRole="button" accessibilityState={{ selected: activeTab === 'build' }}>
+                <Text style={[s.segmentedText, {
+                  color: activeTab === 'build' ? theme.text : theme.textSecondary,
+                  fontFamily: 'Inter_900Black',
+                }]}>BUILD</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.segmentedBtn} onPress={() => switchTab('control')} activeOpacity={0.8}
+                accessibilityRole="button" accessibilityState={{ selected: activeTab === 'control' }}>
+                <Text style={[s.segmentedText, {
+                  color: activeTab === 'control' ? theme.text : theme.textSecondary,
+                  fontFamily: 'Inter_900Black',
+                }]}>CONTROL</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Stats row: X / Y scheduled done  |  +N SCORE */}
+            <View style={s.statRow}>
+              <Text style={[s.statLeft, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                {visibleScheduled.filter(h => h.done).length} / {visibleScheduled.length} SCHEDULED DONE
+              </Text>
+              <Text style={[s.statRight, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>
+                +{visibleHabits.filter(h => h.done).reduce((a, h) => a + (h.score || 1), 0)} SCORE
+              </Text>
+            </View>
+
+            {/* Habit list */}
+            {visibleHabits.length === 0 ? (
+              <View style={s.empty}>
+                <Text style={[s.emptyText, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+                  No {isControl ? 'control' : 'build'} habits yet.{'\n'}Tap + to add one.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {visibleScheduled.map(renderHabitRow)}
+                {visibleOff.length > 0 && (
+                  <>
+                    <Text style={[s.offHead, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
+                      Not scheduled {isToday ? 'today' : 'on this day'} · optional
+                    </Text>
+                    <View style={{ opacity: 0.6 }}>{visibleOff.map(renderHabitRow)}</View>
+                  </>
+                )}
+              </>
+            )}
+          </>
         )}
       </ScrollView>
       </DateSwipe>
+
+      {undo && <UndoBar message={undo.message} theme={theme} onUndo={undoLast} />}
+
+      <PriorityPickerModal
+        visible={showPriorityPicker}
+        habits={dayHabits}
+        selected={activePriorityIds}
+        theme={theme}
+        onClose={() => setShowPriorityPicker(false)}
+        onSave={savePriorities}
+      />
+
+      <AskGritttSheet
+        visible={showAsk}
+        onClose={() => setShowAsk(false)}
+        screen="today"
+        context={assistantContext}
+        contextError={loadError && !dayReady}
+        onRetryContext={retryLoad}
+        token={token}
+        userId={userKey}
+        theme={theme}
+        handlers={{
+          onMarkDone: assistantMarkDone,
+          onSetPriority: assistantSetPriority,
+          onOpenHabit: id => { const h = dayHabits.find(x => x.id === id); if (h) setDetailHabit(h); },
+          onNavigate: route => router.push(route as any),
+        }}
+      />
 
       {/* Habit Detail Modal */}
       {detailHabit && (
@@ -500,6 +867,8 @@ export default function HabitsScreen() {
         style={[s.fab, { backgroundColor: theme.text }]}
         onPress={() => setShowAdd(true)}
         activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Add habit"
       >
         <Ionicons name="add" size={28} color="#FFFFFF" />
       </TouchableOpacity>
@@ -681,14 +1050,16 @@ export default function HabitsScreen() {
       </Modal>
 
       {/* Count input modal */}
-      <Modal visible={!!countHabit} transparent animationType="fade" onRequestClose={() => setCountHabit(null)}>
-        <Pressable style={cs.backdrop} onPress={() => setCountHabit(null)}>
+      <Modal visible={!!countHabit} transparent animationType="fade" onRequestClose={closeCountModal}>
+        <Pressable style={cs.backdrop} onPress={closeCountModal}>
           <Pressable style={[cs.card, { backgroundColor: theme.bg, borderColor: theme.border }]} onPress={e => e.stopPropagation()}>
             <Text style={[cs.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-              {countIsY ? 'HOW MANY TODAY?' : countHabit?.category === 'control' ? 'HOW MUCH TODAY?' : 'COUNT TODAY'}
+              {isToday
+                ? (countIsY ? 'HOW MANY TODAY?' : countHabit?.category === 'control' ? 'HOW MUCH TODAY?' : 'COUNT TODAY')
+                : (countIsY ? 'HOW MANY?' : countHabit?.category === 'control' ? 'HOW MUCH?' : 'COUNT')}
             </Text>
             <Text style={[cs.subtitle, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-              {countHabit?.name}
+              {countHabit?.name}{isToday ? '' : `\nSaving to ${formatLongDate(selectedDate, todayStr)}`}
             </Text>
 
             <View style={cs.inputRow}>
@@ -711,7 +1082,7 @@ export default function HabitsScreen() {
             <View style={cs.btnRow}>
               <TouchableOpacity
                 style={[cs.btnGhost, { borderColor: theme.border }]}
-                onPress={() => setCountHabit(null)}
+                onPress={closeCountModal}
                 activeOpacity={0.7}
               >
                 <Text style={[cs.btnGhostText, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>CANCEL</Text>
@@ -1212,79 +1583,6 @@ const hd = StyleSheet.create({
   legendText:  { fontSize: 10 },
 });
 
-// ── Arc gauge — 220° sweep with score in the centre ────────────────────────
-const GAUGE_W = 220;
-const GAUGE_H = 150;
-const GAUGE_R = 86;
-const GAUGE_CX = GAUGE_W / 2;
-const GAUGE_CY = 110;
-const GAUGE_SWEEP_DEG = 220;
-const GAUGE_C = 2 * Math.PI * GAUGE_R;
-const GAUGE_ARC_LEN = GAUGE_C * (GAUGE_SWEEP_DEG / 360);
-const GAUGE_GAP = GAUGE_C - GAUGE_ARC_LEN;
-// Gap (140°) centered at 90° (bottom). Arc starts at 90° + gap/2 = 160°.
-const GAUGE_ROTATE = 90 + (360 - GAUGE_SWEEP_DEG) / 2;
-
-function gaugeColor(v: number, theme: any): string {
-  if (v <= 33) return theme.danger;
-  if (v <= 66) return theme.warning;
-  return theme.success;
-}
-
-function ArcGauge({ value, theme }: { value: number; theme: any }) {
-  const pct = Math.max(0, Math.min(1, value / 100));
-  const fill = GAUGE_ARC_LEN * pct;
-  const col  = gaugeColor(value, theme);
-  return (
-    <View style={{ width: GAUGE_W, height: GAUGE_H, alignSelf: 'center' }}>
-      <Svg width={GAUGE_W} height={GAUGE_H} viewBox={`0 0 ${GAUGE_W} ${GAUGE_H + 30}`}>
-        <G transform={`rotate(${GAUGE_ROTATE}, ${GAUGE_CX}, ${GAUGE_CY})`}>
-          <Circle
-            cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R}
-            fill="none"
-            stroke={theme.surface}
-            strokeWidth={14}
-            strokeLinecap="round"
-            strokeDasharray={`${GAUGE_ARC_LEN} ${GAUGE_GAP}`}
-          />
-          {value > 0 && (
-            <Circle
-              cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R}
-              fill="none"
-              stroke={col}
-              strokeWidth={14}
-              strokeLinecap="round"
-              strokeDasharray={`${fill} ${GAUGE_C - fill}`}
-            />
-          )}
-        </G>
-      </Svg>
-      <View style={s.gaugeLabel} pointerEvents="none">
-        <Text style={[s.gaugeNum, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{value}</Text>
-        <Text style={[s.gaugeCap, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>OUT OF 100</Text>
-      </View>
-    </View>
-  );
-}
-
-// ── Momentum status pill ──────────────────────────────────────────────────
-function MomentumPill({ score, theme }: { score: number; theme: any }) {
-  let label: string, bg: string, fg: string, arrow: string;
-  if (score >= 75)      { label = 'CRUSHING IT';       bg = '#22A664' + '25'; fg = '#22A664'; arrow = '↑'; }
-  else if (score >= 50) { label = 'BUILDING MOMENTUM'; bg = '#F0A12E' + '25'; fg = '#F0A12E'; arrow = '↑'; }
-  else if (score >= 25) { label = 'WAVERING';          bg = '#F0A12E' + '20'; fg = '#F0A12E'; arrow = '→'; }
-  else if (score > 0)   { label = 'BELOW POTENTIAL';   bg = '#E84A4A' + '20'; fg = '#E84A4A'; arrow = '↓'; }
-  else                  { label = 'SHOW UP';           bg = theme.surfaceStrong; fg = theme.textSecondary; arrow = '·'; }
-
-  return (
-    <View style={[s.momentumPill, { backgroundColor: bg }]}>
-      <Text style={[s.momentumPillText, { color: fg, fontFamily: 'Inter_900Black' }]}>
-        {arrow}  {label}
-      </Text>
-    </View>
-  );
-}
-
 function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected, onToggle, onPressY, onPressN, onInfo, onLongPress }: {
   habit: HabitWithStatus; theme: any; canToggle: boolean; isControl: boolean;
   fromChallenge?: boolean;
@@ -1377,6 +1675,10 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
             }]}
             onPress={canToggle ? onPressY : undefined}
             activeOpacity={0.75}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 3 }}
+            accessibilityRole="button"
+            accessibilityLabel={`${habit.name}: slipped`}
+            accessibilityState={{ selected: !!yActive }}
           >
             <Text style={[s.ynText, { color: yActive ? '#FFFFFF' : '#E84A4A', fontFamily: 'Inter_900Black' }]}>Y</Text>
           </TouchableOpacity>
@@ -1387,6 +1689,10 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
             }]}
             onPress={canToggle ? onPressN : undefined}
             activeOpacity={0.75}
+            hitSlop={{ top: 6, bottom: 6, left: 3, right: 6 }}
+            accessibilityRole="button"
+            accessibilityLabel={`${habit.name}: stayed in control`}
+            accessibilityState={{ selected: !!nActive }}
           >
             <Text style={[s.ynText, { color: nActive ? '#FFFFFF' : '#22A664', fontFamily: 'Inter_900Black' }]}>N</Text>
           </TouchableOpacity>
@@ -1409,29 +1715,28 @@ const s = StyleSheet.create({
   safe:     { flex: 1 },
 
   // Warm Coach top bar
-  topBar:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingTop: 8, paddingBottom: 14, gap: 8 },
-  modeEyebrow:   { fontSize: 11, letterSpacing: 1.6, marginBottom: 2 },
-  modeTitle:     { fontSize: 26, letterSpacing: -0.5, lineHeight: 28 },
-  sparkleBtn:    { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  iconBtn:       { width: 40, height: 40, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  topBar:        { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 18, paddingTop: 8, paddingBottom: 12, gap: 10 },
+  dayTitle:      { fontSize: 21, lineHeight: 26 },
+  welcome:       { fontSize: 14, lineHeight: 20, marginTop: 2 },
+  iconBtn:       { width: 44, height: 44, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+
+  // Today screen
+  dayLoading:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 48 },
+  dayLoadingText:{ fontSize: 14 },
+  staleNote:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 12, minHeight: 44, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderRadius: 14 },
+  staleText:     { fontSize: 13, lineHeight: 18, flex: 1 },
+  allHead:       { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: 6, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10 },
+  allTitle:      { fontSize: 17 },
+  allSub:        { fontSize: 13 },
+  offHead:       { fontSize: 12, letterSpacing: 0.4, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 8 },
   // Legacy (still used by other modal styles inline)
   topIcon:       { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   modeLabel:     { fontSize: 10, letterSpacing: 1.5, lineHeight: 15 },
 
   datesRow:      { paddingHorizontal: 14, paddingBottom: 8 },
-  scroll:        { paddingBottom: 140, paddingTop: 0 },
+  scroll:        { paddingBottom: 150, paddingTop: 4 },
   trackerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10 },
   trackerTitle:  { fontSize: 20, letterSpacing: -0.5 },
-
-  // Gauge
-  gaugeLabel:    { position: 'absolute', bottom: 28, left: 0, right: 0, alignItems: 'center', gap: 4 },
-  gaugeNum:      { fontSize: 50, letterSpacing: -2.5, lineHeight: 50 },
-  gaugeCap:      { fontSize: 9, letterSpacing: 1.8 },
-
-  // Momentum pill
-  momentumWrap:     { alignItems: 'center', marginTop: 8, marginBottom: 18 },
-  momentumPill:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999 },
-  momentumPillText: { fontSize: 11, letterSpacing: 1.5 },
 
   // BUILD / CONTROL segmented control
   segmented:     { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, padding: 4, borderRadius: 16, height: 48, position: 'relative' },
@@ -1444,7 +1749,7 @@ const s = StyleSheet.create({
   statLeft:      { fontSize: 10, letterSpacing: 2 },
   statRight:     { fontSize: 10, letterSpacing: 2 },
 
-  fab:           { position: 'absolute', bottom: 20, alignSelf: 'center', width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
+  fab:           { position: 'absolute', bottom: 20, right: 18, width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 24, marginBottom: 12 },
   sectionTitle:  { fontSize: 9, letterSpacing: 3 },
   sectionCount:  { fontSize: 9 },

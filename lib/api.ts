@@ -844,7 +844,22 @@ export type FuelMonthlyAnalysis = {
 };
 
 // AI
+export type AiChatRequest = {
+  question: string;
+  screen: string;
+  /** Names, states and counts only — see lib/assistant minimalContext(). */
+  context: Record<string, unknown>;
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+};
+export type AiChatResponse = { answer: string; basis?: string };
+
 export const ai = {
+  /** Open-ended question to the coach. POST /ai/chat is NOT implemented on the
+   *  server yet: it returns 404, which the assistant renders as "unavailable". The
+   *  client is typed here so the server can be added without an app release. */
+  chat: (token: string, data: AiChatRequest, signal?: AbortSignal) =>
+    request<AiChatResponse>('/ai/chat', { method: 'POST', body: JSON.stringify(data), signal }, token),
+
   foodCoach: (token: string, data: { dailyLogs: Array<{ date: string; calories: number; protein: number; carbs: number; fats: number }>; calorieGoal: number; proteinGoal: number }) =>
     request<{ tips: string[] }>('/ai/food-coach', { method: 'POST', body: JSON.stringify(data) }, token),
 

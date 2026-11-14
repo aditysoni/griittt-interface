@@ -17,7 +17,6 @@ export default function FuelQuestionsScreen() {
   const { token } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
-
   const [catalog, setCatalog]       = useState<FuelQuestion[]>([]);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
