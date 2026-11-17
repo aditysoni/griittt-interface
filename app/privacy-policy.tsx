@@ -88,6 +88,11 @@ export default function PrivacyPolicyScreen() {
             iPhone Settings → Privacy &amp; Security → Microphone, or continue logging manually without it.
           </Section>
 
+          <Section title="Coach conversations and plans" theme={theme}>
+            When you use Coach, your message, recent conversation history, relevant profile details, habit records and active plan are sent to OpenAI to generate a reply. Detailed Apple Health records are not included in this coach context.
+            {'\n\n'}Coach conversations and plans are saved to your GRITTT account. You can delete a conversation from Chats. Account deletion removes your conversations and plans; Delete tracked data also clears these records while keeping your login. Reviewed plan actions become habits only when you start the plan or explicitly add them. Ending a plan keeps its history; it does not delete the plan record.
+          </Section>
+
           <Section title="What we don't do" theme={theme}>
             We don't sell your data. We don't share it with advertisers. We don't use it for anything beyond
             running and improving Grittt.

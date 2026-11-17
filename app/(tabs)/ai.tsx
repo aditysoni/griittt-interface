@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
   Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,8 +15,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
-import { ai, habits, tasks, today } from '../../lib/api';
-import { COLORS } from '../../components/theme';
+import { ai, habits } from '../../lib/api';
 import { useTheme } from '../../components/ThemeContext';
 import { useRouter } from 'expo-router';
 
@@ -156,25 +154,36 @@ export default function AIScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.topBar}>
         <TouchableOpacity
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={[styles.backBtn, { borderColor: theme.border }]}
           activeOpacity={0.7}
+          accessibilityRole="button" accessibilityLabel="Go back"
         >
           <Ionicons name="arrow-back" size={20} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.screenTitle, { color: theme.text }]}>AI Coach</Text>
-        <Text style={[styles.screenSub, { color: theme.textSecondary }]}>Your personal AI-powered habit & health coach</Text>
+        <Text style={[styles.screenTitle, { color: theme.text }]} accessibilityRole="header">AI Coach</Text>
+        <View style={[styles.coachBadge,{backgroundColor:theme.accent}]}><Ionicons name="sparkles" size={18} color={theme.accentText}/></View>
+        </View>
+        <View style={styles.intro}>
+          <Text style={[styles.introTitle,{color:theme.text}]}>Small insights.
+Better next steps.</Text>
+          <Text style={[styles.screenSub, { color: theme.textSecondary }]}>Reflect on your habits, spot a pattern, or understand your plate.</Text>
+        </View>
+        <Text style={[styles.sectionLabel,{color:theme.textSecondary}]}>YOUR COACHING TOOLS</Text>
 
+        <AICard icon="chatbubble-ellipses-outline" iconColor={theme.text} title="Talk to your coach" description="A conversation built around your habits and your plan." buttonLabel="Open coach" onPress={()=>router.push('/coach' as any)} loading={false} theme={theme}/>
+        <AICard icon="trail-sign-outline" iconColor={theme.text} title="Your plans" description="Turn a goal into a small daily routine." buttonLabel="Open plans" onPress={()=>router.push('/plans' as any)} loading={false} theme={theme}/>
         {/* Weekly Debrief */}
         <AICard
           icon="calendar-outline"
-          iconColor="#8B5CF6"
-          title="Weekly Debrief"
-          description="Get a personalized summary of your week's habit performance, patterns, and suggestions."
-          buttonLabel="Generate Debrief"
+          iconColor={theme.text}
+          title="Your weekly reset"
+          description="See what went well this week and choose your next small step."
+          buttonLabel="Review my week"
           onPress={runWeeklyDebrief}
           loading={debriefLoading}
           theme={theme}
@@ -183,10 +192,10 @@ export default function AIScreen() {
         {/* Pattern Analysis */}
         <AICard
           icon="analytics-outline"
-          iconColor="#06B6D4"
-          title="Pattern Analysis"
-          description="Analyze your last 30 days to surface hidden patterns and actionable insights."
-          buttonLabel="Analyze Patterns"
+          iconColor={theme.text}
+          title="Find your patterns"
+          description="Connect the dots across your last 30 days of habits."
+          buttonLabel="Explore patterns"
           onPress={runPatterns}
           loading={patternsLoading}
           theme={theme}
@@ -195,12 +204,12 @@ export default function AIScreen() {
         {/* Snap Track */}
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.cardHeader}>
-            <View style={[styles.iconBadge, { backgroundColor: '#10B981' + '20' }]}>
-              <Ionicons name="camera-outline" size={22} color="#10B981" />
+            <View style={[styles.iconBadge, { backgroundColor: theme.surface }]}>
+              <Ionicons name="camera-outline" size={22} color={theme.text} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.cardTitle, { color: theme.text }]}>Snap Track</Text>
-              <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>Take a photo of your food and get instant nutrition estimates powered by AI.</Text>
+              <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>Understand your meal with a photo. Nutrition values are estimates.</Text>
             </View>
           </View>
 
@@ -210,7 +219,7 @@ export default function AIScreen() {
 
           {snapLoading && (
             <View style={styles.snapLoading}>
-              <ActivityIndicator color="#10B981" />
+              <ActivityIndicator color={theme.text} />
               <Text style={[styles.snapLoadingText, { color: theme.textSecondary }]}>Analyzing food...</Text>
             </View>
           )}
@@ -220,18 +229,18 @@ export default function AIScreen() {
               <Text style={[styles.snapFoodName, { color: theme.text }]}>{snapResult.name}</Text>
               <Text style={[styles.snapServing, { color: theme.textSecondary }]}>{snapResult.servingNote}</Text>
               <View style={styles.macroRow}>
-                <Macro label="Calories" value={snapResult.calories} unit="kcal" color={COLORS.warning} theme={theme} />
-                <Macro label="Protein" value={snapResult.protein} unit="g" color="#10B981" theme={theme} />
-                <Macro label="Carbs" value={snapResult.carbs} unit="g" color={COLORS.primary} theme={theme} />
-                <Macro label="Fats" value={snapResult.fats} unit="g" color={COLORS.error} theme={theme} />
+                <Macro label="Calories" value={snapResult.calories} unit="kcal" color={theme.text} theme={theme} />
+                <Macro label="Protein" value={snapResult.protein} unit="g" color={theme.text} theme={theme} />
+                <Macro label="Carbs" value={snapResult.carbs} unit="g" color={theme.text} theme={theme} />
+                <Macro label="Fats" value={snapResult.fats} unit="g" color={theme.text} theme={theme} />
               </View>
             </View>
           )}
 
-          <Text style={[styles.snapHint, { color: theme.textSecondary }]}>📸 Take a photo with your Camera app first, then pick it here</Text>
-          <TouchableOpacity style={styles.snapPickBtn} onPress={() => snapFromSource(false)}>
-            <Ionicons name="images" size={20} color="#10B981" />
-            <Text style={styles.snapPickBtnText}>Pick Photo from Gallery</Text>
+          <Text style={[styles.snapHint, { color: theme.textSecondary }]}>Choose a clear photo of your meal.</Text>
+          <TouchableOpacity style={[styles.snapPickBtn,{backgroundColor:theme.accent,borderColor:theme.accent},snapLoading&&styles.cardBtnDisabled]} disabled={snapLoading} accessibilityRole="button" accessibilityLabel="Choose food photo" onPress={() => snapFromSource(false)}>
+            <Ionicons name="images" size={20} color={theme.text} />
+            <Text style={[styles.snapPickBtnText,{color:theme.accentText}]}>Choose food photo</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -249,7 +258,7 @@ export default function AIScreen() {
           <ScrollView contentContainerStyle={styles.modalBody}>
             {debriefLoading ? (
               <View style={styles.modalLoading}>
-                <ActivityIndicator size="large" color={COLORS.primary} />
+                <ActivityIndicator size="large" color={theme.text} />
                 <Text style={[styles.modalLoadingText, { color: theme.textSecondary }]}>Generating your debrief...</Text>
               </View>
             ) : debrief ? (
@@ -277,7 +286,7 @@ export default function AIScreen() {
           <ScrollView contentContainerStyle={styles.modalBody}>
             {patternsLoading ? (
               <View style={styles.modalLoading}>
-                <ActivityIndicator size="large" color={COLORS.secondary} />
+                <ActivityIndicator size="large" color={theme.text} />
                 <Text style={[styles.modalLoadingText, { color: theme.textSecondary }]}>Analyzing 30 days of data...</Text>
               </View>
             ) : patterns.length > 0 ? (
@@ -285,7 +294,7 @@ export default function AIScreen() {
                 {patterns.map((p, i) => (
                   <View key={i} style={[styles.patternCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                     <Text style={[styles.patternInsight, { color: theme.text }]}>💡 {p.insight}</Text>
-                    <Text style={[styles.patternActionable, { color: COLORS.secondary }]}>→ {p.actionable}</Text>
+                    <Text style={[styles.patternActionable, { color: theme.text }]}>→ {p.actionable}</Text>
                   </View>
                 ))}
               </View>
@@ -304,7 +313,7 @@ function AICard({ icon, iconColor, title, description, buttonLabel, onPress, loa
   return (
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.cardHeader}>
-        <View style={[styles.iconBadge, { backgroundColor: iconColor + '20' }]}>
+        <View style={[styles.iconBadge, { backgroundColor: theme.surface }]}>
           <Ionicons name={icon} size={22} color={iconColor} />
         </View>
         <View style={{ flex: 1 }}>
@@ -313,12 +322,13 @@ function AICard({ icon, iconColor, title, description, buttonLabel, onPress, loa
         </View>
       </View>
       <TouchableOpacity
-        style={[styles.cardBtn, { borderColor: iconColor }, loading && styles.cardBtnDisabled]}
+        style={[styles.cardBtn, { borderColor: theme.borderStrong, backgroundColor:theme.surface }, loading && styles.cardBtnDisabled]}
         onPress={onPress}
         disabled={loading}
+        accessibilityRole="button" accessibilityLabel={buttonLabel} accessibilityState={{busy:loading,disabled:loading}}
       >
         {loading ? <ActivityIndicator size="small" color={iconColor} /> : (
-          <Text style={[styles.cardBtnText, { color: iconColor }]}>{buttonLabel}</Text>
+          <><Text style={[styles.cardBtnText, { color: theme.text }]}>{buttonLabel}</Text><Ionicons name="arrow-forward" size={16} color={theme.text}/></>
         )}
       </TouchableOpacity>
     </View>
@@ -327,7 +337,7 @@ function AICard({ icon, iconColor, title, description, buttonLabel, onPress, loa
 
 function Macro({ label, value, unit, color, theme }: { label: string; value: number; unit: string; color: string; theme: any }) {
   return (
-    <View style={styles.macro}>
+    <View style={[styles.macro,{backgroundColor:theme.surface,borderColor:theme.border}]}>
       <Text style={[styles.macroValue, { color }]}>{value}</Text>
       <Text style={[styles.macroUnit, { color: theme.textSecondary }]}>{unit}</Text>
       <Text style={[styles.macroLabel, { color: theme.textSecondary }]}>{label}</Text>
@@ -337,7 +347,7 @@ function Macro({ label, value, unit, color, theme }: { label: string; value: num
 
 function DebriefSection({ icon, title, body, theme }: { icon: string; title: string; body: string; theme: any }) {
   return (
-    <View style={styles.debriefSection}>
+    <View style={[styles.debriefSection,{backgroundColor:theme.card,borderColor:theme.border}]}>
       <Text style={[styles.debriefTitle, { color: theme.text }]}>{icon} {title}</Text>
       <Text style={[styles.debriefBody, { color: theme.textSecondary }]}>{body}</Text>
     </View>
@@ -346,15 +356,20 @@ function DebriefSection({ icon, title, body, theme }: { icon: string; title: str
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, gap: 16 },
+  content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, gap: 14 },
   backBtn: {
     width: 40, height: 40, borderRadius: 12, borderWidth: 1,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+    alignItems: 'center', justifyContent: 'center',
   },
-  screenTitle: { fontSize: 28, fontWeight: '800' },
-  screenSub: { fontSize: 13, marginTop: -8 },
+  topBar: {flexDirection:'row',alignItems:'center',gap:12,marginBottom:8},
+  coachBadge: {width:36,height:36,borderRadius:18,alignItems:'center',justifyContent:'center'},
+  screenTitle: { flex:1,fontSize:24,fontFamily:'Inter_800ExtraBold' },
+  intro: {gap:10,paddingTop:8,paddingBottom:16},
+  introTitle: {fontSize:30,lineHeight:37,fontFamily:'Inter_800ExtraBold',letterSpacing:-0.8},
+  screenSub: { fontSize:14,lineHeight:21,maxWidth:310 },
+  sectionLabel: {fontSize:10,letterSpacing:1.5,fontFamily:'Inter_700Bold',marginBottom:2},
   card: {
-    borderRadius: 16, padding: 20,
+    borderRadius: 22, padding: 18,
     borderWidth: 1, gap: 14,
   },
   cardHeader: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
@@ -362,10 +377,10 @@ const styles = StyleSheet.create({
     width: 44, height: 44, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
   },
-  cardTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  cardTitle: { fontSize: 18, fontFamily:'Inter_700Bold', marginBottom: 6 },
   cardDesc: { fontSize: 13, lineHeight: 18 },
   cardBtn: {
-    borderWidth: 1, borderRadius: 10, paddingVertical: 12,
+    flexDirection: 'row', gap:10, borderWidth: 1, borderRadius: 24, paddingVertical: 12,
     alignItems: 'center', justifyContent: 'center', minHeight: 44,
   },
   cardBtnDisabled: { opacity: 0.5 },
@@ -376,8 +391,8 @@ const styles = StyleSheet.create({
   snapResult: { gap: 8 },
   snapFoodName: { fontSize: 18, fontWeight: '700' },
   snapServing: { fontSize: 12 },
-  macroRow: { flexDirection: 'row', gap: 12 },
-  macro: { flex: 1, alignItems: 'center', gap: 2 },
+  macroRow: { flexDirection: 'row', gap: 6 },
+  macro: { flex: 1, alignItems: 'center', gap: 4,paddingVertical:12,borderRadius:12,borderWidth:1 },
   macroValue: { fontSize: 20, fontWeight: '800' },
   macroUnit: { fontSize: 10 },
   macroLabel: { fontSize: 10 },
@@ -402,7 +417,7 @@ const styles = StyleSheet.create({
   modalBody: { padding: 20, paddingBottom: 40 },
   modalLoading: { alignItems: 'center', gap: 16, paddingTop: 60 },
   modalLoadingText: { fontSize: 15 },
-  debriefSection: { gap: 8 },
+  debriefSection: { gap: 8,padding:18,borderWidth:1,borderRadius:18 },
   debriefTitle: { fontSize: 16, fontWeight: '700' },
   debriefBody: { fontSize: 14, lineHeight: 22 },
   patternCard: {

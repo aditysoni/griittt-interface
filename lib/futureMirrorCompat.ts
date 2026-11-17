@@ -1,0 +1,6 @@
+import type {FutureMirrorResult} from './api';
+// Keep the original fields too: either backend can persist its own payload shape.
+export function normalizeFutureMirror(raw:Record<string,unknown>):FutureMirrorResult{
+ const text=(old:string,current:string)=>typeof raw[old]==='string'?raw[old] as string:typeof raw[current]==='string'?raw[current] as string:'';
+ return {...raw,identityObserved:text('identityObserved','identityToday'),identityEmerging:text('identityEmerging','identityEmerging'),futureHeadline:text('futureHeadline','whatYourActionsSay'),hiddenCost:text('hiddenCost','whatItsCostingYou'),selfNegotiation:text('selfNegotiation','thePattern'),confidenceLevel:text('confidenceLevel','confidenceLevel'),birthdayCheckpoint:text('birthdayCheckpoint','birthdayMirror'),futureMirrorNegative:text('futureMirrorNegative','futureIfNothingChanges'),futureMirrorPositive:text('futureMirrorPositive','futureIfYouKeepBecoming'),trajectoryDrivers:(Array.isArray(raw.trajectoryDrivers)?raw.trajectoryDrivers:Array.isArray(raw.thingsShapingYou)?raw.thingsShapingYou:[]).filter((v):v is string=>typeof v==='string'),futureSnapshots:Array.isArray(raw.futureSnapshots)?raw.futureSnapshots.filter((v):v is {title:string;scene:string}=>!!v&&typeof v.title==='string'&&typeof v.scene==='string'):[],trajectoryQuestion:text('trajectoryQuestion','mirrorQuestion')};
+}

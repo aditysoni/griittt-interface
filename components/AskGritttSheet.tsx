@@ -9,7 +9,7 @@ import { chatStorage } from '../lib/storage';
 import { formatShortDate } from '../lib/today';
 import {
   AnswerResult, AssistantAction, AssistantContext, AssistantMessage, AssistantScreen, GROUP_LABEL,
-  MAX_QUESTION_CHARS, MAX_STORED_MESSAGES, REQUEST_TIMEOUT_MS, Suggestion, answer, describeDay, newId,
+  MAX_QUESTION_CHARS, MAX_STORED_MESSAGES, REQUEST_TIMEOUT_MS, Suggestion, answer, newId,
   savedChangeMessage, suggestionsFor,
 } from '../lib/assistant';
 
@@ -84,7 +84,6 @@ export function AskGritttSheet({
     chatStorage.set(userId, next, MAX_STORED_MESSAGES).catch(() => {});
   }
 
-  const day = useMemo(() => (context ? describeDay(context) : null), [context]);
   const { initial, more } = suggestionsFor(screen);
   const askedIds = useMemo(() => new Set(messages.filter(m => m.role === 'user').map(m => m.text)), [messages]);
 
@@ -329,9 +328,6 @@ export function AskGritttSheet({
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[a.title, { color: theme.text }, f('Inter_800ExtraBold')]} accessibilityRole="header" maxFontSizeMultiplier={1.4}>Ask GRITTT</Text>
-            <Text style={[a.sub, { color: theme.textSecondary }, f('Inter_500Medium')]} maxFontSizeMultiplier={1.4} numberOfLines={2}>
-              {day ? `${day.label} · ${day.headline}` : contextError ? "Couldn't load your day" : 'Loading your day…'}
-            </Text>
           </View>
           {messages.length > 0 && (
             <TouchableOpacity onPress={newConversation} style={a.headBtn} accessibilityRole="button" accessibilityLabel="New conversation. Clears this chat from the device.">
@@ -365,13 +361,6 @@ export function AskGritttSheet({
           {/* Conversation */}
           {!loaded ? (
             <View style={a.loadingRow}><ActivityIndicator color={theme.text} /></View>
-          ) : messages.length === 0 ? (
-            <View style={a.empty}>
-              <Text style={[a.emptyTitle, { color: theme.text }, f('Inter_700Bold')]} maxFontSizeMultiplier={1.6}>Pick a question to start</Text>
-              <Text style={[a.emptyBody, { color: theme.textSecondary }, f('Inter_500Medium')]} maxFontSizeMultiplier={1.8}>
-                Answers use only your own habits, logs and check-ins, for the day you have selected. Where an answer is counted from your log rather than written by AI, it says so.
-              </Text>
-            </View>
           ) : (
             messages.map(renderMessage)
           )}
@@ -415,12 +404,12 @@ export function AskGritttSheet({
 
           <TouchableOpacity
             style={[a.coachLink, { borderTopColor: theme.border }]}
-            onPress={() => { onClose(); handlers.onNavigate('/(tabs)/ai'); }}
+            onPress={() => { onClose(); handlers.onNavigate('/coach'); }}
             accessibilityRole="button"
-            accessibilityLabel="Open AI Coach for pattern analysis and Snap Track"
+            accessibilityLabel="Open your personal AI coach"
           >
             <Text style={[a.coachText, { color: theme.text }, f('Inter_700Bold')]}>Open AI Coach</Text>
-            <Text style={[a.sub, { color: theme.textSecondary, flex: 1 }, f('Inter_500Medium')]}>Pattern analysis and Snap Track</Text>
+            <Text style={[a.sub, { color: theme.textSecondary, flex: 1 }, f('Inter_500Medium')]}>Conversations and plans</Text>
             <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
           </TouchableOpacity>
         </ScrollView>
@@ -489,9 +478,6 @@ const a = StyleSheet.create({
   sub:      { fontSize: 13, lineHeight: 18, marginTop: 2 },
   content:  { padding: 16, gap: 12, paddingBottom: 24 },
 
-  empty:      { paddingVertical: 8, gap: 6 },
-  emptyTitle: { fontSize: 16 },
-  emptyBody:  { fontSize: 14, lineHeight: 20 },
 
   userBubble: { alignSelf: 'flex-end', maxWidth: '85%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderBottomRightRadius: 6 },
   userText:   { fontSize: 15, lineHeight: 21 },

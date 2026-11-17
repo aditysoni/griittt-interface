@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import {
-  strength, health, WorkoutLog, today, shiftDate,
+  strength, health, WorkoutLog, StrengthIdentity, today, shiftDate,
   BodyPart, SetEntry, ExerciseEntry, TrainingType,
   BODY_PARTS, EXERCISE_SUGGESTIONS, SPORTS_SUGGESTIONS,
 } from '../../lib/api';
@@ -27,7 +27,7 @@ import {
 } from '../../components/TrackingShared';
 import { WorkoutDraft, workoutDraftStorage } from '../../lib/storage';
 import { VoiceLogButton } from '../../components/VoiceLogButton';
-import { FoodWeekCard } from '../../components/FoodDailyCards';
+import { PhysicalScoreCard } from '../../components/PhysicalScoreCard';
 import { FoodModeTabs, FoodSubmissionMode } from '../../components/FoodDetailedView';
 import { PhysicalQuestions } from '../../components/PhysicalQuestions';
 import { healthKit } from '../../lib/healthKit';
@@ -64,6 +64,8 @@ export default function StrengthScreen() {
   const { goPrev, goNext, canPrev, canNext } = useDateNav(selectedDate, setSelectedDate);
   const [logs, setLogs]                 = useState<WorkoutLog[]>([]);
   // date → max session score for that day, 14 days ending on the selected date
+  const [scoreError,setScoreError] = useState(false);
+  const [identity,setIdentity] = useState<StrengthIdentity|null>(null);
   const [history, setHistory]           = useState<Record<string, number | null>>({});
   const [healthConnected, setHealthConnected] = useState(false);
   const [movement, setMovement]         = useState<{ steps: number | null; activeEnergyBurned: number | null; score?: number | null } | null>(null);
@@ -129,10 +131,11 @@ export default function StrengthScreen() {
       setLoadError(true);
       return;
     }
+    await strength.identity(token).then(setIdentity).catch(()=>setIdentity(null));
     const from = shiftDateStr(date, -13);
     await strength.history(token, from, date)
-      .then(rows => { const map: Record<string, number | null> = {}; rows.forEach(r => { map[r.date] = r.score; }); setHistory(map); })
-      .catch(() => {});
+      .then(rows => { const map: Record<string, number | null> = {}; rows.forEach(r => { map[r.date] = r.score; }); setHistory(map); setScoreError(false); })
+      .catch(() => {setHistory({});setScoreError(true);});
     AsyncStorage.getItem('grittt_health_connected').then(v => setHealthConnected(v === 'true')).catch(() => {});
     health.scores(token, date).then(s => setMovement(s.movement)).catch(() => setMovement(null));
   }
@@ -333,7 +336,7 @@ export default function StrengthScreen() {
           <ErrorState message="Couldn't load your activity log." onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }} />
         )}
 
-        <FoodWeekCard score={loadError ? null : history[selectedDate]} scoreLabel={isToday ? "Today’s score" : "Day’s score"} title="Your activity week" endDate={selectedDate} recordedDates={new Set(Object.keys(history).filter(date=>history[date]!=null))} complete={!loadError} theme={theme}/>
+        <PhysicalScoreCard score={loadError || scoreError ? null : history[selectedDate] ?? 0} identity={identity} minutes={dayFacts.minutes} activities={logs.length}/>
         <FoodModeTabs mode={mode} onChange={setMode} theme={theme} disabled={submitting} />
         {mode === 'quick' && <>
           <SectionCard title="How was your physical activity?" theme={theme}>

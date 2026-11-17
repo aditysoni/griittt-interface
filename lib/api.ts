@@ -1,3 +1,4 @@
+import {normalizeFutureMirror} from './futureMirrorCompat';
 const BASE_URL = `${process.env.EXPO_PUBLIC_API_BASE ?? 'http://192.168.1.6:3001'}/api`;
 
 export type MacroTargets = { calories: number; protein: number; fat: number; carbs: number };
@@ -142,7 +143,7 @@ export const futureMirror = {
     heightCm?: number; weightKg?: number;
     sleepSchedule?: string; activityLevel?: string;
   }) =>
-    request<FutureMirrorResult>('/future-mirror', { method: 'POST', body: JSON.stringify(data) }),
+    request<Record<string,unknown>>('/future-mirror', { method: 'POST', body: JSON.stringify(data) }).then(normalizeFutureMirror),
 };
 
 export type Task = {
@@ -217,22 +218,6 @@ async function request<T>(
   };
 
   const url = `${BASE_URL}${path}`;
-
-  // Helpful debug logs when running in development
-  // Expo defines global __DEV__ -- keep this small and conditional
-  try {
-    // eslint-disable-next-line no-undef
-    if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      // Keep body small to avoid leaking large payloads
-      // eslint-disable-next-line no-console
-      console.debug('[api] request', options.method || 'GET', url, {
-        headers,
-        body: options.body ? (typeof options.body === 'string' ? options.body : '[body]') : undefined,
-      });
-    }
-  } catch (e) {
-    // ignore logging failures
-  }
 
   const res = await fetch(url, { ...options, headers });
 
