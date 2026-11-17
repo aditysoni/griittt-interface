@@ -80,10 +80,11 @@ const tb = StyleSheet.create({
 });
 
 export default function TabsLayout() {
+  const { theme } = useTheme();
   return (
     <Tabs
       tabBar={(props) => <TabBar {...props} />}
-      screenOptions={{ headerShown: false, animation: 'shift' }}
+      screenOptions={{ headerShown: false, animation: 'none', sceneStyle: { backgroundColor: theme.bg } }}
     >
       {TABS.map(t => <Tabs.Screen key={t.name} name={t.name} />)}
       <Tabs.Screen name="ai" options={{ href: null }} />

@@ -413,26 +413,30 @@ function scoreColor(score: number): string {
   return '#E84A4A';
 }
 
-export function QuestionDetailModal({ question, token, theme, onClose }: {
-  question: FuelQuestion | null; token: string; theme: any; onClose: () => void;
+export function QuestionDetailModal({ question, token, theme, onClose, initialTab = 'calendar' }: {
+  question: FuelQuestion | null; token: string; theme: any; onClose: () => void; initialTab?: 'calendar' | 'graph';
 }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<{
     avgScore: number | null; answeredCount: number;
     answers: Array<{ date: string; optionIndex: number; optionLabel: string | null; score: number }>;
   } | null>(null);
-  const [tab, setTab] = useState<'calendar' | 'graph'>('calendar');
+  const [tab, setTab] = useState<'calendar' | 'graph'>(initialTab);
+  const [historyError, setHistoryError] = useState(false);
+  const [retry, setRetry] = useState(0);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<AiAnalysis | null>(null);
 
   useEffect(() => {
     if (!question) return;
-    setLoading(true); setData(null); setAiResult(null); setTab('calendar');
+    let cancelled = false;
+    setLoading(true); setHistoryError(false); setData(null); setAiResult(null); setTab(initialTab);
     fuelQuestions.history(token, question.id, 28)
-      .then(res => setData({ avgScore: res.avgScore, answeredCount: res.answeredCount, answers: res.answers }))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [question?.id]);
+      .then(res => { if (!cancelled) setData({ avgScore: res.avgScore, answeredCount: res.answeredCount, answers: res.answers }); })
+      .catch(() => { if (!cancelled) setHistoryError(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [question?.id, token, initialTab, retry]);
 
   async function runAnalysis() {
     if (!question) return;
@@ -463,14 +467,14 @@ export function QuestionDetailModal({ question, token, theme, onClose }: {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
   return (
-    <Modal visible={!!question} animationType="slide" presentationStyle="pageSheet">
+    <Modal visible={!!question} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={[qd.sheet, { backgroundColor: theme.bg }]}>
         <View style={[qd.handle, { backgroundColor: theme.border }]} />
         <View style={[qd.header, { borderBottomColor: theme.border }]}>
           <Text style={[qd.title, { color: theme.text, fontFamily: 'Inter_900Black' }]} numberOfLines={2}>
             {question?.prompt}
           </Text>
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close question chart" onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="close" size={22} color={theme.textSecondary} />
           </TouchableOpacity>
         </View>
@@ -478,6 +482,11 @@ export function QuestionDetailModal({ question, token, theme, onClose }: {
         {loading ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <ActivityIndicator color={theme.text} />
+          </View>
+        ) : historyError ? (
+          <View style={{ padding: 24, gap: 16 }}>
+            <Text accessibilityRole="alert" style={{ color: theme.textSecondary, fontSize: 14, fontFamily: 'Inter_500Medium' }}>This question's history could not be loaded. Your answers have not been changed.</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry question history" onPress={() => setRetry(value => value + 1)} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: theme.text, fontSize: 14, fontFamily: 'Inter_700Bold' }}>Try again</Text></TouchableOpacity>
           </View>
         ) : (
           <ScrollView contentContainerStyle={qd.body}>

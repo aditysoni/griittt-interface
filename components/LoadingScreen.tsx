@@ -1,13 +1,29 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Dimensions, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Dimensions, StyleSheet, Text, View } from 'react-native';
+
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from './ThemeContext';
+import { DarkBackground } from './DarkBackground';
+import { TrackingHeader } from './TrackingShared';
+
+export function TrackingLoadingScreen({ title }: { title: string }) {
+  const { theme } = useTheme();
+  return <DarkBackground><SafeAreaView style={{flex:1}} edges={['top']}>
+    <TrackingHeader title={title} date="" todayStr="" showDate={false} theme={theme}/>
+    <View accessibilityRole="progressbar" accessibilityLabel={`Loading ${title.toLowerCase()} records`} style={{marginHorizontal:16,padding:24,borderRadius:20,backgroundColor:theme.card,alignItems:'center',gap:12}}>
+      <ActivityIndicator color={theme.text}/><Text style={{color:theme.textSecondary,fontSize:13}}>Loading your records…</Text>
+    </View>
+  </SafeAreaView></DarkBackground>;
+}
 
 const SCREEN_W = Dimensions.get('window').width;
 const TRACK_W  = SCREEN_W * 0.72;
 const BAR_W    = TRACK_W  * 0.42;
 
 export function LoadingScreen({ message }: { message?: string }) {
+  const { theme } = useTheme();
   const slide   = useRef(new Animated.Value(0)).current;
-  const fadeIn  = useRef(new Animated.Value(0)).current;
+  const fadeIn  = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     // Fade the wordmark in
@@ -16,7 +32,7 @@ export function LoadingScreen({ message }: { message?: string }) {
     }).start();
 
     // Slide the lime bar left → right, looping
-    Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(slide, {
           toValue: 1, duration: 980, useNativeDriver: true,
@@ -26,7 +42,9 @@ export function LoadingScreen({ message }: { message?: string }) {
         }),
         Animated.delay(180),
       ])
-    ).start();
+    );
+    loop.start();
+    return () => { loop.stop(); fadeIn.stopAnimation(); slide.stopAnimation(); };
   }, []);
 
   const translateX = slide.interpolate({
@@ -35,20 +53,20 @@ export function LoadingScreen({ message }: { message?: string }) {
   });
 
   return (
-    <View style={s.root}>
+    <View style={[s.root,{backgroundColor:theme.bg}]}>
       <Animated.View style={[s.center, { opacity: fadeIn }]}>
         {/* Lime accent dot */}
-        <View style={s.dot} />
+        <View style={[s.dot,{backgroundColor:theme.accent}]} />
 
         {/* Wordmark */}
-        <Text style={s.wordmark}>GRITTT</Text>
-        <Text style={s.tagline}>{message ?? 'LOCK IN.'}</Text>
+        <Text style={[s.wordmark,{color:theme.text}]}>GRITTT</Text>
+        <Text style={[s.tagline,{color:theme.textSecondary}]}>{message ?? 'LOCK IN.'}</Text>
       </Animated.View>
 
       {/* Sliding bar at bottom */}
       <View style={s.trackWrap}>
-        <View style={s.track}>
-          <Animated.View style={[s.bar, { transform: [{ translateX }] }]} />
+        <View style={[s.track,{backgroundColor:theme.surfaceStrong}]}>
+          <Animated.View style={[s.bar, { backgroundColor:theme.accent, transform: [{ translateX }] }]} />
         </View>
       </View>
     </View>

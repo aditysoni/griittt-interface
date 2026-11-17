@@ -19,7 +19,10 @@ import { useRouter } from 'expo-router';
 import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
-import { challenges, Challenge, DurationStats, tasks } from '../../lib/api';
+import { challenges, Challenge, DurationStats, tasks, habits, today, shiftDate, toDateStr } from '../../lib/api';
+import { AskGritttButton } from '../../components/AskGritttButton';
+import { TrackingHeader, IconButton, PrimaryButton } from '../../components/TrackingShared';
+import { FoodModeTabs, FoodSubmissionMode } from '../../components/FoodDetailedView';
 import { LoadingScreen } from '../../components/LoadingScreen';
 import { ErrorState } from '../../components/ErrorState';
 import { useTheme, AppTheme } from '../../components/ThemeContext';
@@ -129,6 +132,8 @@ export default function ChallengesScreen() {
   const { theme } = useTheme();
   const router    = useRouter();
 
+  const [view,setView] = useState<FoodSubmissionMode>('quick');
+  const [category,setCategory] = useState<ThemeKey | 'all'>('all');
   const [list, setList]             = useState<Challenge[]>([]);
   const [loading, setLoading]       = useState(true);
   const [loadError, setLoadError]   = useState(false);
@@ -244,115 +249,20 @@ export default function ChallengesScreen() {
 
   return (
     <DarkBackground><SafeAreaView style={s.safe} edges={['top']}>
-      {/* Top bar — matches the rest of the app */}
-      <View style={s.topBar}>
-        <View>
-          <Text style={[s.modeLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>CHALLENGES</Text>
-          <Text style={[s.modeTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]}>GRITTT</Text>
-        </View>
-        <View style={{ flex: 1 }} />
-        <TouchableOpacity
-          style={[s.topIcon, { borderColor: theme.text }]}
-          onPress={() => setShowCreate(true)}
-        >
-          <Ionicons name="add" size={15} color={theme.text} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.topIcon, { borderColor: theme.border }]}
-          onPress={() => router.push('/(tabs)/ai')}
-        >
-          <Ionicons name="sparkles" size={15} color="#34C759" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.topIcon, { borderColor: theme.border }]}
-          onPress={() => router.push('/(tabs)/profile')}
-        >
-          <Ionicons name="settings-outline" size={15} color={theme.text} />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={s.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text} />}
-      >
-        {/* Active */}
-        {active.length > 0 && (
-          <View style={tr.section}>
-            <View style={tr.header}>
-              <View style={tr.headerLeft}>
-                <View style={[tr.accentDot, { backgroundColor: '#B8F23A' }]} />
-                <Text style={[tr.label, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-                  ACTIVE · {active.length}
-                </Text>
-              </View>
-              <Text style={[tr.hint, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>SWIPE →</Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={tr.row}
-              decelerationRate="fast"
-              snapToInterval={ACTIVE_CARD_W + 12}
-            >
-              {active.map(c => (
-                <ActiveCard
-                  key={c.id}
-                  challenge={c}
-                  theme={theme}
-                  token={token}
-                  width={ACTIVE_CARD_W}
-                  onPress={() => setDetail(c)}
-                  onAbandon={() => handleAbandon(c)}
-                />
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Explore — themed horizontal rows */}
-        {THEME_ROWS.map(row => {
-          const items = available.filter(c => row.matches.includes(c.domain));
-          if (items.length === 0) return null;
-          return (
-            <ThemeRow
-              key={row.key}
-              label={row.label}
-              count={items.length}
-              accent={row.dot}
-              challenges={items}
-              theme={theme}
-              onPressCard={c => setDetail(c)}
-            />
-          );
-        })}
-
-        {available.length === 0 && active.length === 0 && (
-          loadError ? (
-            <ErrorState message="Couldn't load challenges." onRetry={() => { setLoading(true); load().finally(() => setLoading(false)); }} />
-          ) : (
-            <View style={s.empty}>
-              <Text style={[s.emptyTitle, { color: theme.textSecondary, fontFamily: 'Inter_900Black' }]}>
-                NO CHALLENGES
-              </Text>
-              <Text style={[s.emptySub, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-                Tap + to create your first one
-              </Text>
-            </View>
-          )
-        )}
-
-        {/* Footer */}
-        <View style={[s.footer, { borderTopColor: theme.border }]}>
-          <Text style={[s.footerQuote, { color: theme.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-            "A challenge is just a habit you haven't committed to yet."
-          </Text>
-          <View style={s.footerRule}>
-            <View style={[s.footerLine, { backgroundColor: theme.text }]} />
-            <Text style={[s.footerLabel, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>GRITTT MANUAL</Text>
-            <View style={[s.footerLine, { backgroundColor: theme.text }]} />
-          </View>
-        </View>
+      <TrackingHeader title="Grind" date="" todayStr="" showDate={false} theme={theme} right={<><IconButton icon="add-outline" label="Create challenge" onPress={()=>setShowCreate(true)} theme={theme}/><IconButton icon="sparkles-outline" label="AI coach" onPress={()=>router.push('/(tabs)/ai')} theme={theme}/><IconButton icon="settings-outline" label="Profile and settings" onPress={()=>router.push('/(tabs)/profile')} theme={theme}/></>}/>
+      <ScrollView contentContainerStyle={{paddingBottom:32}} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.text}/>}>
+        {loadError && <ErrorState message="Couldn't refresh your challenges." onRetry={onRefresh}/>}
+        <FoodModeTabs mode={view} onChange={setView} quickLabel="My Grind" detailedLabel="Explore" accessibilityLabel="Challenge view" theme={theme}/>
+        <View style={{marginHorizontal:16,marginBottom:18}}><PrimaryButton label="Create a challenge" icon="add" onPress={()=>setShowCreate(true)} theme={theme}/></View>
+        {view==='quick' ? <>
+          {active.map(c=><GrindListCard key={c.id} challenge={c} theme={theme} onPress={()=>setDetail(c)}/>)}
+          {!active.length && !loadError && <View style={{marginHorizontal:16,marginBottom:16,padding:24,borderRadius:20,backgroundColor:theme.card}}><Text style={{color:theme.text,fontSize:18,fontFamily:'Inter_800ExtraBold',marginBottom:8}}>Choose your next challenge</Text><Text style={{color:theme.textSecondary,fontSize:14,lineHeight:21,marginBottom:18}}>Explore a challenge or create one of your own.</Text><PrimaryButton label="Explore challenges" onPress={()=>setView('detailed')} theme={theme}/></View>}
+          {list.some(c=>c.status==='completed') && <><Text style={{marginHorizontal:18,marginTop:12,marginBottom:12,color:theme.text,fontFamily:'Inter_800ExtraBold',fontSize:17}}>Completed</Text>{list.filter(c=>c.status==='completed').map(c=><GrindListCard key={c.id} challenge={c} theme={theme} onPress={()=>setDetail(c)}/>)}</>}
+        </> : <>
+          <View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginHorizontal:16,marginBottom:18}}>{([{key:'all',label:'All'},...THEME_ROWS.map(row=>({key:row.key,label:row.key==='physical'?'Physical':row.key.charAt(0).toUpperCase()+row.key.slice(1)}))] as const).map(item=><TouchableOpacity key={item.key} accessibilityRole="button" accessibilityLabel={`Filter ${item.label}`} accessibilityState={{selected:category===item.key}} onPress={()=>setCategory(item.key)} style={{minHeight:44,paddingHorizontal:16,borderRadius:22,justifyContent:'center',borderWidth:1,borderColor:category===item.key?theme.inverse:theme.border,backgroundColor:category===item.key?theme.inverse:theme.card}}><Text style={{color:category===item.key?theme.inverseText:theme.text,fontSize:13,fontFamily:'Inter_600SemiBold'}}>{item.label}</Text></TouchableOpacity>)}</View>
+          {available.filter(c=>category==='all'||themeForDomain(c.domain).key===category).map(c=><GrindListCard key={c.id} challenge={c} theme={theme} onPress={()=>setDetail(c)}/>)}
+          {!available.some(c=>category==='all'||themeForDomain(c.domain).key===category)&&!loadError&&<Text style={{margin:24,color:theme.textSecondary,textAlign:'center'}}>No challenges in this category yet.</Text>}
+        </>}
       </ScrollView>
 
       {/* Detail modal */}
@@ -411,16 +321,16 @@ export default function ChallengesScreen() {
                     key={row.key}
                     style={[
                       s.domainChip,
-                      { borderColor: active ? row.dot : theme.border },
-                      active && { backgroundColor: row.dot + '15' },
+                      { borderColor: active ? theme.text : theme.border },
+                      active && { backgroundColor: theme.text + '15' },
                     ]}
                     onPress={() => setFormTheme(row.key)}
                   >
-                    <View style={[s.domainDot, { backgroundColor: row.dot }]} />
+                    <View style={[s.domainDot, { backgroundColor: theme.text }]} />
                     <Text style={[
                       s.domainLabel,
                       { fontFamily: 'Inter_700Bold' },
-                      active ? { color: row.dot } : { color: theme.textSecondary },
+                      active ? { color: theme.text } : { color: theme.textSecondary },
                     ]}>
                       {row.label}
                     </Text>
@@ -474,6 +384,17 @@ export default function ChallengesScreen() {
 }
 
 // ── Horizontal theme row ──────────────────────────────────────────────────────
+
+function GrindListCard({challenge:c,theme,onPress}:{challenge:Challenge;theme:AppTheme;onPress:()=>void}) {
+ const joined=c.status==='active'||c.status==='completed';
+ const progress=c.durationDays>0?Math.min(100,Math.max(0,c.daysDone/c.durationDays*100)):0;
+ const category=themeForDomain(c.domain).key;
+ return <TouchableOpacity onPress={onPress} accessibilityRole="button" accessibilityLabel={`${c.title}, ${c.durationDays} days${joined?`, ${c.daysDone} days completed`:''}. View challenge`} activeOpacity={0.8} style={{marginHorizontal:16,marginBottom:12,padding:18,borderRadius:20,borderWidth:1,borderColor:theme.border,backgroundColor:theme.card}}>
+  <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:12}}><Text style={{color:theme.textSecondary,fontSize:11,fontFamily:'Inter_700Bold'}}>{category.charAt(0).toUpperCase()+category.slice(1)}</Text><Text style={{color:theme.textSecondary,fontSize:12}}>{c.durationDays} days</Text></View>
+  <View style={{flexDirection:'row',alignItems:'center',gap:12}}><Text style={{flex:1,color:theme.text,fontSize:18,lineHeight:24,fontFamily:'Inter_800ExtraBold'}}>{c.title}</Text><Ionicons name="chevron-forward" color={theme.text} size={18}/></View>
+  {joined?<View style={{marginTop:16}}><View style={{flexDirection:'row',justifyContent:'space-between',marginBottom:10}}><Text style={{color:theme.textSecondary,fontSize:12}}>{c.daysDone} / {c.durationDays} days logged</Text><Text style={{color:theme.text,fontSize:12,fontFamily:'Inter_700Bold'}}>{c.status==='completed'?'Completed':`${Math.round(progress)}%`}</Text></View><View style={{height:5,borderRadius:3,backgroundColor:theme.surfaceStrong,overflow:'hidden'}}><View style={{height:5,width:`${progress}%`,backgroundColor:theme.text,borderRadius:3}}/></View></View>:<><Text style={{marginTop:10,color:theme.textSecondary,fontSize:13,lineHeight:20}} numberOfLines={2}>{c.description||instructionsFor(c)}</Text><Text style={{marginTop:14,color:theme.text,fontSize:13,fontFamily:'Inter_700Bold'}}>View challenge →</Text></>}
+ </TouchableOpacity>;
+}
 
 function ThemeRow({
   label, count, accent, challenges: items, theme, onPressCard,
@@ -535,9 +456,9 @@ function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge;
     >
       {/* Top: theme pill + duration badge */}
       <View style={cc.top}>
-        <View style={[cc.themePill, { backgroundColor: t.dot + '22' }]}>
-          <View style={[cc.themeDot, { backgroundColor: t.dot }]} />
-          <Text style={[cc.themeLabel, { color: t.dot, fontFamily: 'Inter_900Black' }]}>{t.label}</Text>
+        <View style={[cc.themePill, { backgroundColor: theme.text + '22' }]}>
+          <View style={[cc.themeDot, { backgroundColor: theme.text }]} />
+          <Text style={[cc.themeLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{t.label}</Text>
         </View>
         <View style={{ flex: 1 }} />
         <View style={[cc.durationBadge, { backgroundColor: theme.surfaceStrong }]}>
@@ -556,7 +477,7 @@ function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge;
       <View style={cc.points}>
         {points.map((pt, i) => (
           <View key={i} style={cc.pointRow}>
-            <View style={[cc.bullet, { backgroundColor: t.dot }]} />
+            <View style={[cc.bullet, { backgroundColor: theme.text }]} />
             <Text style={[cc.pointText, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{pt}</Text>
           </View>
         ))}
@@ -579,7 +500,7 @@ function ChallengeCard({ challenge: c, theme, onPress }: { challenge: Challenge;
       </View>
 
       {!c.isPreset && (
-        <View style={[cc.customBadge, { backgroundColor: t.dot }]}>
+        <View style={[cc.customBadge, { backgroundColor: theme.text }]}>
           <Text style={[cc.customText, { color: '#FFF', fontFamily: 'Inter_900Black' }]}>CUSTOM</Text>
         </View>
       )}
@@ -617,14 +538,14 @@ function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon }: {
 
   return (
     <TouchableOpacity
-      style={[ac.card, { width: width ?? ACTIVE_CARD_W, backgroundColor: theme.card, borderColor: t.dot }]}
+      style={[ac.card, { width: width ?? ACTIVE_CARD_W, backgroundColor: theme.card, borderColor: theme.text }]}
       onPress={onPress}
       activeOpacity={0.85}
     >
       {/* Header: theme pill + close */}
       <View style={ac.header}>
-        <View style={[ac.themePill, { backgroundColor: t.dot + '22' }]}>
-          <Text style={[ac.themeLabel, { color: t.dot, fontFamily: 'Inter_900Black' }]}>
+        <View style={[ac.themePill, { backgroundColor: theme.text + '22' }]}>
+          <Text style={[ac.themeLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
             {t.label} · {c.durationDays}D
           </Text>
         </View>
@@ -673,9 +594,9 @@ function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon }: {
           {Array.from({ length: c.durationDays }).map((_, i) => (
             <View key={i} style={[ac.dot, {
               backgroundColor: i < c.daysDone
-                ? t.dot
+                ? theme.text
                 : i === c.daysDone
-                  ? t.dot + '55'
+                  ? theme.text + '55'
                   : theme.surfaceStrong,
             }]} />
           ))}
@@ -688,8 +609,8 @@ function ActiveCard({ challenge: c, theme, token, width, onPress, onAbandon }: {
       <Text style={[ac.percentileLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
         {serverPct == null
           ? (hasOthers
-              ? <>Not enough data to rank you <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>yet</Text> — keep going.</>
-              : <>You're the <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>first one in</Text> — set the pace.</>)
+              ? <>Not enough data to rank you <Text style={{ color: theme.text, fontFamily: 'Inter_900Black' }}>yet</Text> — keep going.</>
+              : <>You're the <Text style={{ color: theme.text, fontFamily: 'Inter_900Black' }}>first one in</Text> — set the pace.</>)
           : <>Better than{' '}
               <Text style={{ color: pColor, fontFamily: 'Inter_900Black' }}>{percentile}%</Text>
               {' '}of people on this challenge</>
@@ -802,9 +723,32 @@ function ChallengeDetailModal({
   onJoin: (c: Challenge) => void;
   onAbandon: (c: Challenge) => void;
 }) {
+  const [ranking,setRanking] = useState<Awaited<ReturnType<typeof challenges.percentile>> | null>(null);
+  const [rankLoading,setRankLoading] = useState(false);
+  const [rankError,setRankError] = useState(false);
+  const [rankVersion,setRankVersion] = useState(0);
+  useEffect(()=>{
+    let cancelled=false;setRanking(null);setRankError(false);
+    if (!c?.joined || !token) {setRankLoading(false);return;}
+    setRankLoading(true);
+    challenges.percentile(token,c.id).then(result=>{if(!cancelled)setRanking(result)}).catch(()=>{if(!cancelled)setRankError(true)}).finally(()=>{if(!cancelled)setRankLoading(false)});
+    return()=>{cancelled=true};
+  },[c?.id,c?.joined,c?.daysDone,token,rankVersion]);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [stats, setStats]             = useState<DurationStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
+
+  const [calendar,setCalendar] = useState<Record<string,boolean>>({});
+  const [calendarLoading,setCalendarLoading] = useState(false);
+  const [calendarError,setCalendarError] = useState(false);
+  const [calendarVersion,setCalendarVersion] = useState(0);
+  useEffect(()=>{
+    let cancelled=false;setCalendar({});setCalendarError(false);
+    if (!c?.joined || !token) {setCalendarLoading(false);return;}
+    setCalendarLoading(true);
+    habits.stats(token,c.title.trim()).then(result=>{if(cancelled)return;const start=c.startedAt?toDateStr(new Date(c.startedAt)):null;const end=c.completedAt?toDateStr(new Date(c.completedAt)):today();const records:Record<string,boolean>={};result.completions.forEach(record=>{if((!start||record.date>=start)&&record.date<=end)records[record.date]=record.failed;});setCalendar(records);}).catch(()=>{if(!cancelled)setCalendarError(true)}).finally(()=>{if(!cancelled)setCalendarLoading(false)});
+    return()=>{cancelled=true};
+  },[c?.id,c?.joined,c?.startedAt,c?.completedAt,token,calendarVersion]);
 
   // Reset state whenever the modal opens for a new challenge.
   useEffect(() => { setShowHeatmap(false); setStats(null); }, [c?.id]);
@@ -827,7 +771,7 @@ function ChallengeDetailModal({
   const benefits     = c.benefits ?? [];
   const participants = c.participantCount;
   const isActive     = c.joined && c.status === 'active';
-  const pct          = isActive ? Math.min(c.daysDone / c.durationDays, 1) : 0;
+  const pct          = c.durationDays > 0 ? Math.min(Math.max(c.daysDone / c.durationDays, 0), 1) : 0;
   const histogram    = stats?.histogram ?? [];
   const peakBucket   = histogram.length ? histogram.reduce((a, b) => b.users > a.users ? b : a, histogram[0]) : null;
   const maxUsers     = Math.max(1, ...histogram.map(b => b.users));
@@ -844,19 +788,21 @@ function ChallengeDetailModal({
 
         {/* Header */}
         <View style={[dm.header, { borderBottomColor: theme.border }]}>
-          <View style={[dm.themePill, { backgroundColor: t.dot + '20' }]}>
-            <View style={[dm.themeDot, { backgroundColor: t.dot }]} />
-            <Text style={[dm.themeLabel, { color: t.dot, fontFamily: 'Inter_900Black' }]}>{t.label}</Text>
+          <View style={[dm.themePill, { backgroundColor: theme.text + '20' }]}>
+            <View style={[dm.themeDot, { backgroundColor: theme.text }]} />
+            <Text style={[dm.themeLabel, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{t.label}</Text>
           </View>
           <View style={{ flex: 1 }} />
+          <AskGritttButton screen="habits"/>
           <TouchableOpacity
             onPress={() => shareChallenge(c)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            style={{ marginRight: 12 }}
+            accessibilityRole="button" accessibilityLabel="Share challenge"
+            style={{ marginLeft: 14, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
           >
             <Ionicons name="share-outline" size={20} color={theme.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close challenge details" style={{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center'}} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="close" size={22} color={theme.textSecondary} />
           </TouchableOpacity>
         </View>
@@ -864,42 +810,45 @@ function ChallengeDetailModal({
         <ScrollView contentContainerStyle={dm.body} showsVerticalScrollIndicator={false}>
           {/* Title */}
           <Text style={[dm.title, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-            {c.title.toUpperCase()}
+            {c.title}
           </Text>
 
           {/* Quick stats row */}
-          <View style={[dm.statsRow, { borderColor: theme.border }]}>
+          <View style={[dm.statsRow,{borderColor:theme.text,backgroundColor:theme.card}]}>
             <View style={dm.statCell}>
               <Text style={[dm.statBig, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
                 {c.durationDays}
               </Text>
-              <Text style={[dm.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>DAYS</Text>
+              <Text style={[dm.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>Duration</Text>
             </View>
-            <View style={[dm.statSep, { backgroundColor: theme.border }]} />
             <View style={dm.statCell}>
               <Text style={[dm.statBig, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
                 {participants.toLocaleString()}
               </Text>
-              <Text style={[dm.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>PEOPLE IN</Text>
+              <Text style={[dm.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>Joined</Text>
             </View>
-            {isActive && (
+            {(isActive || c.status === 'completed') && (
               <>
-                <View style={[dm.statSep, { backgroundColor: theme.border }]} />
-                <View style={dm.statCell}>
-                  <Text style={[dm.statBig, { color: t.dot, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                    <View style={dm.statCell}>
+                  <Text style={[dm.statBig, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
                     {Math.round(pct * 100)}%
                   </Text>
-                  <Text style={[dm.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>DONE</Text>
+                  <Text style={[dm.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>Progress</Text>
                 </View>
               </>
             )}
+            {c.joined && <TouchableOpacity style={[dm.statCell,{minHeight:44}]} disabled={!rankError} onPress={()=>setRankVersion(value=>value+1)} accessibilityRole={rankError?'button':'text'} accessibilityLabel={rankLoading?'Loading position':rankError?'Position unavailable. Tap to retry.':ranking?.percentile!=null&&ranking.totalOthers>0?`Position: ahead of ${ranking.percentile}% of ${ranking.totalOthers} other participants`:'Position: not ranked yet'}>
+              <Text style={[dm.statBig,{color:theme.text,fontFamily:'SpaceGrotesk_700Bold'}]} numberOfLines={1} adjustsFontSizeToFit>{rankLoading?'…':!rankError&&ranking?.percentile!=null&&ranking.totalOthers>0?`${ranking.percentile}%`:'—'}</Text>
+              <Text style={[dm.statLabel,{color:theme.textMuted,fontFamily:'Inter_700Bold'}]}>Position</Text>
+              <Text style={{color:theme.textSecondary,fontSize:9,textAlign:'center'}}>{rankLoading?'Loading':rankError?'Tap to retry':ranking?.percentile!=null&&ranking.totalOthers>0?'Ahead of others':'Not ranked yet'}</Text>
+            </TouchableOpacity>}
           </View>
 
           {/* Description (if any) */}
-          {!!c.description?.trim() && (
+          {!!c.description?.trim() && c.description.trim() !== instructions.trim() && (
             <View style={dm.section}>
-              <Text style={[dm.sectionLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-                THE PROMISE
+              <Text style={[dm.sectionLabel, { color: theme.text, fontFamily: 'Inter_800ExtraBold' }]}>
+                About this challenge
               </Text>
               <Text style={[dm.sectionBody, { color: theme.text, fontFamily: 'Inter_500Medium' }]}>
                 {c.description}
@@ -907,26 +856,27 @@ function ChallengeDetailModal({
             </View>
           )}
 
-          {/* What to do */}
-          <View style={dm.section}>
-            <Text style={[dm.sectionLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-              WHAT YOU NEED TO DO
-            </Text>
-            <Text style={[dm.sectionBody, { color: theme.text, fontFamily: 'Inter_500Medium' }]}>
-              {instructions}
-            </Text>
+          <View style={{padding:18,borderRadius:20,backgroundColor:theme.card}}>
+            <Text style={{color:theme.text,fontSize:18,fontFamily:'Inter_800ExtraBold',marginBottom:6}}>Your consistency</Text>
+            <Text style={{color:theme.textSecondary,fontSize:12,marginBottom:16}}>Last 28 days</Text>
+            {calendarLoading ? <Text style={{color:theme.textSecondary,paddingVertical:20}}>Loading your records…</Text> : calendarError ? <TouchableOpacity accessibilityRole="button" onPress={()=>setCalendarVersion(value=>value+1)} style={{minHeight:48,justifyContent:'center'}}><Text style={{color:theme.text}}>Couldn’t load records. Tap to retry.</Text></TouchableOpacity> : <>
+              <View style={{flexDirection:'row',gap:5,marginBottom:8}}>{['M','T','W','T','F','S','S'].map((day,index)=><Text key={index} style={{flex:1,textAlign:'center',color:theme.textSecondary,fontSize:11}}>{day}</Text>)}</View>
+              {(()=>{const end=today();const from=shiftDate(end,-27);const offset=(new Date(from+'T12:00:00').getDay()+6)%7;const cells:(string|null)[]=[...Array(offset).fill(null),...Array.from({length:28},(_,index)=>shiftDate(from,index))];while(cells.length%7)cells.push(null);return Array.from({length:cells.length/7},(_,row)=><View key={row} style={{flexDirection:'row',gap:5,marginBottom:5}}>{cells.slice(row*7,row*7+7).map((date,index)=>{const failed=date?calendar[date]:undefined;const logged=failed!==undefined;const isToday=date===end;return <View key={date??`blank-${index}`} accessible={!!date} accessibilityLabel={date?`${date}: ${logged?(failed?'Slipped':'Completed'):'No recorded entry'}`:undefined} style={{flex:1,aspectRatio:1,borderRadius:8,alignItems:'center',justifyContent:'center',borderWidth:isToday?1:0,borderColor:theme.text,backgroundColor:!date?'transparent':logged?(failed?theme.surfaceStrong:theme.inverse):theme.surface}}>{date&&<Text style={{color:logged&&!failed?theme.inverseText:theme.textSecondary,fontSize:12,fontFamily:logged?'Inter_700Bold':'Inter_500Medium'}}>{logged?(failed?'!':'✓'):Number(date.slice(-2))}</Text>}</View>})}</View>)})()}
+              <View style={{flexDirection:'row',gap:14,marginTop:10}}><Text style={{color:theme.textSecondary,fontSize:11}}>✓ Completed</Text><Text style={{color:theme.textSecondary,fontSize:11}}>Outline · Today</Text>{Object.values(calendar).some(failed=>failed)&&<Text style={{color:theme.textSecondary,fontSize:11}}>! Slipped</Text>}</View>
+              {!c.joined&&<Text style={{color:theme.textSecondary,fontSize:12,marginTop:12}}>Join this challenge to start tracking.</Text>}
+            </>}
           </View>
 
           {/* Benefits */}
           {benefits.length > 0 && (
             <View style={dm.section}>
-              <Text style={[dm.sectionLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>
-                WHAT YOU GAIN
+              <Text style={[dm.sectionLabel, { color: theme.text, fontFamily: 'Inter_800ExtraBold' }]}>
+                What you’re working towards
               </Text>
               <View style={dm.benefitGrid}>
                 {benefits.map((b, i) => (
-                  <View key={i} style={[dm.benefitChip, { borderColor: t.dot + '60', backgroundColor: t.dot + '12' }]}>
-                    <View style={[dm.benefitDot, { backgroundColor: t.dot }]} />
+                  <View key={i} style={[dm.benefitChip, { backgroundColor: theme.card }]}>
+                    <Ionicons name="checkmark-outline" size={16} color={theme.textSecondary}/>
                     <Text style={[dm.benefitText, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>
                       {b}
                     </Text>
@@ -939,7 +889,7 @@ function ChallengeDetailModal({
           {/* Participants footer line — real count from the backend */}
           {participants > 0 && (
             <Text style={[dm.participantsLine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-              <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>{participants.toLocaleString()}</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Inter_900Black' }}>{participants.toLocaleString()}</Text>
               {participants === 1 ? ' person has' : ' people have'} joined this challenge
             </Text>
           )}
@@ -952,7 +902,7 @@ function ChallengeDetailModal({
           >
             <Ionicons name="bar-chart-outline" size={14} color={theme.text} />
             <Text style={[dm.heatmapBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-              {showHeatmap ? 'HIDE HEATMAP' : 'SHOW HEATMAP'}
+              {showHeatmap ? 'Hide participant progress' : 'Participant progress'}
             </Text>
             <Ionicons
               name={showHeatmap ? 'chevron-up' : 'chevron-down'}
@@ -984,7 +934,7 @@ function ChallengeDetailModal({
                   {peakBucket && (
                     <Text style={[dm.heatmapSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]}>
                       Most people are around{' '}
-                      <Text style={{ color: t.dot, fontFamily: 'Inter_900Black' }}>
+                      <Text style={{ color: theme.text, fontFamily: 'Inter_900Black' }}>
                         {peakBucket.label}
                       </Text>
                       .
@@ -994,7 +944,7 @@ function ChallengeDetailModal({
                     {histogram.map((b, i) => {
                       const w        = (b.users / maxUsers) * 100;
                       const isPeak   = peakBucket != null && b.users === peakBucket.users && b.users > 0;
-                      const barColor = isPeak ? t.dot : t.dot + '70';
+                      const barColor = isPeak ? theme.text : theme.text + '70';
                       return (
                         <View key={i} style={dm.heatRow}>
                           <Text style={[dm.heatLabel, { color: theme.textSecondary, fontFamily: 'SpaceGrotesk_700Bold' }]}>
@@ -1031,7 +981,7 @@ function ChallengeDetailModal({
                 ABANDON CHALLENGE
               </Text>
             </TouchableOpacity>
-          ) : (
+          ) : c.status === 'completed' ? <View style={{padding:18,borderRadius:16,backgroundColor:theme.card}}><Text style={{color:theme.text,fontSize:16,fontFamily:'Inter_800ExtraBold'}}>Challenge completed</Text></View> : (
             <TouchableOpacity
               style={[dm.btnPrimary, { backgroundColor: theme.inverse }]}
               onPress={() => onJoin(c)}
@@ -1056,22 +1006,22 @@ const dm = StyleSheet.create({
   themeDot:         { width: 6, height: 6, borderRadius: 3 },
   themeLabel:       { fontSize: 9, letterSpacing: 1.5 },
   body:             { padding: 24, paddingBottom: 48, gap: 22 },
-  title:            { fontSize: 26, letterSpacing: -0.5, lineHeight: 30 },
-  statsRow:         { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 12, paddingVertical: 14 },
-  statCell:         { flex: 1, alignItems: 'center', gap: 4 },
-  statBig:          { fontSize: 20, letterSpacing: -0.5 },
-  statLabel:        { fontSize: 8, letterSpacing: 1.8 },
+  title:            { fontSize: 30, letterSpacing: -0.6, lineHeight: 36 },
+  statsRow:         { flexDirection: 'row', alignItems: 'stretch', borderWidth: 1, borderRadius: 16, paddingVertical: 12 },
+  statCell:         { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6 },
+  statBig:          { fontSize: 23, letterSpacing: -0.5 },
+  statLabel:        { fontSize: 11 },
   statSep:          { width: 1, height: 32 },
   section:          { gap: 8 },
-  sectionLabel:     { fontSize: 9, letterSpacing: 3 },
-  sectionBody:      { fontSize: 14, lineHeight: 20 },
-  benefitGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
-  benefitChip:      { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, borderWidth: 1 },
+  sectionLabel:     { fontSize: 18, lineHeight: 24 },
+  sectionBody:      { fontSize: 15, lineHeight: 23 },
+  benefitGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  benefitChip:      { width: '48%', flexGrow: 1, minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12 },
   benefitDot:       { width: 5, height: 5, borderRadius: 3 },
-  benefitText:      { fontSize: 11, letterSpacing: 0.5 },
+  benefitText:      { fontSize: 13, flex: 1, lineHeight: 19 },
   participantsLine: { fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 4 },
-  heatmapBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderWidth: 2, borderRadius: 10 },
-  heatmapBtnText:   { fontSize: 11, letterSpacing: 2.5, flex: 0 },
+  heatmapBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 48, paddingVertical: 12, borderWidth: 1, borderRadius: 14 },
+  heatmapBtnText:   { fontSize: 13, flex: 0 },
   heatmapCard:      { borderWidth: 2, borderRadius: 12, padding: 16, gap: 14 },
   heatmapTitle:    { fontSize: 11, letterSpacing: 2 },
   heatmapSub:       { fontSize: 11, lineHeight: 16 },

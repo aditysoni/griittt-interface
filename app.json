@@ -20,7 +20,8 @@
         "NSCameraUsageDescription": "Allow Grittt to use your camera to snap and track food.",
         "ITSAppUsesNonExemptEncryption": false,
         "NSHealthShareUsageDescription": "Allow Grittt to read your steps, heart rate, sleep, weight, and workouts from Health so it can build a fuller picture of your discipline.",
-        "NSHealthUpdateUsageDescription": "Allow Grittt to save workouts you log in the app back to Health."
+        "NSHealthUpdateUsageDescription": "Allow Grittt to save workouts you log in the app back to Health.",
+        "NSMicrophoneUsageDescription": "GRITTT uses your microphone only when you start a voice log. Send the recording for transcription, review it, then choose whether to save."
       },
       "runtimeVersion": "1.0.2",
       "buildNumber": "22"
@@ -31,7 +32,6 @@
       },
       "package": "com.grittt.app",
       "permissions": [
-        "android.permission.RECORD_AUDIO",
         "android.permission.RECORD_AUDIO"
       ],
       "runtimeVersion": {
@@ -54,7 +54,12 @@
       ],
       "expo-web-browser",
       "expo-font",
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "GRITTT uses your microphone only when you start a voice log. Send the recording for transcription, review it, then choose whether to save."
+        }
+      ],
       [
         "@kingstinct/react-native-healthkit",
         {

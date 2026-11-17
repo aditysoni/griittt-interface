@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DarkBackground } from '../components/DarkBackground';
 import { useTheme } from '../components/ThemeContext';
 
-const LAST_UPDATED = 'August 1, 2026';
+const LAST_UPDATED = 'November 17, 2026';
 
 function Section({ title, children, theme }: { title: string; children: React.ReactNode; theme: any }) {
   return (
@@ -65,8 +65,27 @@ export default function PrivacyPolicyScreen() {
             When you use an AI analysis or coaching feature, the specific data needed for that request (e.g.
             a habit's recent completion history, a fuel question's recent answers, or — for recovery
             features — your health-derived recovery figures) is sent to our AI provider to generate a
-            response. It is not used to train their models and is not shared beyond what's needed to generate
-            that one response.
+            response. OpenAI API data is not used to train models by default. Provider retention and abuse-monitoring
+            policies may apply; see the Voice logs section for recordings and transcripts.
+          </Section>
+
+          <Section title="Voice food and activity logs" theme={theme}>
+            Voice logging is optional. We request microphone permission only when you choose to record.
+            Recording stops when you stop it, leave the app, or reach the recording limit. It is not always listening.
+            Before recording, we explain processing; only when you choose Use recording is audio uploaded to
+            GRITTT and sent to OpenAI for transcription. The transcript is sent to OpenAI to prepare editable
+            food or activity drafts. This feature does not send Apple Health records. You review the date,
+            quantities and details before saving. Voice does not automatically create logs.
+            {'\n\n'}Temporary audio files are removed from GRITTT’s server after processing and from the app when
+            processing succeeds or you close the voice sheet. The transcript is shown for review but is not
+            persisted on GRITTT’s server. Unsaved structured drafts expire after 24 hours and are cleaned on
+            subsequent voice requests. A confirmation receipt is retained for seven days to prevent duplicate
+            saves on retries. Confirmed food and workout entries remain in your history until you delete them.
+            Unsaved drafts can contain portion details. After confirmation, portion notes use device-local food storage rather than permanent server food records.
+            {'\n\n'}OpenAI may retain API request data under its applicable data and abuse-monitoring policies;
+            deletion from GRITTT does not imply immediate deletion from OpenAI’s systems. We do not send
+            voice recordings for advertising or voice identification. You can revoke microphone access in
+            iPhone Settings → Privacy &amp; Security → Microphone, or continue logging manually without it.
           </Section>
 
           <Section title="What we don't do" theme={theme}>

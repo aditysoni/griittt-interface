@@ -54,7 +54,7 @@
     <key>NSHealthUpdateUsageDescription</key>
     <string>Allow Grittt to save workouts you log in the app back to Health.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <string>GRITTT uses your microphone only when you start a voice log. Send the recording for transcription, review it, then choose whether to save.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Allow Grittt to access your photos to track your food.</string>
     <key>NSUserActivityTypes</key>

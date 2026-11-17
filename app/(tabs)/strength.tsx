@@ -15,7 +15,7 @@ import {
 } from '../../lib/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MovementGoalCard, STEP_GOAL, ACTIVE_KCAL_GOAL } from '../../components/MovementGoalCard';
-import { LoadingScreen } from '../../components/LoadingScreen';
+import { TrackingLoadingScreen } from '../../components/LoadingScreen';
 import { ErrorState } from '../../components/ErrorState';
 import { DaySelector } from '../../components/DaySelector';
 import { DateSwipe, useDateNav } from '../../components/DateSwipe';
@@ -26,14 +26,14 @@ import {
   EmptyState, IconButton, PrimaryButton, SecondaryButton, SectionCard, TrackingHeader, WeekSummaryCard,
 } from '../../components/TrackingShared';
 import { WorkoutDraft, workoutDraftStorage } from '../../lib/storage';
+import { VoiceLogButton } from '../../components/VoiceLogButton';
+import { FoodWeekCard } from '../../components/FoodDailyCards';
+import { FoodModeTabs, FoodSubmissionMode } from '../../components/FoodDetailedView';
+import { PhysicalQuestions } from '../../components/PhysicalQuestions';
+import { healthKit } from '../../lib/healthKit';
 import { formatShortDate } from '../../lib/today';
 
 const RATING_LABELS = ['Rest','Very light','Light','Easy','Moderate','Medium','Good','Strong','Very strong','Excellent','Elite'];
-
-const BODY_PART_COLORS: Record<string, string> = {
-  chest: '#FF6B6B', back: '#4ECDC4', shoulders: '#FFD93D', legs: '#6BCB77',
-  biceps: '#4D96FF', triceps: '#C77DFF', abs: '#F0A12E', cardio: '#34C759',
-};
 
 type LogKind = TrainingType | 'rate';
 const LOG_KINDS: { key: LogKind; label: string; icon: string; sub: string }[] = [
@@ -78,6 +78,20 @@ export default function StrengthScreen() {
 
   // Rating
   const [rating, setRating] = useState(7);
+  const [mode,setMode] = useState<FoodSubmissionMode>('quick');
+  const [ratingChosen,setRatingChosen] = useState(false);
+  const [healthBusy,setHealthBusy] = useState(false);
+  async function connectHealth() {
+    if (!token || healthBusy) return;
+    setHealthBusy(true);
+    try {
+      if (!await healthKit.isAvailable()) { Alert.alert('Apple Health unavailable', 'Use GRITTT on an iPhone with Apple Health to connect.'); return; }
+      if (!await healthKit.requestAuthorization()) { Alert.alert('Permission needed', 'Enable GRITTT in Settings → Privacy & Security → Health.'); return; }
+      await AsyncStorage.setItem('grittt_health_connected','true'); setHealthConnected(true);
+      const result = await healthKit.syncToBackend(token,7); await load(selectedDate);
+      if (!result.metricsSynced && !result.workoutsSynced) Alert.alert('No health data found', 'Authorization completed, but no readable data was found. Check GRITTT permissions in Apple Health.');
+    } catch (error:any) { Alert.alert('Could not sync Health', error.message ?? 'Please try again.'); } finally {setHealthBusy(false);}
+  }
 
   // GYM flow (the modal) — mirrored to a device draft so it survives leaving the screen
   const [activeBodyPart, setActiveBodyPart] = useState<BodyPart | null>(null);
@@ -116,7 +130,7 @@ export default function StrengthScreen() {
       return;
     }
     const from = shiftDateStr(date, -13);
-    strength.history(token, from, date)
+    await strength.history(token, from, date)
       .then(rows => { const map: Record<string, number | null> = {}; rows.forEach(r => { map[r.date] = r.score; }); setHistory(map); })
       .catch(() => {});
     AsyncStorage.getItem('grittt_health_connected').then(v => setHealthConnected(v === 'true')).catch(() => {});
@@ -129,7 +143,7 @@ export default function StrengthScreen() {
   useEffect(() => {
     let cancelled = false;
     workoutDraftStorage.get(userKey, selectedDate).then(d => { if (!cancelled) setDraft(d && d.bodyPart ? d : null); }).catch(() => {});
-    setKind(null); setChooserOpen(false);
+    setKind(null); setChooserOpen(false); setRatingChosen(false);
     return () => { cancelled = true; };
   }, [userKey, selectedDate]);
 
@@ -153,6 +167,7 @@ export default function StrengthScreen() {
     setSubmitting(true);
     try {
       await strength.log(token, { mode: 'simple', date: selectedDate, rating, streak: 0 });
+      setRatingChosen(false);
       setKind(null); setChooserOpen(false);
       await load(selectedDate);
     } catch (err: any) { Alert.alert('Could not save', err.message); }
@@ -182,8 +197,9 @@ export default function StrengthScreen() {
     ]);
   }
   function addSet() {
+    if (!exName.trim()) { Alert.alert('Choose an exercise', 'Pick or type the exercise before adding a set.'); return; }
     const reps = Number(setReps) || 0; const weight = Number(setWeight) || 0;
-    if (reps <= 0) { Alert.alert('Reps needed', 'Enter the reps for this set.'); return; }
+    if (!Number.isFinite(reps) || !Number.isInteger(reps) || reps <= 0 || !Number.isFinite(weight) || weight < 0) { Alert.alert('Check this set', 'Enter positive whole reps and a non-negative weight.'); return; }
     setExSets(prev => [...prev, { reps, weight }]);
     setSetReps(''); setSetWeight('');
   }
@@ -197,7 +213,9 @@ export default function StrengthScreen() {
   function removeExercise(i: number) { setExerciseList(prev => prev.filter((_, idx) => idx !== i)); }
 
   async function saveGymSession() {
-    if (!token || !activeBodyPart) return;
+    if (!token || !activeBodyPart || submitting) return;
+    if (setReps.trim() || setWeight.trim()) { Alert.alert('Set not added', 'Tap Add set to include the values you entered before finishing.'); return; }
+    if (exName.trim() && !exSets.length) { Alert.alert('Add a set', 'Add at least one set for the current exercise before finishing.'); return; }
     let finalList = exerciseList;
     if (exName.trim() && exSets.length > 0) finalList = [...exerciseList, { name: exName.trim(), sets: exSets }];
     if (finalList.length === 0) { Alert.alert('Nothing to save', 'Add at least one exercise with a set.'); return; }
@@ -281,7 +299,7 @@ export default function StrengthScreen() {
     return { minutes, sets, km: Math.round(km * 10) / 10 };
   }, [logs]);
 
-  if (loading) return <LoadingScreen />;
+  if (loading) return <TrackingLoadingScreen title="Physical" />;
 
   const activeBodyPartMeta = BODY_PARTS.find(b => b.key === activeBodyPart);
   const suggestions = activeBodyPart ? EXERCISE_SUGGESTIONS[activeBodyPart] : [];
@@ -293,16 +311,17 @@ export default function StrengthScreen() {
     <DarkBackground><SafeAreaView style={s.safe} edges={['top']}>
       <TrackingHeader
         title="Physical"
-        subtitle="Your movement, clearly recorded."
+        showDate={false}
         date={selectedDate}
         todayStr={todayStr}
         theme={theme}
         right={<>
           <AskGritttButton screen="physical" date={selectedDate} compact />
+          <VoiceLogButton domain="physical" date={selectedDate} token={token} disabled={!canLog||submitting} onSaved={()=>{void onRefresh()}}/>
           <IconButton icon="settings-outline" label="Profile and settings" onPress={() => router.push('/(tabs)/profile')} theme={theme} />
         </>}
       />
-      <View style={s.datesRow}><DaySelector selectedDate={selectedDate} onSelect={setSelectedDate} /></View>
+
 
       <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
@@ -314,54 +333,25 @@ export default function StrengthScreen() {
           <ErrorState message="Couldn't load your activity log." onRetry={() => { setLoading(true); load(selectedDate).finally(() => setLoading(false)); }} />
         )}
 
+        <FoodWeekCard score={loadError ? null : history[selectedDate]} scoreLabel={isToday ? "Today’s score" : "Day’s score"} title="Your activity week" endDate={selectedDate} recordedDates={new Set(Object.keys(history).filter(date=>history[date]!=null))} complete={!loadError} theme={theme}/>
+        <FoodModeTabs mode={mode} onChange={setMode} theme={theme} disabled={submitting} />
+        {mode === 'quick' && <>
+          <SectionCard title="How was your physical activity?" theme={theme}>
+            <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><Text style={{color:theme.textSecondary,fontSize:13}}>{ratingChosen ? RATING_TIERS.find(t=>rating<=t.upTo)?.label : 'Tap your rating'}</Text><Text style={{color:theme.text,fontSize:24,fontFamily:'Inter_800ExtraBold'}}>{ratingChosen ? rating : '—'}<Text style={{fontSize:13,color:theme.textSecondary}}> / 10</Text></Text></View>
+            <View accessibilityRole="radiogroup" accessibilityLabel="Daily activity rating" style={{gap:8,marginBottom:12}}>{[0,5].map(start=><View key={start} style={{flexDirection:'row',gap:8}}>{Array.from({length:5},(_,i)=>start+i+1).map(value=><TouchableOpacity key={value} disabled={!canLog||submitting} accessibilityRole="radio" accessibilityLabel={`${value} out of 10`} accessibilityState={{checked:ratingChosen&&rating===value,disabled:!canLog||submitting}} onPress={()=>{setRating(value);setRatingChosen(true)}} style={{flex:1,minHeight:44,borderRadius:22,alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:ratingChosen&&rating===value?theme.inverse:theme.border,backgroundColor:ratingChosen&&rating===value?theme.inverse:theme.card}}><Text style={{color:ratingChosen&&rating===value?theme.inverseText:theme.text,fontFamily:'Inter_700Bold',fontSize:14}}>{value}</Text></TouchableOpacity>)}</View>)}</View>
+            <View style={{flexDirection:'row',justifyContent:'space-between',marginBottom:18}}><Text style={{color:theme.textSecondary,fontSize:11}}>Very light</Text><Text style={{color:theme.textSecondary,fontSize:11}}>Maximal</Text></View>
+            <PrimaryButton label="Save rating" disabled={!canLog||!ratingChosen||submitting||loadError} loading={submitting} onPress={async()=>{await submitRating();}} theme={theme}/>
+            {logs.some(log=>log.mode==='simple') && <Text style={{color:theme.textSecondary,marginTop:10}}>Saved rating: {logs.filter(log=>log.mode==='simple').map(log=>`${log.rating}/10`).join(', ')}</Text>}
+          </SectionCard>
+          <PhysicalQuestions user={userKey} date={selectedDate} theme={theme} disabled={!canLog||submitting}/>
+        </>}
+        {mode === 'detailed' && <>
         {/* 1 — Primary action */}
         {canLog && !loadError && (
           <SectionCard theme={theme}>
-            {draft ? (
-              <>
-                <Text style={[s.lead, { color: theme.text, fontFamily: 'Inter_800ExtraBold' }]} maxFontSizeMultiplier={1.5}>You have an unsaved workout</Text>
-                <Text style={[s.leadSub, { color: theme.textSecondary, fontFamily: 'Inter_500Medium' }]} maxFontSizeMultiplier={1.6}>
-                  {BODY_PARTS.find(b => b.key === draft.bodyPart)?.label ?? 'Gym'} · {plural(draft.exercises.length + (draft.currentSets.length ? 1 : 0), 'exercise')} in progress · kept on this device
-                </Text>
-                <View style={s.actions}>
-                  <PrimaryButton label="Continue workout" icon="play" onPress={continueDraft} theme={theme} />
-                  <SecondaryButton label={chooserOpen ? 'Hide other options' : 'Log something else'} onPress={() => setChooserOpen(v => !v)} theme={theme} />
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={[s.lead, { color: theme.text, fontFamily: 'Inter_800ExtraBold' }]} maxFontSizeMultiplier={1.5}>
-                  {logs.length ? 'Add another activity' : isToday ? 'What did you do today?' : `Add activity for ${formatShortDate(selectedDate)}`}
-                </Text>
-                <View style={s.actions}>
-                  <PrimaryButton label={chooserOpen ? 'Close' : 'Log activity'} icon={chooserOpen ? 'close' : 'add'} onPress={() => { setChooserOpen(v => !v); if (chooserOpen) setKind(null); }} theme={theme} />
-                </View>
-              </>
-            )}
-
-            {chooserOpen && (
-              <View style={s.kindGrid}>
-                {LOG_KINDS.map(k => {
-                  const on = kind === k.key;
-                  return (
-                    <TouchableOpacity
-                      key={k.key}
-                      style={[s.kindTile, { backgroundColor: on ? theme.inverse : theme.surface, borderColor: on ? theme.inverse : theme.border }]}
-                      onPress={() => setKind(on ? null : k.key)}
-                      activeOpacity={0.8}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: on }}
-                      accessibilityLabel={`${k.label}. ${k.sub}`}
-                    >
-                      <Text style={s.kindIcon}>{k.icon}</Text>
-                      <Text style={[s.kindLabel, { color: on ? theme.inverseText : theme.text, fontFamily: 'Inter_700Bold' }]} maxFontSizeMultiplier={1.4}>{k.label}</Text>
-                      <Text style={[s.kindSub, { color: on ? theme.inverseText : theme.textSecondary, fontFamily: 'Inter_500Medium' }]} maxFontSizeMultiplier={1.4}>{k.sub}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-
+            <Text style={[s.lead,{color:theme.text,fontFamily:'Inter_800ExtraBold',marginBottom:16}]}>Log an activity</Text>
+            {draft && <View style={{backgroundColor:theme.surface,padding:14,borderRadius:14,marginBottom:16}}><Text style={{color:theme.text,fontFamily:'Inter_700Bold',marginBottom:10}}>Workout draft · {BODY_PARTS.find(b=>b.key===draft.bodyPart)?.label ?? 'Strength'}</Text><SecondaryButton label="Resume workout" icon="play-outline" onPress={continueDraft} theme={theme}/></View>}
+            <View style={{gap:8}}>{([{key:'gym',label:'Strength',detail:'Exercises, sets & reps',icon:'barbell-outline'},{key:'cardio',label:'Run / walk',detail:'Time & distance',icon:'walk-outline'},{key:'sports',label:'Sport',detail:'Activity, time & effort',icon:'basketball-outline'}] as const).map(option=><TouchableOpacity key={option.key} disabled={submitting} accessibilityRole="button" accessibilityLabel={`Log ${option.label}`} accessibilityState={{selected:kind===option.key,disabled:submitting}} onPress={()=>{setKind(kind===option.key?null:option.key);setChooserOpen(kind!==option.key);setPrefilledFrom(null)}} style={{flexDirection:'row',alignItems:'center',gap:12,padding:14,borderRadius:14,backgroundColor:kind===option.key?theme.inverse:theme.surface}}><Ionicons name={option.icon} size={22} color={kind===option.key?theme.inverseText:theme.text}/><View style={{flex:1}}><Text style={{fontSize:15,fontFamily:'Inter_700Bold',color:kind===option.key?theme.inverseText:theme.text}}>{option.label}</Text><Text style={{fontSize:12,marginTop:3,color:kind===option.key?theme.inverseText:theme.textSecondary}}>{option.detail}</Text></View><Ionicons name={kind===option.key?'chevron-up':'chevron-forward'} size={16} color={kind===option.key?theme.inverseText:theme.textSecondary}/></TouchableOpacity>)}</View>
             {chooserOpen && prefilledFrom && kind !== null && (
               <View style={[s.prefillNote, { backgroundColor: theme.warning + '22', borderColor: theme.warning }]}>
                 <Ionicons name="copy-outline" size={14} color={theme.text} />
@@ -372,15 +362,12 @@ export default function StrengthScreen() {
             {/* Gym → pick a body part */}
             {chooserOpen && kind === 'gym' && (
               <>
-                <Text style={[s.formLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>WHAT DID YOU TRAIN?</Text>
+                <Text style={[s.formLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>Choose a muscle group</Text>
                 <View style={s.bodyGrid}>
                   {BODY_PARTS.filter(b => b.key !== 'cardio').map(bp => {
-                    const ac = BODY_PART_COLORS[bp.key] ?? '#22A664';
                     return (
-                      <TouchableOpacity key={bp.key} style={[s.bodyCard, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => openBodyPart(bp.key)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`${bp.label}, start logging`}>
-                        <View style={[s.bodyIconBubble, { backgroundColor: ac + '22' }]}><Text style={s.bodyIcon}>{bp.icon}</Text></View>
-                        <Text style={[s.bodyLabel, { color: theme.text, fontFamily: 'Inter_700Bold' }]} maxFontSizeMultiplier={1.4}>{bp.label}</Text>
-                        <Ionicons name="chevron-forward" size={14} color={theme.textSecondary} />
+                      <TouchableOpacity key={bp.key} style={[s.bodyCard, { borderColor: theme.inverse, backgroundColor: theme.inverse }]} onPress={() => openBodyPart(bp.key)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`${bp.label}, start logging`}>
+                        <Text style={[s.bodyLabel, { color: theme.inverseText, fontFamily: 'Inter_700Bold', textAlign: 'center' }]} maxFontSizeMultiplier={1.4}>{bp.label.charAt(0)+bp.label.slice(1).toLowerCase()}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -420,7 +407,7 @@ export default function StrengthScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <Text style={[s.formLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>AT LEAST ONE OF</Text>
+                <Text style={[s.formLabel, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>TIME OR DISTANCE</Text>
                 <View style={s.numRow}>
                   <NumField label="Distance" unit="km" value={cardioDistance} onChange={setCardioDistance} theme={theme} />
                   <NumField label="Duration" unit="min" value={cardioDuration} onChange={setCardioDuration} theme={theme} />
@@ -449,6 +436,10 @@ export default function StrengthScreen() {
                 <Text style={[s.fine, { color: theme.textTertiary, fontFamily: 'Inter_500Medium' }]} maxFontSizeMultiplier={1.6}>A rating is your own 1 to 10 effort score for the day. It is kept as a record, not a measurement.</Text>
               </View>
             )}
+            {logs.length > 0 && <View style={{marginTop:24,paddingTop:16,borderTopWidth:1,borderTopColor:theme.border}}>
+              <Text style={{color:theme.textSecondary,fontSize:12,fontFamily:'Inter_700Bold',marginBottom:12}}>Logged activities · {logs.length}</Text>
+              {logs.map(log=><SessionCard key={log.id} log={log} theme={theme} onRepeat={canLog?()=>repeatSession(log):undefined}/>)}
+            </View>}
           </SectionCard>
         )}
 
@@ -464,43 +455,11 @@ export default function StrengthScreen() {
           </SectionCard>
         )}
 
-        {/* 3 — What is recorded for this day */}
-        <SectionCard
-          title={isToday ? "Today's activity" : `Activity on ${formatShortDate(selectedDate)}`}
-          subtitle={logs.length ? [dayFacts.minutes ? `${dayFacts.minutes} min recorded` : null, dayFacts.sets ? plural(dayFacts.sets, 'set') : null, dayFacts.km ? `${dayFacts.km} km` : null].filter(Boolean).join(' · ') || undefined : undefined}
-          theme={theme}
-        >
-          {logs.length === 0 ? (
-            <EmptyState
-              icon="walk-outline"
-              title={canLog ? (isToday ? 'No activity recorded today.' : 'Nothing was recorded for this day.') : 'This day has not happened yet.'}
-              body={canLog ? 'Nothing logged is not the same as a rest day. If you rested on purpose, that is fine; if you moved, you can still log it.' : undefined}
-              theme={theme}
-            />
-          ) : (
-            logs.map(log => <SessionCard key={log.id} log={log} theme={theme} onRepeat={canLog ? () => repeatSession(log) : undefined} />)
-          )}
+        </>}
+        <SectionCard title="Connect your activity" theme={theme}>
+          <View style={{gap:8,flexDirection:'row'}}><View style={{flex:1}}><SecondaryButton label={healthBusy?'Syncing…':healthConnected?'Sync Health':'Apple Health'} disabled={healthBusy} onPress={connectHealth} theme={theme}/></View>
+          <View style={{flex:1}}><SecondaryButton label="Smartwatch" theme={theme} onPress={()=>Alert.alert('Connect your smartwatch','Apple Watch: pair it in the iPhone Watch app, then connect Apple Health here. For other watches, enable Apple Health sharing in the watch’s companion app if supported. Direct watch pairing is not available in GRITTT.',[{text:'Done',style:'cancel'},{text:'Connect Apple Health',onPress:connectHealth}])}/></View></View>
         </SectionCard>
-
-        {/* 4 — Weekly facts */}
-        <WeekSummaryCard
-          title="This week"
-          period={`${formatShortDate(week.from)} – ${formatShortDate(selectedDate)} · ${plural(week.days, 'day')}`}
-          rows={[
-            { label: 'Days with a session', value: `${week.daysWith} of ${week.days}` },
-            { label: 'Previous 7 days', value: `${week.lastWith} of 7`, hint: 'days with a session' },
-            ...(dayFacts.minutes ? [{ label: isToday ? 'Minutes today' : 'Minutes this day', value: String(dayFacts.minutes), hint: 'where a duration was entered' }] : []),
-            ...(dayFacts.sets ? [{ label: isToday ? 'Sets today' : 'Sets this day', value: String(dayFacts.sets) }] : []),
-          ]}
-          note={week.days - week.daysWith > 0
-            ? `${plural(week.days - week.daysWith, 'day')} with no session logged. A planned rest day and a missed log look the same here, so this is a count, not a verdict.`
-            : week.days > 0 ? 'A session was logged on every day this week.' : null}
-          onHistory={() => router.push('/(tabs)/profile')}
-          theme={theme}
-        />
-        <Text style={[s.fine, { color: theme.textTertiary, fontFamily: 'Inter_500Medium', marginHorizontal: 20, marginBottom: 20 }]} maxFontSizeMultiplier={1.6}>
-          Session scores out of 100 come from what you entered (effort, duration, sets). They are not calories or fitness measurements.
-        </Text>
       </ScrollView>
       </DateSwipe>
 
@@ -511,11 +470,10 @@ export default function StrengthScreen() {
           <View style={[ef.sheet, { backgroundColor: theme.cardElevated }]}>
             <View style={[ef.handle, { backgroundColor: theme.border }]} />
             <View style={ef.header}>
-              <Text style={ef.headerIcon}>{activeBodyPartMeta?.icon}</Text>
               <View style={{ flex: 1 }}>
-                <Text style={[ef.headerTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]} accessibilityRole="header">{activeBodyPartMeta?.label}</Text>
+                <Text style={[ef.headerTitle, { color: theme.text, fontFamily: 'Inter_900Black' }]} accessibilityRole="header">{activeBodyPartMeta ? activeBodyPartMeta.label.charAt(0)+activeBodyPartMeta.label.slice(1).toLowerCase() : 'Strength'}</Text>
                 <Text style={[s.fine, { color: theme.textSecondary, fontFamily: 'Inter_500Medium', marginTop: 2 }]}>
-                  {prefilledFrom ? `Prefilled from ${prefilledFrom}. Nothing is saved until you tap Save session.` : 'Draft kept on this device until you save.'}
+                  {prefilledFrom ? `Prefilled from ${prefilledFrom}. Nothing is saved until you tap Save session.` : 'Choose an exercise, then add your sets.'}
                 </Text>
               </View>
               <TouchableOpacity onPress={closeGymModal} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityRole="button" accessibilityLabel="Close workout">
@@ -546,19 +504,12 @@ export default function StrengthScreen() {
                 </>
               )}
 
-              <Text style={[ef.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{exerciseList.length ? 'NEXT EXERCISE' : 'EXERCISE'}</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ef.suggestRow}>
-                {suggestions.map(sg => (
-                  <TouchableOpacity key={sg} style={[ef.suggestChip, { borderColor: exName === sg ? theme.text : theme.border, backgroundColor: exName === sg ? theme.text : (theme.isDark ? '#2A2A2A' : '#FFFFFF') }]} onPress={() => setExName(sg)} activeOpacity={0.7} accessibilityRole="radio" accessibilityState={{ checked: exName === sg }} accessibilityLabel={sg}>
-                    <Text style={[ef.suggestText, { color: exName === sg ? theme.bg : theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{sg}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-              <TextInput style={[ef.nameInput, { color: theme.text, borderColor: theme.border, fontFamily: 'Inter_700Bold', backgroundColor: theme.isDark ? '#2A2A2A' : '#FFFFFF' }]} value={exName} onChangeText={setExName} placeholder="Or type the exercise" placeholderTextColor={theme.textSecondary} autoCapitalize="words" accessibilityLabel="Exercise name" />
+              <Text style={[ef.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{exerciseList.length ? 'Next exercise' : 'Exercise'}</Text>
+              <ExerciseDropdown key={`${activeBodyPart}-${exerciseList.length}`} value={exName} options={suggestions} onChange={setExName} theme={theme} disabled={submitting} />
 
               {exSets.length > 0 && (
                 <>
-                  <Text style={[ef.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>SETS DONE — {exSets.length}</Text>
+                  <Text style={[ef.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>Sets added · {exSets.length}</Text>
                   {exSets.map((st, i) => (
                     <View key={i} style={[ef.setRow, { borderColor: theme.border, backgroundColor: theme.isDark ? '#2A2A2A' : '#FFFFFF' }]}>
                       <Text style={[ef.setIdx, { color: theme.textSecondary, fontFamily: 'Inter_900Black' }]}>{i + 1}</Text>
@@ -572,18 +523,19 @@ export default function StrengthScreen() {
                 </>
               )}
 
-              <Text style={[ef.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{exSets.length === 0 ? 'FIRST SET' : `SET ${exSets.length + 1}`}</Text>
+              {exSets.length > 0 && <View style={{marginBottom:12}}><SecondaryButton label="Use previous set values" icon="copy-outline" theme={theme} onPress={()=>{const last=exSets[exSets.length-1];setSetReps(String(last.reps));setSetWeight(String(last.weight));}}/></View>}
+              <Text style={[ef.label, { color: theme.textSecondary, fontFamily: 'Inter_700Bold' }]}>{exSets.length === 0 ? 'Add your first set' : `Add set ${exSets.length + 1}`}</Text>
               <View style={ef.numRow}>
                 <NumField label="Reps" value={setReps} onChange={setSetReps} theme={theme} />
                 <NumField label="Weight" unit="kg" value={setWeight} onChange={setSetWeight} theme={theme} />
               </View>
               <TouchableOpacity style={[ef.addSetBtn, { borderColor: theme.text }]} onPress={addSet} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Add set">
                 <Ionicons name="add" size={16} color={theme.text} />
-                <Text style={[ef.addSetBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>ADD SET</Text>
+                <Text style={[ef.addSetBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>Add set</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[ef.saveExBtn, { backgroundColor: theme.overlay, opacity: (exSets.length === 0 || !exName.trim()) ? 0.4 : 1 }]} onPress={saveExercise} disabled={exSets.length === 0 || !exName.trim()} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Add exercise to session">
+              <TouchableOpacity style={[ef.saveExBtn, { backgroundColor: theme.overlay, opacity: (exSets.length === 0 || !exName.trim()) ? 0.4 : 1 }]} onPress={saveExercise} disabled={exSets.length === 0 || !exName.trim()} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Add current exercise and start another">
                 <Ionicons name="checkmark" size={14} color={theme.text} />
-                <Text style={[ef.saveExBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>ADD EXERCISE TO SESSION</Text>
+                <Text style={[ef.saveExBtnText, { color: theme.text, fontFamily: 'Inter_900Black' }]}>Add another exercise</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -594,7 +546,7 @@ export default function StrengthScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Save session to your log"
               >
-                <Text style={[ef.finalSaveText, { color: theme.bg, fontFamily: 'Inter_900Black' }]}>{submitting ? 'SAVING...' : 'SAVE SESSION'}</Text>
+                <Text style={[ef.finalSaveText, { color: theme.bg, fontFamily: 'Inter_900Black' }]}>{submitting ? 'Saving…' : 'Finish workout'}</Text>
               </TouchableOpacity>
               <Text style={[s.fine, { color: theme.textTertiary, fontFamily: 'Inter_500Medium', marginHorizontal: 20 }]}>Saving records the session for {formatShortDate(selectedDate)}. Closing keeps a draft on this device.</Text>
             </ScrollView>
@@ -603,6 +555,20 @@ export default function StrengthScreen() {
       </Modal>
     </SafeAreaView></DarkBackground>
   );
+}
+
+function ExerciseDropdown({value, options, onChange, theme, disabled}: {value:string;options:string[];onChange:(value:string)=>void;theme:any;disabled:boolean}) {
+  const [expanded,setExpanded]=useState(false);
+  const [custom,setCustom]=useState(!!value && !options.includes(value));
+  return <View style={{marginHorizontal:20,marginBottom:16}}>
+    <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Exercise: ${custom ? 'Custom exercise' : value || 'Select exercise'}`} accessibilityState={{expanded,disabled}} disabled={disabled} onPress={()=>setExpanded(open=>!open)} style={{minHeight:48,borderWidth:1,borderColor:theme.border,borderRadius:12,paddingHorizontal:14,flexDirection:'row',alignItems:'center',gap:12,backgroundColor:theme.card}}>
+      <Text style={{flex:1,fontSize:15,fontFamily:'Inter_700Bold',color:value||custom?theme.text:theme.textSecondary}}>{custom?'Custom exercise':value||'Select exercise'}</Text><Ionicons name={expanded?'chevron-up':'chevron-down'} size={18} color={theme.text}/>
+    </TouchableOpacity>
+    {expanded && <View style={{marginTop:6,borderWidth:1,borderColor:theme.border,borderRadius:12,overflow:'hidden',backgroundColor:theme.card}}>
+      {[...options,'Other exercise…'].map((name,index)=>{const isCustom=index===options.length;const selected=isCustom?custom:!custom&&value===name;return <TouchableOpacity key={name} accessibilityRole="radio" accessibilityLabel={name} accessibilityState={{checked:selected}} onPress={()=>{setCustom(isCustom);onChange(isCustom?'':name);setExpanded(false)}} style={{minHeight:48,paddingHorizontal:14,paddingVertical:12,flexDirection:'row',alignItems:'center',gap:12,backgroundColor:selected?theme.inverse:theme.card,borderBottomWidth:index<options.length?1:0,borderBottomColor:theme.border}}><Text style={{flex:1,fontSize:14,color:selected?theme.inverseText:theme.text}}>{name}</Text>{selected&&<Ionicons name="checkmark" size={18} color={theme.inverseText}/>}</TouchableOpacity>})}
+    </View>}
+    {custom && <TextInput accessibilityLabel="Custom exercise name" value={value} onChangeText={onChange} editable={!disabled} placeholder="Enter exercise name" placeholderTextColor={theme.textSecondary} autoCapitalize="words" maxLength={100} style={{marginTop:10,minHeight:48,borderWidth:1,borderColor:theme.border,borderRadius:12,paddingHorizontal:14,color:theme.text,backgroundColor:theme.card,fontSize:15}}/>}
+  </View>;
 }
 
 // ── Rating slider ─────────────────────────────────────────────────────────────
@@ -716,7 +682,7 @@ function SessionCard({ log, theme, onRepeat }: { log: WorkoutLog; theme: any; on
   if (isQuick) { topLabel = 'RATING'; }
   else if (log.category === 'cardio')  { topIcon = '🏃'; topLabel = (log.activity ?? 'CARDIO').toUpperCase(); }
   else if (log.category === 'games')   { topIcon = '🏀'; topLabel = (log.activity ?? 'SPORT').toUpperCase(); }
-  else if (bpMeta) { topIcon = bpMeta.icon; topLabel = bpMeta.label; }
+  else if (bpMeta) { topLabel = bpMeta.label; }
   else { topLabel = (log.category ?? 'SESSION').toUpperCase(); }
 
   return (
@@ -844,18 +810,18 @@ const ef = StyleSheet.create({
   setMeta:         { fontSize: 14 },
   numRow:          { flexDirection: 'row', paddingHorizontal: 20, gap: 8 },
   numField:        { flex: 1, borderWidth: 1, borderRadius: 12, padding: 12, gap: 6 },
-  numLabel:        { fontSize: 8, letterSpacing: 1.5 },
+  numLabel:        { fontSize: 12 },
   numInput:        { fontSize: 22 },
-  addSetBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginHorizontal: 20, marginTop: 12, paddingVertical: 12, borderWidth: 1, borderRadius: 10, borderStyle: 'dashed' },
-  addSetBtnText:   { fontSize: 10, letterSpacing: 3 },
+  addSetBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginHorizontal: 20, marginTop: 12, paddingVertical: 12, borderWidth: 1, borderRadius: 10, borderStyle: 'solid' },
+  addSetBtnText:   { fontSize: 14 },
   saveExBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginHorizontal: 20, marginTop: 10, paddingVertical: 12, borderRadius: 10 },
-  saveExBtnText:   { fontSize: 10, letterSpacing: 3 },
+  saveExBtnText:   { fontSize: 13 },
   divider:         { height: 1, marginHorizontal: 20, marginTop: 18, marginBottom: 4 },
   exItem:          { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 20, marginTop: 8, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderRadius: 10 },
   exName:          { fontSize: 12, letterSpacing: 0.3 },
   exMeta:          { fontSize: 10, marginTop: 2 },
   finalSaveBtn:    { marginHorizontal: 20, marginTop: 24, paddingVertical: 16, alignItems: 'center', borderRadius: 12 },
-  finalSaveText:   { fontSize: 11, letterSpacing: 4 },
+  finalSaveText:   { fontSize: 15 },
 });
 
 // Session card styles

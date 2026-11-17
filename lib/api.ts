@@ -866,10 +866,10 @@ export const ai = {
   workout: (token: string, data: { levelName: string; levelIndex: number; totalXP: number; workoutDaysPerWeek: number; recentSessions: Array<{ date: string; completedWeight: number; totalWeight: number; effort: number }> }) =>
     request<{ plan: Array<{ day: string; focus: string; exercises: string[] }> }>('/ai/workout', { method: 'POST', body: JSON.stringify(data) }, token),
 
-  snapTrack: (token: string, imageBase64: string) =>
+  snapTrack: (token: string, imageBase64: string, signal?: AbortSignal) =>
     request<{ name: string; calories: number; protein: number; carbs: number; fats: number; servingNote: string }>(
       '/ai/snap-track',
-      { method: 'POST', body: JSON.stringify({ imageBase64 }) },
+      { method: 'POST', body: JSON.stringify({ imageBase64 }), signal },
       token
     ),
 };

@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, G } from 'react-native-svg';
+import { ArcGauge, MomentumPill } from '../../components/ScoreGauge';
 import { DarkBackground } from '../../components/DarkBackground';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
@@ -30,7 +30,7 @@ import { DayCompleteCelebration } from '../../components/DayCompleteCelebration'
 import { AiAnalysisButton, AiAnalysisCard } from '../../components/AiAnalysisCard';
 import { ActionOutcome, AskGritttSheet } from '../../components/AskGritttSheet';
 import type { AssistantContext } from '../../lib/assistant';
-import { CheckInCard, UndoBar, ViewingBanner } from '../../components/TodayCards';
+import { UndoBar, ViewingBanner } from '../../components/TodayCards';
 import { CheckInMap, Mood, todayStorage } from '../../lib/storage';
 import {
   dayTitleShort, dayWord, formatLongDate, formatShortDate, greeting, isScheduledOn, sanitizePriorities,
@@ -77,6 +77,7 @@ export default function HabitsScreen() {
   // The device's local "today". Kept in state so the screen rolls over at midnight
   // instead of quietly logging against yesterday when the app was left open.
   const [todayStr, setTodayStr] = useState(today());
+  const [dateScores,setDateScores] = useState<Record<string,number | null>>({});
   const { goPrev, goNext, canPrev, canNext } = useDateNav(selectedDate, setSelectedDate);
   const [activeTab, setActiveTab]       = useState<HabitType>('build');
   const [tabContainerW, setTabContainerW] = useState(0);
@@ -531,6 +532,14 @@ export default function HabitsScreen() {
     return cw > 0 ? Math.round(bScore * 0.6 + cScore * 0.4) : bScore;
   }, [dayHabits]);
 
+  useEffect(()=>{
+    let cancelled=false;
+    if(!token){setDateScores({});return;}
+    habits.disciplineRange(token,shiftDate(todayStr,-90),todayStr).then(rows=>{if(cancelled)return;setDateScores(Object.fromEntries(rows.map(row=>[row.date,row.buildDone+row.controlDone>0?row.overallScore:null])));}).catch(()=>{if(!cancelled)setDateScores({});});
+    return()=>{cancelled=true};
+  },[token,todayStr,loadedDate,refreshing]);
+  const dateStripScores = {...dateScores,...(loadedDate===selectedDate&&!loadError?{[selectedDate]:dayHabits.some(habit=>habit.done||habit.yFailed)?overallScore:null}:{})};
+
   // ── Ask GRITTT ────────────────────────────────────────────────────────────────
   // The assistant reads the same in-memory day as the cards, and its writes go
   // through the handlers below, which are the screen's own completion flows.
@@ -583,7 +592,8 @@ export default function HabitsScreen() {
 
   if (loading) return <LoadingScreen />;
 
-  const title = dayTitleShort(selectedDate, todayStr);
+  const headerDate = new Date(selectedDate + 'T12:00:00');
+  const title = `${headerDate.toLocaleDateString('en-US', { weekday: 'long' })} ${headerDate.getDate()}`;
   const word  = dayWord(selectedDate, todayStr);
   const retryLoad = () => { setLoadError(false); load(selectedDate); };
 
@@ -648,7 +658,7 @@ export default function HabitsScreen() {
 
       {/* ── Top bar row 2: dates ── */}
       <View style={s.datesRow}>
-        <DaySelector selectedDate={selectedDate} onSelect={setSelectedDate} />
+        <DaySelector selectedDate={selectedDate} onSelect={setSelectedDate} scores={dateStripScores} />
       </View>
 
       <DateSwipe onPrev={goPrev} onNext={goNext} canPrev={canPrev} canNext={canNext}>
@@ -698,17 +708,6 @@ export default function HabitsScreen() {
               <MomentumPill score={overallScore} theme={theme} />
             </View>
 
-            {/* Optional check-in (separate from the score) */}
-            {canLog && (
-              <CheckInCard
-                key={selectedDate}
-                checkIn={checkIns[selectedDate]}
-                theme={theme}
-                isToday={isToday}
-                onSelect={saveCheckIn}
-                onSkip={() => saveCheckIn(null)}
-              />
-            )}
             {/* The full habit list */}
             <View style={s.allHead}>
               <Text style={[s.allTitle, { color: theme.text, fontFamily: 'Inter_800ExtraBold' }]} accessibilityRole="header">
@@ -1114,6 +1113,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
   const [aiResult, setAiResult]   = useState<AiAnalysis | null>(null);
 
   async function runAnalysis() {
+    if (aiLoading) return;
     setAiLoading(true);
     try {
       const res = await habits.aiAnalysis(token, habit.name);
@@ -1200,17 +1200,18 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
   const consistencyColor = consistency >= 70 ? '#34C759' : consistency >= 40 ? '#F59E0B' : '#EF4444';
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet">
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={[hd.sheet, { backgroundColor: theme.bg }]}>
         <View style={[hd.handleBar, { backgroundColor: theme.border }]} />
         <ScrollView contentContainerStyle={hd.scrollContent} keyboardShouldPersistTaps="handled">
           {/* Header */}
           <View style={hd.header}>
             <View style={{ flex: 1, gap: 4 }}>
+              <Text style={{color:theme.textSecondary,fontSize:11,fontFamily:'Inter_700Bold',letterSpacing:1.5,marginBottom:6}}>{habit.category === 'control' ? 'CONTROL HABIT' : 'BUILD HABIT'}</Text>
               <Text style={[hd.habitName, { color: theme.text, fontFamily: 'Inter_900Black' }]}>
-                {editing ? 'EDIT HABIT' : habit.name.toUpperCase()}
+                {editing ? 'Edit habit' : habit.name}
               </Text>
-              {!editing && !loading && (
+              {!editing && !loading && habit.category !== 'control' && (
                 totalUsers <= 1
                   ? <Text style={[hd.percentileLine, { color: '#22A664', fontFamily: 'Inter_600SemiBold' }]}>
                       Only you have this habit — set the standard.
@@ -1227,7 +1228,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                     </Text>
               )}
             </View>
-            <TouchableOpacity onPress={onClose} style={hd.closeBtn}>
+            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close habit details" style={[hd.closeBtn,{backgroundColor:theme.surface}]}>
               <Ionicons name="close" size={18} color={theme.textSecondary} />
             </TouchableOpacity>
           </View>
@@ -1324,12 +1325,12 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
           ) : (
             <>
               {/* Stats row — 3 metrics */}
-              <View style={hd.statsRow}>
+              <View style={[hd.statsRow,{backgroundColor:theme.card,borderWidth:1,borderColor:theme.text}]}>
                 <View style={hd.statCell}>
-                  <Text style={[hd.statVal, { color: consistencyColor, fontFamily: 'SpaceGrotesk_700Bold' }]}>
+                  <Text style={[hd.statVal, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
                     {consistency}%
                   </Text>
-                  <Text style={[hd.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
+                  <Text style={[hd.statLabel, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>
                     CONSISTENCY
                   </Text>
                 </View>
@@ -1338,19 +1339,19 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                   <Text style={[hd.statVal, { color: theme.text, fontFamily: 'SpaceGrotesk_700Bold' }]}>
                     {doneDates.size}
                   </Text>
-                  <Text style={[hd.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
+                  <Text style={[hd.statLabel, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>
                     DAYS DONE
                   </Text>
                 </View>
                 <View style={[hd.statSep, { backgroundColor: theme.border }]} />
                 <View style={hd.statCell}>
                   <Text style={[hd.statVal, {
-                    color: habit.streak > 0 ? '#F59E0B' : theme.textMuted,
+                    color: theme.text,
                     fontFamily: 'SpaceGrotesk_700Bold',
                   }]}>
-                    {habit.streak > 0 ? `🔥 ${habit.streak}` : '—'}
+                    {habit.streak > 0 ? String(habit.streak) : '—'}
                   </Text>
-                  <Text style={[hd.statLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold' }]}>
+                  <Text style={[hd.statLabel, { color: theme.text, fontFamily: 'Inter_700Bold' }]}>
                     STREAK
                   </Text>
                 </View>
@@ -1358,7 +1359,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
 
 
               {/* Schedule — which days this habit runs */}
-              <View style={hd.scheduleBlock}>
+              <View style={[hd.scheduleBlock,{backgroundColor:theme.card}]}>
                 <Text style={[hd.calLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold', marginBottom: 8 }]}>
                   SCHEDULE
                 </Text>
@@ -1381,7 +1382,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
               </View>
 
               {/* 28-day activity heatmap */}
-              <View>
+              <View style={{backgroundColor:theme.card,padding:16,borderRadius:20}}>
                 <Text style={[hd.calLabel, { color: theme.textMuted, fontFamily: 'Inter_700Bold', marginBottom: 10 }]}>
                   LAST 28 DAYS
                 </Text>
@@ -1445,7 +1446,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                 <View style={hd.calLegend}>
                   <View style={hd.legendItem}>
                     <View style={[hd.legendDot, { backgroundColor: '#22A664' }]} />
-                    <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Done</Text>
+                    <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>{habit.category === 'control' ? 'Kept' : 'Done'}</Text>
                   </View>
                   {habit.category === 'control' && (
                     <View style={hd.legendItem}>
@@ -1455,7 +1456,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
                   )}
                   <View style={hd.legendItem}>
                     <View style={[hd.legendDot, { backgroundColor: theme.surface }]} />
-                    <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>Missed</Text>
+                    <Text style={[hd.legendText, { color: theme.textMuted, fontFamily: 'Inter_500Medium' }]}>No log</Text>
                   </View>
                   <View style={hd.legendItem}>
                     <View style={[hd.legendDot, { backgroundColor: theme.inverse }]} />
@@ -1486,7 +1487,7 @@ function HabitDetailModal({ habit, token, theme, onClose, onChanged }: {
 
               {/* AI analysis */}
               <View style={{ marginTop: 4 }}>
-                <AiAnalysisButton loading={aiLoading} onPress={runAnalysis} theme={theme} />
+                <AiAnalysisButton featured label={aiResult ? "Refresh AI insights" : "Understand my patterns"} loading={aiLoading} onPress={runAnalysis} theme={theme} />
               </View>
               {aiResult && (
                 <View style={{ marginTop: 12 }}>
@@ -1506,33 +1507,33 @@ const hd = StyleSheet.create({
   handleBar:      { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
   scrollContent:  { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40, gap: 16 },
   header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  habitName:      { fontSize: 20, letterSpacing: 0.5 },
+  habitName:      { fontSize: 28, lineHeight: 34, letterSpacing: -0.5 },
   percentileLine: { fontSize: 12, lineHeight: 17 },
   // Edit mode
   editLabel:      { fontSize: 9, letterSpacing: 3, marginBottom: -8 },
   editInput:      { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, letterSpacing: 1 },
   scoreGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  scoreChip:      { width: 44, height: 44, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  scoreChip:      { width: 44, height: 44, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   scoreChipText:  { fontSize: 14 },
   // Action row (Edit / Delete in view mode, Save / Cancel in edit mode)
   actionRow:      { flexDirection: 'row', gap: 10, marginTop: 4 },
   actionBtn:      { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 10 },
   actionBtnGhost: { backgroundColor: 'transparent', borderWidth: 1.5 },
-  actionBtnText:  { fontSize: 11, letterSpacing: 2.5 },
-  closeBtn:  { padding: 4 },
+  actionBtnText:  { fontSize: 12, letterSpacing: 0.5 },
+  closeBtn:  { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   loading:   { paddingVertical: 32, alignItems: 'center' },
-  statsRow:  { flexDirection: 'row', alignItems: 'center' },
+  statsRow:  { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderRadius: 20 },
   statCell:  { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 12 },
-  statVal:   { fontSize: 22 },
-  statLabel: { fontSize: 7, letterSpacing: 1.5 },
+  statVal:   { fontSize: 28 },
+  statLabel: { fontSize: 9, letterSpacing: 0.5, opacity: 0.65 },
   statSep:   { width: 1, height: 36 },
   // Schedule
-  scheduleBlock:   { gap: 0 },
+  scheduleBlock:   { gap: 4, padding: 16, borderRadius: 20 },
   scheduleRow:     { flexDirection: 'row', gap: 5, justifyContent: 'space-between' },
   scheduleDay:     { flex: 1, aspectRatio: 1, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  scheduleDayText: { fontSize: 9 },
+  scheduleDayText: { fontSize: 12 },
   // Calendar
-  calLabel:    { fontSize: 8, letterSpacing: 3 },
+  calLabel:    { fontSize: 11, letterSpacing: 1 },
   calRow:      { flexDirection: 'row', gap: 5 },
   calCell:     { flex: 1, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
   calDayHead:  { flex: 1, textAlign: 'center', fontSize: 8, paddingBottom: 2 },
@@ -1667,60 +1668,6 @@ function HabitRow({ habit, theme, canToggle, isControl, fromChallenge, ySelected
         <Ionicons name="stats-chart" size={13} color={theme.textTertiary} />
       </TouchableOpacity>
     </TouchableOpacity>
-  );
-}
-
-// ── Arc gauge — 220° sweep with score in the centre ────────────────────────
-const GAUGE_W = 220;
-const GAUGE_H = 150;
-const GAUGE_R = 86;
-const GAUGE_CX = GAUGE_W / 2;
-const GAUGE_CY = 110;
-const GAUGE_SWEEP_DEG = 220;
-const GAUGE_C = 2 * Math.PI * GAUGE_R;
-const GAUGE_ARC_LEN = GAUGE_C * (GAUGE_SWEEP_DEG / 360);
-const GAUGE_GAP = GAUGE_C - GAUGE_ARC_LEN;
-const GAUGE_ROTATE = 90 + (360 - GAUGE_SWEEP_DEG) / 2;
-
-function gaugeColor(v: number, theme: any): string {
-  if (v <= 33) return theme.danger;
-  if (v <= 66) return theme.warning;
-  return theme.success;
-}
-
-function ArcGauge({ value, theme }: { value: number; theme: any }) {
-  const pct = Math.max(0, Math.min(1, value / 100));
-  const fill = GAUGE_ARC_LEN * pct;
-  const col  = gaugeColor(value, theme);
-  return (
-    <View style={{ width: GAUGE_W, height: GAUGE_H, alignSelf: 'center' }} accessibilityLabel={`Discipline score ${value} out of 100`}>
-      <Svg width={GAUGE_W} height={GAUGE_H} viewBox={`0 0 ${GAUGE_W} ${GAUGE_H + 30}`}>
-        <G transform={`rotate(${GAUGE_ROTATE}, ${GAUGE_CX}, ${GAUGE_CY})`}>
-          <Circle cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R} fill="none" stroke={theme.surface} strokeWidth={14} strokeLinecap="round" strokeDasharray={`${GAUGE_ARC_LEN} ${GAUGE_GAP}`} />
-          {value > 0 && (
-            <Circle cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R} fill="none" stroke={col} strokeWidth={14} strokeLinecap="round" strokeDasharray={`${fill} ${GAUGE_C - fill}`} />
-          )}
-        </G>
-      </Svg>
-      <View style={s.gaugeLabel} pointerEvents="none">
-        <Text style={[s.gaugeNum, { color: theme.text, fontFamily: 'Inter_900Black' }]}>{value}</Text>
-        <Text style={[s.gaugeCap, { color: theme.textTertiary, fontFamily: 'Inter_700Bold' }]}>OUT OF 100</Text>
-      </View>
-    </View>
-  );
-}
-
-function MomentumPill({ score, theme }: { score: number; theme: any }) {
-  let label: string, bg: string, fg: string, arrow: string;
-  if (score >= 75)      { label = 'CRUSHING IT';       bg = '#22A66425'; fg = '#22A664'; arrow = '↑'; }
-  else if (score >= 50) { label = 'BUILDING MOMENTUM'; bg = '#F0A12E25'; fg = '#F0A12E'; arrow = '↑'; }
-  else if (score >= 25) { label = 'WAVERING';          bg = '#F0A12E20'; fg = '#F0A12E'; arrow = '→'; }
-  else if (score > 0)   { label = 'BELOW POTENTIAL';   bg = '#E84A4A20'; fg = '#E84A4A'; arrow = '↓'; }
-  else                  { label = 'SHOW UP';           bg = theme.surfaceStrong; fg = theme.textSecondary; arrow = '·'; }
-  return (
-    <View style={[s.momentumPill, { backgroundColor: bg }]}>
-      <Text style={[s.momentumPillText, { color: fg, fontFamily: 'Inter_900Black' }]}>{arrow}  {label}</Text>
-    </View>
   );
 }
 

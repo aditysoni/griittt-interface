@@ -9,7 +9,7 @@ type Props = { children: React.ReactNode };
 export function DarkBackground({ children }: Props) {
   const { theme } = useTheme();
   return (
-    <View style={s.root}>
+    <View style={[s.root, { backgroundColor: theme.bg }]}>
       <LinearGradient
         colors={theme.bgGradient}
         locations={[0, 1]}

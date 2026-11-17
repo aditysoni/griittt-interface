@@ -25,9 +25,9 @@ function buildDays() {
   });
 }
 
-type Props = { selectedDate: string; onSelect: (date: string) => void };
+type Props = { selectedDate: string; onSelect: (date: string) => void; scores?: Record<string, number | null>; disabled?: boolean };
 
-export function DaySelector({ selectedDate, onSelect }: Props) {
+export function DaySelector({ selectedDate, onSelect, scores, disabled = false }: Props) {
   const { theme } = useTheme();
   const { user }  = useAuth();
   const scrollRef = useRef<ScrollView>(null);
@@ -56,7 +56,6 @@ export function DaySelector({ selectedDate, onSelect }: Props) {
         const active   = d.full === selectedDate;
         const isToday  = d.full === today;
         const isFuture = d.full > today;
-
         return (
           <TouchableOpacity
             key={d.full}
@@ -66,6 +65,10 @@ export function DaySelector({ selectedDate, onSelect }: Props) {
               active && { backgroundColor: theme.inverse },
               isFuture && !active && { backgroundColor: '#FFFFFF', opacity: 0.4 },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel={d.full}
+            accessibilityState={{selected:active,disabled:disabled || (!!scores && isFuture)}}
+            disabled={disabled || (!!scores && isFuture)}
             onPress={() => onSelect(d.full)}
             activeOpacity={0.7}
           >

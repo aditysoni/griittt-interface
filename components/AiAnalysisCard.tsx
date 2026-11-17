@@ -11,9 +11,13 @@ function trendColor(trend: string): string {
 }
 
 /** The "ASK AI" trigger button — same look everywhere an AI analysis can be run. */
-export function AiAnalysisButton({ loading, onPress, theme, label = 'AI ANALYSIS' }: {
-  loading: boolean; onPress: () => void; theme: any; label?: string;
+export function AiAnalysisButton({ loading, onPress, theme, label = 'AI ANALYSIS', featured = false }: {
+  loading: boolean; onPress: () => void; theme: any; label?: string; featured?: boolean;
 }) {
+  if (featured) return <TouchableOpacity onPress={onPress} disabled={loading} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel={loading ? 'Analyzing your habit' : label} accessibilityState={{disabled:loading,busy:loading}} style={{backgroundColor:theme.card,borderWidth:1,borderColor:theme.text,borderRadius:20,padding:20,minHeight:96,flexDirection:'row',alignItems:'center',gap:14,opacity:loading?0.75:1}}>
+    <View style={{width:42,height:42,borderRadius:14,backgroundColor:theme.surface,alignItems:'center',justifyContent:'center'}}>{loading?<ActivityIndicator color={theme.text}/>:<Ionicons name="sparkles-outline" size={21} color={theme.text}/>}</View>
+    <View style={{flex:1}}><Text style={{color:theme.text,fontSize:16,fontFamily:'Inter_800ExtraBold'}}>{loading?'Finding your patterns…':label}</Text><Text style={{color:theme.text,opacity:0.7,fontSize:12,lineHeight:18,marginTop:4}}>Insights and next steps from your check-ins</Text></View>
+    {!loading&&<Ionicons name="arrow-forward" size={20} color={theme.text}/>}</TouchableOpacity>;
   return (
     <TouchableOpacity
       style={[a.btn, {

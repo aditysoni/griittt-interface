@@ -20,8 +20,8 @@ export function dateLine(date: string, todayStr: string): string {
   return `Viewing ${long}`;
 }
 
-export function TrackingHeader({ title, subtitle, date, todayStr, theme, right }: {
-  title: string; subtitle: string; date: string; todayStr: string; theme: AppTheme; right?: React.ReactNode;
+export function TrackingHeader({ title, subtitle, date, todayStr, theme, right, showDate = true }: {
+  title: string; subtitle?: string; date: string; todayStr: string; theme: AppTheme; right?: React.ReactNode; showDate?: boolean;
 }) {
   return (
     <View style={h.wrap}>
@@ -29,10 +29,10 @@ export function TrackingHeader({ title, subtitle, date, todayStr, theme, right }
         <Text style={[h.title, { color: theme.text }, F('BricolageGrotesque_800ExtraBold')]} accessibilityRole="header" maxFontSizeMultiplier={1.4}>
           {title}
         </Text>
-        <Text style={[h.sub, { color: theme.textSecondary }, F('Inter_500Medium')]} maxFontSizeMultiplier={1.6}>{subtitle}</Text>
-        <Text style={[h.date, { color: theme.text }, F('Inter_700Bold')]} maxFontSizeMultiplier={1.6} numberOfLines={1} adjustsFontSizeToFit>
+        {!!subtitle && <Text style={[h.sub, { color: theme.textSecondary }, F('Inter_500Medium')]} maxFontSizeMultiplier={1.6}>{subtitle}</Text>}
+        {showDate && <Text style={[h.date, { color: theme.text }, F('Inter_700Bold')]} maxFontSizeMultiplier={1.6} numberOfLines={1} adjustsFontSizeToFit>
           {dateLine(date, todayStr)}
-        </Text>
+        </Text>}
       </View>
       {right && <View style={h.right}>{right}</View>}
     </View>
