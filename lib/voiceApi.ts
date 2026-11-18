@@ -10,10 +10,10 @@ export type VoiceSaved={ok:true;domain:VoiceDomain;date:string;saved:{id:string;
 export function requestId(){return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.floor(Math.random()*16);return (c==='x'?r:(r&3)|8).toString(16)});}
 async function json<T>(path:string,token:string,body?:unknown,signal?:AbortSignal):Promise<T>{
  const controller=new AbortController();const abort=()=>controller.abort();signal?.addEventListener('abort',abort);const timer=setTimeout(abort,90000);
- try{if(signal?.aborted)controller.abort();const res=await fetch(BASE+path,{method:body===undefined?'GET':'POST',headers:{Authorization:`Bearer ${token}`,...(body===undefined?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal});const data=await res.json().catch(()=>({}));if(!res.ok)throw Error(data.error||'Voice logging is unavailable. Please log manually.');return data as T;}finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+ try{if(signal?.aborted)controller.abort();const res=await fetch(BASE+path,{method:body===undefined?'GET':'POST',headers:{Authorization:`Bearer ${token}`,...(body===undefined?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal});const data=await res.json().catch(()=>({}));if(!res.ok)throw Error(res.status===404?'The server needs the voice logging update. Your recording has not been uploaded.':res.status===401?'Please sign in again to use voice logging.':data.error||'Voice logging is unavailable. Please log manually.');return data as T;}finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
 }
 export const voiceApi={
- capabilities:(token:string,signal?:AbortSignal)=>json<{enabled:boolean;maxSeconds:number;disclosureVersion:string}>('/capabilities',token,undefined,signal),
+ capabilities:(token:string,signal?:AbortSignal)=>json<{enabled:boolean;reason?:string|null;maxSeconds:number;disclosureVersion:string}>('/capabilities',token,undefined,signal),
  upload:(token:string,uri:string,domain:VoiceDomain,date:string)=>{
   const query=new URLSearchParams({domain,date,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',requestId:requestId(),consentVersion:'voice-v1'});
   const task=FileSystem.createUploadTask(`${BASE}/parse?${query}`,uri,{httpMethod:'POST',uploadType:FileSystem.FileSystemUploadType.BINARY_CONTENT,headers:{Authorization:`Bearer ${token}`,'Content-Type':'audio/mp4'}});
