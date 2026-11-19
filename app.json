@@ -23,7 +23,7 @@
         "NSHealthUpdateUsageDescription": "Allow Grittt to save workouts you log in the app back to Health.",
         "NSMicrophoneUsageDescription": "GRITTT uses your microphone only when you start a voice log. Send the recording for transcription, review it, then choose whether to save."
       },
-      "runtimeVersion": "1.0.2",
+      "runtimeVersion": "1.0.3",
       "buildNumber": "25"
     },
     "android": {

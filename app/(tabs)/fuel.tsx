@@ -1,3 +1,4 @@
+import {FoodBodyDiagram} from '../../components/FoodBodyDiagram';
 import {FoodInsightCard} from '../../components/TrackingInsightCards';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -384,6 +385,7 @@ export default function FuelScreen() {
         <View style={s.manageRow}><SecondaryButton label="Manage questions" icon="options-outline" onPress={() => router.push('/fuel-questions' as any)} theme={theme} /></View>
         </> : <>
           <FoodInsightCard token={token} date={selectedDate} version={analysisVersion} details={photoDetails}/>
+          <FoodBodyDiagram token={token} date={selectedDate} version={analysisVersion}/>
           {photoDetailsError && <ErrorState message="Local food photos or portion notes could not be loaded." onRetry={refreshFoodDetails} />}
           <DetailedFoodView date={selectedDate} todayStr={todayStr} items={visibleFoodItems} details={photoDetails} loading={dayLoading || itemsDate !== selectedDate} error={foodItemsError} canLog={canLog} onRetry={onRefresh}
             onAdd={() => { setEditingFood(null); setLogModalOpen(true); }} onEdit={item => { setEditingFood(item); setLogModalOpen(true); }} onDelete={removeFood} theme={theme} />

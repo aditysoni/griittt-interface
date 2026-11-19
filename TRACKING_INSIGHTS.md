@@ -13,3 +13,11 @@ Deploy the matching backend branch before testing the new cards; older backends 
 Checks: iOS bundle export; all male/female/neutral model projections validated and rendered front/back/rotated; backend aggregation and authenticated database tests; frontend TypeScript has only the pre-existing lib/healthKit.ts missing sleep metric mappings. Actual native interaction still needs a Simulator/device smoke test.
 
 Manual food saves now send the entered portion for server-side quantity tracking. Unchanged nutrition fields are omitted during edits so catalog estimates can recalculate for a changed portion. Existing device-only portion notes are not automatically uploaded or retroactively converted.
+
+## Filament and the 30-day food diagram
+
+Physical now uses react-native-filament 1.11.0 with react-native-worklets-core 1.6.3 and prepared CC0 MakeHuman GLBs, replacing the geometric SVG mannequin. Native iOS pods and asset extensions are configured. This change requires a new native iOS build; an OTA/Metro reload alone cannot add Filament to an older binary. Older builds show the static prepared body with an explicit rotation/build message, keeping logs and screens usable.
+
+Food → Detailed adds Your food pattern: up to ten foods around the same body visual. Percentages mean the share of distinct recorded date + meal-slot combinations in the selected 30-day window. A duplicate food entry in the same meal counts once. Foods in the same meal can each count, so percentages may sum above 100%. Entries without meal slots are excluded and reported. This is explicitly not a measurement of body composition or organ effects. Quick answers lacking named food items are not included. Body imagery here is static for clarity and lower rendering cost.
+
+The iOS runtime version is now 1.0.3 for this native dependency change (marketing version and build number are preserved). Publish any future iOS OTA only for the matching runtime/build; existing binaries cannot gain Filament through JavaScript updates alone.
