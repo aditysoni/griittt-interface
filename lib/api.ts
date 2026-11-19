@@ -12,6 +12,7 @@ export type AiAnalysis = {
 };
 
 export type User = {
+  bodyModel?: 'male'|'female'|'neutral';
   id: string;
   email: string;
   name: string;
@@ -305,6 +306,7 @@ export const users = {
     request<User>('/users/me', {}, token),
 
   patch: (token: string, data: Partial<{
+    bodyModel?: 'male'|'female'|'neutral';
     name: string;
     age: number | null;
     heightCm: number | null;

@@ -1,3 +1,4 @@
+import {PhysicalInsightCards} from '../../components/TrackingInsightCards';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, KeyboardAvoidingView, Modal, Platform, Pressable,
@@ -65,6 +66,7 @@ export default function StrengthScreen() {
   const [logs, setLogs]                 = useState<WorkoutLog[]>([]);
   // date → max session score for that day, 14 days ending on the selected date
   const [scoreError,setScoreError] = useState(false);
+  const [insightsVersion,setInsightsVersion]=useState(0);
   const [identity,setIdentity] = useState<StrengthIdentity|null>(null);
   const [history, setHistory]           = useState<Record<string, number | null>>({});
   const [healthConnected, setHealthConnected] = useState(false);
@@ -125,7 +127,7 @@ export default function StrengthScreen() {
     if (!token) return;
     try {
       const dayLogs = await strength.logs(token, date);
-      setLogs(dayLogs);
+      setLogs(dayLogs);setInsightsVersion(v=>v+1);
       setLoadError(false);
     } catch {
       setLoadError(true);
@@ -349,6 +351,7 @@ export default function StrengthScreen() {
           <PhysicalQuestions user={userKey} date={selectedDate} theme={theme} disabled={!canLog||submitting}/>
         </>}
         {mode === 'detailed' && <>
+        <PhysicalInsightCards token={token} date={selectedDate} version={insightsVersion}/>
         {/* 1 — Primary action */}
         {canLog && !loadError && (
           <SectionCard theme={theme}>
