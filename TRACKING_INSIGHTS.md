@@ -1,6 +1,6 @@
 # Food and Physical insight cards
 
-Food → Detailed now shows a go-to food card above Add Food, with a local photo or bundled food illustration, measured quantity in the past seven days and overall. When quantities were not recorded, it explicitly reports log frequency. Partial measured history is labelled measured. Most frequent food is chosen by weekly log count, then overall count; foods are grouped by canonical catalog ID/exact aliases, not vague name similarity. Overall stops at the selected day. No card is shown before there are food records.
+Food → Detailed now shows a go-to food card above Add Food, with a local photo or bundled food illustration, measured quantity in the past seven days and overall. When quantities were not recorded, it explicitly reports log frequency. Partial measured history is labelled measured. Most frequent food is chosen by overall log count, with weekly count and recency used only for ties; foods are grouped by canonical catalog ID/exact aliases, not vague name similarity. Overall stops at the selected day. No card is shown before there are food records.
 
 Physical → Detailed shows an equivalent activity card and a Training balance card. The body is an actual local 3D coordinate mesh projected into native SVG, with depth ordering and lighting, drag rotation, front/back controls and selectable muscles. It uses existing packages and no remote viewer. Male/female/neutral are saved visual model preferences, not inferred gender. The user can choose directly in the body card. With no existing gender profile, Neutral is the initial model.
 
@@ -11,3 +11,5 @@ Backend endpoints: GET /api/tracking-insights/food and /physical with endDate=YY
 Deploy the matching backend branch before testing the new cards; older backends show a retry/unavailable state. Startup creates the profile preference and ensures body_part is available. Food amounts rely on the committed nutrition catalog changes from the preceding backend commit. No new native module is required. Reload the development app in Simulator after backend deployment.
 
 Checks: iOS bundle export; all male/female/neutral model projections validated and rendered front/back/rotated; backend aggregation and authenticated database tests; frontend TypeScript has only the pre-existing lib/healthKit.ts missing sleep metric mappings. Actual native interaction still needs a Simulator/device smoke test.
+
+Manual food saves now send the entered portion for server-side quantity tracking. Unchanged nutrition fields are omitted during edits so catalog estimates can recalculate for a changed portion. Existing device-only portion notes are not automatically uploaded or retroactively converted.

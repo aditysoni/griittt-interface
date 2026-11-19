@@ -61,7 +61,11 @@ export function FoodEntrySheet({ open, token, userId, date, item, detail, recent
     try{values=parseNutrition(nutrition);}catch(error:any){setInputError(error.message);return;}
     setSaving(true);setInputError('');
     try{
-      const result=item?await fuel.editItem(token,item.id,{name:name.trim(),mealTime:meal,...values}):await fuel.addItem(token,{date,name:name.trim(),mealTime:meal,...Object.fromEntries(Object.entries(values).filter(([,value])=>value!==null))});
+      // Send only nutrition fields the user changed, so a portion edit can
+      // recalculate catalog estimates instead of treating old estimates as overrides.
+      const editedValues=item?Object.fromEntries(Object.entries(values).filter(([key,value])=>value!==(item[key as keyof FoodItem]==null?null:Number(item[key as keyof FoodItem])))):values;
+      const nameChanged=!!item&&name.trim()!==item.name;
+      const result=item?await fuel.editItem(token,item.id,{...(nameChanged?{name:name.trim()}:{}),...(portion!==(detail?.portion??'')||nameChanged&&!!portion?{portion}:{}),mealTime:meal,...editedValues}):await fuel.addItem(token,{date,name:name.trim(),portion,mealTime:meal,...Object.fromEntries(Object.entries(values).filter(([,value])=>value!==null))});
       try{
         await foodDetailStorage.set(userId,result.id,{portion,photoUri:photo?.uri===detail?.photoUri?detail?.photoUri:undefined,source,updatedAt:new Date().toISOString()},photo&&photo.uri!==detail?.photoUri?photo:undefined);
       }catch{Alert.alert('Food saved','The food and nutrition were saved to your account, but the photo or portion note could not be saved on this device. Do not add the food again; you can edit this entry later.');}

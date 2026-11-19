@@ -793,14 +793,14 @@ export const fuel = {
   items: (token: string, date: string) =>
     request<FoodItem[]>(`/fuel/items?date=${date}`, {}, token),
 
-  addItem: (token: string, data: { date: string; name: string; mealTime: MealTime; calories?: number; protein?: number; fat?: number; carbs?: number; fibre?: number }) =>
+  addItem: (token: string, data: { date: string; name: string; portion?: string; mealTime: MealTime; calories?: number; protein?: number; fat?: number; carbs?: number; fibre?: number }) =>
     request<FoodItem>('/fuel/items', { method: 'POST', body: JSON.stringify(data) }, token),
 
   deleteItem: (token: string, id: string) =>
     request<null>(`/fuel/items/${id}`, { method: 'DELETE' }, token),
 
   editItem: (token: string, id: string, data: Partial<{
-    name: string; mealTime: MealTime;
+    name: string; portion: string; mealTime: MealTime;
     calories: number | null; protein: number | null;
     fat: number | null; carbs: number | null; fibre: number | null;
   }>) =>
