@@ -6,7 +6,7 @@ import {useAuth} from '../lib/auth';
 import type {BodyModel} from '../lib/bodyGeometry';
 import type {Muscle,MuscleStats} from '../lib/trackingInsights';
 const title=(s:string)=>s[0].toUpperCase()+s.slice(1);
-export function BodyTrainingCard({muscles,unmappedSets}:{muscles:MuscleStats;unmappedSets:number}){
+export function BodyTrainingCard({muscles,unmappedSets,available=true}:{muscles:MuscleStats;unmappedSets:number;available?:boolean}){
  const {theme}=useTheme(),{user,updateProfile}=useAuth();const model=user?.bodyModel??'neutral';
  const [yaw,setYaw]=useState(0),[selected,setSelected]=useState<Muscle|null>(null),[saving,setSaving]=useState(false);const angle=useRef(0),start=useRef(0),frame=useRef<number|null>(null);
  useEffect(()=>()=>{if(frame.current!==null)cancelAnimationFrame(frame.current)},[]);
@@ -22,9 +22,9 @@ export function BodyTrainingCard({muscles,unmappedSets}:{muscles:MuscleStats;unm
  </View>
  <View style={{flexDirection:'row',gap:8,justifyContent:'center'}}>{[['Front',0],['Back',Math.PI]] .map(([label,value])=><TouchableOpacity key={String(label)} accessibilityRole="button" onPress={()=>rotate(Number(value))} style={{minHeight:44,paddingHorizontal:16,justifyContent:'center'}}><Text style={{color:theme.text,fontSize:12,fontFamily:'Inter_700Bold'}}>{label}</Text></TouchableOpacity>)}</View>
  <Text style={{fontSize:11,color:theme.textSecondary,textAlign:'center',marginBottom:14}}>Drag to rotate · darker green means more sets</Text>
- <Text accessibilityLiveRegion="polite" style={{fontSize:16,fontFamily:'Inter_800ExtraBold',color:theme.text,marginBottom:12}}>{active?`${title(active)} · ${muscles[active].weekSets} sets this week`:'Log a strength workout to see your balance'}</Text>
- <View style={{flexDirection:'row',flexWrap:'wrap',gap:7}}>{entries.map(([part,value])=><TouchableOpacity key={part} accessibilityRole="button" accessibilityLabel={`${part}, ${value.weekSets} sets this week, ${value.overallSets} overall`} onPress={()=>setSelected(part)} style={{minHeight:44,borderRadius:14,padding:10,backgroundColor:active===part?theme.inverse:theme.surface}}><Text style={{fontSize:12,color:active===part?theme.inverseText:theme.text}}>{title(part)} · {value.weekSets}</Text></TouchableOpacity>)}</View>
- {active&&<Text style={{fontSize:12,color:theme.textSecondary,marginTop:12}}>{muscles[active].overallSets} sets overall</Text>}
+ <Text accessibilityLiveRegion="polite" style={{fontSize:16,fontFamily:'Inter_800ExtraBold',color:theme.text,marginBottom:12}}>{!available?'Training counts are unavailable':active?`${title(active)} · ${muscles[active].weekSets} sets this week`:'Log a strength workout to see your balance'}</Text>
+ <View style={{flexDirection:'row',flexWrap:'wrap',gap:7}}>{entries.map(([part,value])=><TouchableOpacity key={part} accessibilityRole="button" accessibilityLabel={`${part}, ${value.weekSets} sets this week, ${value.overallSets} overall`} onPress={()=>setSelected(part)} style={{minHeight:44,borderRadius:14,padding:10,backgroundColor:active===part?theme.inverse:theme.surface}}><Text style={{fontSize:12,color:active===part?theme.inverseText:theme.text}}>{title(part)}{available?` · ${value.weekSets}`:''}</Text></TouchableOpacity>)}</View>
+ {available&&active&&<Text style={{fontSize:12,color:theme.textSecondary,marginTop:12}}>{muscles[active].overallSets} sets overall</Text>}
  {!!unmappedSets&&<Text style={{fontSize:11,color:theme.textSecondary,marginTop:10}}>{unmappedSets} sets without a muscle group aren’t mapped.</Text>}
  </View>
 }
