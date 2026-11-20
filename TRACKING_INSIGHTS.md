@@ -21,3 +21,7 @@ Physical now uses react-native-filament 1.11.0 with react-native-worklets-core 1
 Food → Detailed adds Your food pattern: up to ten foods around the same body visual. Percentages mean the share of distinct recorded date + meal-slot combinations in the selected 30-day window. A duplicate food entry in the same meal counts once. Foods in the same meal can each count, so percentages may sum above 100%. Entries without meal slots are excluded and reported. This is explicitly not a measurement of body composition or organ effects. Quick answers lacking named food items are not included. Body imagery here is static for clarity and lower rendering cost.
 
 The iOS runtime version is now 1.0.3 for this native dependency change (marketing version and build number are preserved). Publish any future iOS OTA only for the matching runtime/build; existing binaries cannot gain Filament through JavaScript updates alone.
+
+## Static training illustrations (2026-11-20)
+
+The Physical training card now uses bundled male/female front and back PNGs in `assets/body-illustrations`, replacing its live Filament viewer. Front/Back switches pictures; there is no drag-to-rotate interaction. Lime SVG regions follow these exact images and reflect actual weekly muscle sets. The muscle picker switches to the back image for back/triceps and front for the remaining groups. Image regions are illustrative, not individual anatomical measurements. No server or permission changes are needed.
